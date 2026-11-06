@@ -1,0 +1,156 @@
+import { createApp } from './app.ts'
+import { IncomingMessage, ServerResponse } from 'http'
+import { Socket } from 'net'
+
+function request(app: any, opts: { method?: string; url: string; headers?: Record<string, string>; body?: any }): Promise<{ status: number; headers: Record<string, string>; json: any; raw: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = new Socket()
+    const req = new IncomingMessage(socket)
+    req.url = opts.url
+    req.method = opts.method || 'GET'
+    req.headers = { ...(opts.headers || {}) }
+
+    const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : undefined
+    if (bodyStr) {
+      req.headers['content-type'] = 'application/json'
+      req.headers['content-length'] = String(Buffer.byteLength(bodyStr))
+    }
+
+    const res = new ServerResponse(req)
+    let raw = ''
+    res.write = function (chunk: any) {
+      raw += chunk.toString()
+      return true
+    }
+    res.end = function (chunk: any) {
+      if (chunk) raw += chunk.toString()
+      let json: any = null
+      try { json = JSON.parse(raw) } catch {}
+      resolve({ status: res.statusCode, headers: res.getHeaders() as any, json, raw })
+      return this
+    }
+
+    // feed body asynchronously so Express parsers get it properly
+    setImmediate(() => {
+      app(req, res, reject)
+      if (bodyStr) {
+        req.emit('data', Buffer.from(bodyStr))
+        req.emit('end')
+      } else {
+        req.emit('end')
+      }
+    })
+  })
+}
+
+let passed = 0
+let failed = 0
+function assert(name: string, ok: boolean, detail?: string) {
+  if (ok) {
+    passed++
+    console.log(`  ✓ ${name}`)
+  } else {
+    failed++
+    console.log(`  ✗ ${name} — ${detail || 'assertion failed'}`)
+  }
+}
+
+console.log('\n========================================')
+console.log(' COI Tracker API Integration Test Suite')
+console.log('========================================\n')
+
+const app = await createApp()
+
+// 1. Health check
+const health = await request(app, { url: '/api/health' })
+assert('Health check returns 200 with database + storage fields',
+  health.status === 200 && health.json?.status === 'ok' && 'database' in health.json)
+
+// 2. Register
+const reg = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: `qa-${Date.now()}@example.com`, password: 'password123', name: 'QA Tester', company_name: 'QA Builders' },
+})
+assert('User registration succeeds and returns JWT', reg.status === 200 && Boolean(reg.json?.token))
+
+// 3. Login
+const login = await request(app, {
+  method: 'POST',
+  url: '/api/auth/login',
+  body: { email: 'gc@apexconstruction.demo', password: 'password123' },
+})
+const token = login.json?.token
+assert('Login with seeded credentials returns token and user', login.status === 200 && Boolean(token))
+const auth = { authorization: `Bearer ${token}` }
+
+// 4. Me
+const me = await request(app, { url: '/api/auth/me', headers: auth })
+assert('Protected /api/auth/me returns current user', me.status === 200 && me.json?.user?.email === 'gc@apexconstruction.demo')
+
+// 5. Subcontractors list
+const subs = await request(app, { url: '/api/subcontractors', headers: auth })
+const list = subs.json?.subcontractors || []
+assert('Subcontractors list returns seeded records with computed statuses',
+  subs.status === 200 && list.length >= 8 && list.every((s: any) => Boolean(s.computed_status)))
+
+// 6. Subcontractor detail
+const detail = await request(app, { url: `/api/subcontractors/${list[0].id}`, headers: auth })
+assert('Subcontractor detail includes cois and coverages',
+  detail.status === 200 && Array.isArray(detail.json?.subcontractor?.cois))
+
+// 7. Expiry alerts
+const alerts = await request(app, { url: '/api/cois/alerts/expiring?days=30', headers: auth })
+assert('Expiry alerts endpoint returns policies within window', alerts.status === 200 && Array.isArray(alerts.json?.alerts))
+
+// 8. PRIVACY TEST — CRITICAL REQUIREMENT
+const clientShare = await request(app, { url: '/api/client/share/rcc-meridian-2026' })
+const csSubs = clientShare.json?.subcontractors || []
+const allNull = csSubs.length > 0 && csSubs.every((s: any) =>
+  s.phone === null && s.email === null && s.contact_person === null && s.address === null && s.notes === null
+)
+// also verify raw response does not contain any known sub phone numbers
+const raw = clientShare.raw
+const leaks = ['(312) 555-0321', '(847) 555-0188', '(773) 555-0912', '(312) 555-0644', '(815) 555-0810', 'elena@horizonelectric.demo', 'brian@midwestmech.demo'].filter(s => raw.includes(s))
+assert('PRIVACY: client view strictly strips subcontractor contact info (phone/email/contact/address = null)',
+  allNull && leaks.length === 0, `leaked strings: ${leaks.join(', ')}`)
+assert('PRIVACY: GC contact info is preserved for client to reach GC', Boolean(clientShare.json?.contractor?.email))
+assert('Client view includes project scorecard and verified policies', clientShare.json?.scorecard?.score !== undefined)
+
+// 9. Subcontractor self-service upload link validation
+const uploadVal = await request(app, { url: '/api/upload/validate/upload-drywall-2026' })
+assert('Self-service upload link validates and returns pre-fill + requirements',
+  uploadVal.status === 200 && uploadVal.json?.subcontractor?.company_name === 'Apex Drywall & Acoustics' && Boolean(uploadVal.json?.gc?.company_name))
+
+// 10. Dashboard stats KPIs
+const stats = await request(app, { url: '/api/stats', headers: auth })
+assert('Dashboard stats returns KPIs, score, and trade breakdown',
+  stats.status === 200 && stats.json?.totals?.score !== undefined && Array.isArray(stats.json?.trades))
+
+// 11. GC settings GET + PUT
+const settings = await request(app, { url: '/api/settings', headers: auth })
+assert('GC settings returns configurable company requirements', settings.status === 200 && Boolean(settings.json?.settings?.company_name))
+const updatedSettings = await request(app, {
+  method: 'PUT',
+  url: '/api/settings',
+  headers: auth,
+  body: { company_name: 'Apex Construction Group', required_gl_limit: '$1,000,000 / $2,000,000', expiration_warning_days: 30 },
+})
+assert('GC settings update persists', updatedSettings.status === 200)
+
+// 12. Email simulation log
+const emailSend = await request(app, {
+  method: 'POST',
+  url: '/api/emails/send-request',
+  headers: auth,
+  body: { subcontractor_id: list[0].id, custom_message: 'Test request message' },
+})
+assert('COI request simulation creates email log and returns portalUrl', emailSend.status === 201 && Boolean(emailSend.json?.portalUrl))
+const emailLogs = await request(app, { url: '/api/emails', headers: auth })
+assert('Email audit log contains simulated entries', emailLogs.status === 200 && emailLogs.json?.logs?.length >= 5)
+
+console.log('\n========================================')
+console.log(` Results: ${passed} passed, ${failed} failed`)
+console.log('========================================\n')
+
+process.exit(failed > 0 ? 1 : 0)

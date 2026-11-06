@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+::selection {
+  background: #3383f5;
+  color: white;
+}
+
+/* Print styles for client compliance reports */
+@media print {
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-page {
+    page-break-inside: avoid;
+  }
+}
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
