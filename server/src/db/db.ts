@@ -1,4 +1,4 @@
-import sqlite3 from 'sqlite3'
+import type sqlite3 from 'sqlite3'
 import pg from 'pg'
 import path from 'path'
 import fs from 'fs'
@@ -32,7 +32,9 @@ function getPgPool(): pg.Pool {
   return pgPool
 }
 
-function getSqlite(): Promise<sqlite3.Database> {
+async function getSqlite(): Promise<sqlite3.Database> {
+  // Loaded lazily: the native binding is only needed (and installed) for local SQLite use.
+  const sqlite3 = (await import('sqlite3')).default
   return new Promise((resolve, reject) => {
     if (sqliteDb) return resolve(sqliteDb)
     fs.mkdirSync(path.dirname(DB_FILE), { recursive: true })
