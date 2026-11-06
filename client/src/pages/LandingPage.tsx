@@ -88,7 +88,7 @@ export function LandingPage({ onLogin }: Props) {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-24 relative">
           <div className="flex justify-center">
             <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-brand-200 backdrop-blur border border-white/10">
-              <Sparkles className="w-3.5 h-3.5 text-brand-300" /> Inspired by the Ripley way — both sides of compliance in one place
+              <Sparkles className="w-3.5 h-3.5 text-brand-300" /> All your compliance in one place
             </span>
           </div>
 
