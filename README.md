@@ -2,6 +2,8 @@
 
 > **Collect subcontractor certificates of insurance in seconds. Stay audit-ready. Share verified compliance with clients — with client-safe privacy built in.**
 
+Official domain: **[safecoi.com](https://safecoi.com)** (registered on Cloudflare, nameservers `dane.ns.cloudflare.com` / `karina.ns.cloudflare.com`).
+
 Inspired by [Ripley Fieldwork Tracker's](https://ripleyfieldworktracker.com/) "both sides of supervision, one place" model, COI Shield unifies all **three sides** of insurance compliance in one platform:
 
 | Role | What they do |
@@ -43,14 +45,13 @@ The design and project structure match the patterns used for **lldrestaurantsupp
 
 ### 1. Prerequisites
 
-Node.js 20+ (already installed on this machine: Node 26.13.0 + npm 11.20.0).
+Node.js 20+ (Node 26.13.0 + npm 11.20.0 already present on this machine).
 
 ### 2. Configure environment (optional for local)
 
 ```bash
 cp .env.example .env
-# For local development with the built-in SQLite database and local file storage,
-# you can leave every value as default.
+# SQLite + local uploads work out of the box with default values.
 ```
 
 ### 3. Seed demo data
@@ -83,17 +84,26 @@ npm run dev
 
 ---
 
-## Railway Deployment
+## Railway Deployment (Project "brilliant-nature")
 
-1. Create a new project at [railway.app](https://railway.app)
-2. **Add a PostgreSQL service**: New → Database → Add PostgreSQL (this automatically injects `DATABASE_URL`)
-3. **Connect this repository**: New → GitHub Repo → select `kyuRSLLD/COI_tracker`
-4. Railway detects `railway.json` and `Dockerfile` automatically — no extra build configuration needed
-5. Set environment variables in the service **Variables** tab:
-   - `JWT_SECRET` — a long random string
-   - `CLIENT_URL` — your Railway public URL (e.g. `https://your-service.up.railway.app`)
-   - `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (see AWS section below)
-6. Railway builds the multi-stage Docker image, seeds can be run from the Railway shell (`npm run seed`), and exposes the app on `PORT` with health checks at `/api/health`
+For the full step-by-step checklist with screenshots-ready instructions, see **[outputs/railway-deploy-recipe.md](outputs/railway-deploy-recipe.md)**.
+
+1. Open your existing Railway project **`brilliant-nature`** at [railway.com](https://railway.com)
+2. **Add a PostgreSQL service**: + New → Database → PostgreSQL (auto-injects `DATABASE_URL`)
+3. **Connect this repository**: + New → GitHub Repo → select **`kyuRSLLD/COI_tracker`** (Railway auto-detects `Dockerfile`)
+4. Set environment variables on the COI Tracker service (secrets are generated locally and never stored in the repo):
+   - `JWT_SECRET` — random 64-char string (e.g. `openssl rand -hex 32`)
+   - `CLIENT_URL` — `https://safecoi.com`
+   - `NODE_ENV` — `production`
+   - `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (optional)
+5. After build succeeds, open the service shell tab and run `npm run seed` once
+6. **Attach custom domain**: Settings → Networking → Custom Domain → **`safecoi.com`** → copy the Railway CNAME domain, then in your Cloudflare dashboard add CNAME `@` and `www` pointing to it with proxy **DNS only** (gray cloud). Railway issues free SSL automatically.
+
+**Fastest path — CLI option** (after `npx --yes @railway/cli login` once, it generates your local `.env.production` secret file and deploys):
+
+```bash
+bash scripts/railway-deploy.sh
+```
 
 ---
 
@@ -122,21 +132,13 @@ When AWS vars are blank, the app gracefully falls back to local disk storage (`u
 
 ---
 
-## Push to GitHub
+## GitHub Repository
 
-Create the **`COI_tracker`** repository on your GitHub account (`kyuRSLLD`), then run:
+Source is live at **[github.com/kyuRSLLD/COI_tracker](https://github.com/kyuRSLLD/COI_tracker)**. To pull future changes:
 
 ```bash
 cd "/Users/kyu/Desktop/COI Tracker"
-
-# Option A — via GitHub CLI (recommended)
-gh auth refresh -h github.com --scopes repo,workflow
-gh repo create COI_tracker --public --source=. --remote=origin --push
-
-# Option B — via git remote + personal access token
-git remote add origin https://github.com/kyuRSLLD/COI_tracker.git
-git branch -M main
-git push -u origin main
+git pull origin main
 ```
 
 ---

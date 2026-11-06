@@ -16,6 +16,7 @@ dist/
 # environment variables
 .env
 .env.local
+.env.production
 .env.*.local
 !.env.example
 
@@ -31,6 +32,7 @@ server/uploads/
 
 # internal working files
 .work/
+.manus/
 
 # OS files
 .DS_Store
