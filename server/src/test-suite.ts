@@ -1,4 +1,5 @@
 import { createApp } from './app.ts'
+import { seed } from './seed.ts'
 import { IncomingMessage, ServerResponse } from 'http'
 import { Socket } from 'net'
 
@@ -59,6 +60,7 @@ console.log('\n========================================')
 console.log(' COI Tracker API Integration Test Suite')
 console.log('========================================\n')
 
+await seed()
 const app = await createApp()
 
 // 1. Health check
@@ -188,26 +190,48 @@ assert('Admin can promote user role', roleUpdate.status === 200 && roleUpdate.js
 // 14. Staff portal alias
 const staffOverview = await request(app, { url: '/api/staff/overview', headers: adminAuth })
 assert('/api/staff alias returns overview identical to /api/admin', staffOverview.status === 200 && staffOverview.json?.revenue?.mrr !== undefined)
+// 14b. Delete actions and demo data reset
+const beforeDel = await request(app, { url: '/api/admin/overview', headers: adminAuth })
+const delTarget = usersList.json.users.find((u: any) => u.email === 'tom@northgategc.demo')
+const delUser = await request(app, { method: 'DELETE', url: `/api/admin/users/${delTarget.id}`, headers: adminAuth })
+assert('Admin can delete a user', delUser.status === 200)
+const selfDel = await request(app, { method: 'DELETE', url: `/api/admin/users/${adminLogin.json.user.id}`, headers: adminAuth })
+assert('Admin cannot delete own account', selfDel.status === 400)
+const delComp = await request(app, { method: 'DELETE', url: `/api/admin/companies/${companies.json.companies[0].id}`, headers: adminAuth })
+assert('Admin can delete a company', delComp.status === 200)
+const afterDel = await request(app, { url: '/api/admin/overview', headers: adminAuth })
+assert('Deletion reduces user count', afterDel.json.users.total === beforeDel.json.users.total - 1)
+const resetData = await request(app, { method: 'POST', url: '/api/admin/danger/reset', headers: adminAuth })
+assert('Admin can reset to demo data', resetData.status === 200)
+const afterReset = await request(app, { url: '/api/admin/overview', headers: adminAuth })
+assert('Reset restores full demo dataset', afterReset.json.users.total >= 13)
+
+const adminLogin2 = await request(app, {
+  method: 'POST',
+  url: '/api/auth/login',
+  body: { email: 'kyuchang@gmail.com', password: 'password123' },
+})
+const adminAuth2 = { authorization: `Bearer ${adminLogin2.json.token}` }
 
 // 15. Password change flow
 const pwBadCurrent = await request(app, {
   method: 'POST',
   url: '/api/auth/change-password',
-  headers: adminAuth,
+  headers: adminAuth2,
   body: { current_password: 'wrongpassword', new_password: 'newsecret123' },
 })
 assert('Password change rejects wrong current password', pwBadCurrent.status === 401)
 const pwShort = await request(app, {
   method: 'POST',
   url: '/api/auth/change-password',
-  headers: adminAuth,
+  headers: adminAuth2,
   body: { current_password: 'password123', new_password: 'short' },
 })
 assert('Password change enforces minimum 8 characters', pwShort.status === 400)
 const pwOk = await request(app, {
   method: 'POST',
   url: '/api/auth/change-password',
-  headers: adminAuth,
+  headers: adminAuth2,
   body: { current_password: 'password123', new_password: 'MyNewPassword2026!' },
 })
 assert('Password change succeeds', pwOk.status === 200 && pwOk.json?.success === true)
@@ -217,6 +241,10 @@ const newLogin = await request(app, {
   body: { email: 'kyuchang@gmail.com', password: 'MyNewPassword2026!' },
 })
 assert('Login works with the changed password', newLogin.status === 200)
+// 16. Bootstrap seed guard
+const bootBlock = await request(app, { method: 'POST', url: '/api/admin/bootstrap-seed' })
+assert('Bootstrap-seed is blocked when database already has users', bootBlock.status === 403)
+
 
 console.log('\n========================================')
 console.log(` Results:  ${passed} passed, ${failed} failed`)

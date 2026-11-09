@@ -40,7 +40,7 @@ export async function seed() {
   const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString()
 
   // 0. Admin User (Kyu)
-  const adminId = uuidv4()
+  const adminId = '00000000-0000-4000-8000-000000000001'
   const adminHash = await bcrypt.hash('password123', 10)
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
@@ -49,7 +49,7 @@ export async function seed() {
   )
 
   // 1. GC User (Apex Construction Group)
-  const userId = uuidv4()
+  const userId = '00000000-0000-4000-8000-000000000002'
   const userHash = await bcrypt.hash('password123', 10)
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)

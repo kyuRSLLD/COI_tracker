@@ -196,6 +196,21 @@ adminRouter.post('/danger/reset', requireAdmin, async (_req, res) => {
   }
 })
 
+// One-time bootstrap: if the users table is completely empty, populate demo data (no auth required)
+adminRouter.post('/bootstrap-seed', async (_req, res) => {
+  try {
+    const userCount = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM users')
+    if (Number(userCount?.count || 0) > 0) {
+      return res.status(403).json({ error: 'Database is already seeded' })
+    }
+    const { seed } = await import('../seed.ts')
+    await seed()
+    res.json({ success: true, message: 'Database populated with demo data' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Bootstrap helper: if no admin exists yet, promote the caller
 adminRouter.post('/make-me-admin', requireAuth, async (req: AuthRequest, res) => {
   try {
