@@ -7,71 +7,85 @@ function addDays(d: Date, n: number): string {
   c.setDate(c.getDate() + n)
   return c.toISOString().slice(0, 10)
 }
-
 function subDays(d: Date, n: number): string {
   const c = new Date(d)
   c.setDate(c.getDate() - n)
   return c.toISOString().slice(0, 10)
 }
 
-async function seed() {
+export async function seed() {
   await initDatabase()
   console.log('[seed] Populating database...')
 
   // Clear existing
-  for (const t of ['email_logs', 'upload_requests', 'client_share_links', 'project_subcontractors', 'coi_coverages', 'cois', 'subcontractors', 'gc_settings', 'users', 'companies']) {
-    try { await dbRun(`DELETE FROM ${t}`) } catch {}
+  for (const t of [
+    'email_logs',
+    'upload_requests',
+    'client_share_links',
+    'project_subcontractors',
+    'coi_coverages',
+    'cois',
+    'subcontractors',
+    'gc_settings',
+    'users',
+    'companies',
+  ]) {
+    try {
+      await dbRun(`DELETE FROM ${t}`)
+    } catch {}
   }
 
-    // 0. Admin User
+  const today = new Date()
+  const nowISO = today.toISOString()
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString()
+
+  // 0. Admin User (Kyu)
   const adminId = uuidv4()
   const adminHash = await bcrypt.hash('password123', 10)
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
      VALUES (?, ?, ?, ?, ?, 'admin', ?)`,
-    [adminId, 'kyuchang@gmail.com', adminHash, 'Kyu Chang', 'safecoi.com', new Date().toISOString()]
+    [adminId, 'kyuchang@gmail.com', adminHash, 'Kyu Chang', 'SafeCOI', daysAgo(150)]
   )
 
-  // 1. GC User
+  // 1. GC User (Apex Construction Group)
   const userId = uuidv4()
-  const hash = await bcrypt.hash('password123', 10)
+  const userHash = await bcrypt.hash('password123', 10)
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
      VALUES (?, ?, ?, ?, ?, 'gc', ?)`,
-    [userId, 'gc@apexconstruction.demo', hash, 'Michael Vance', 'Apex Construction Group', new Date().toISOString()]
+    [userId, 'gc@apexconstruction.demo', userHash, 'Michael Vance', 'Apex Construction Group', daysAgo(90)]
   )
 
-  // 2. GC Settings
+  // 2. GC Company Settings
   await dbRun(
-    `INSERT INTO gc_settings (id, user_id, company_name, license_number, address, phone, email, logo_url, additional_insured_wording, required_gl_limit, required_auto_limit, required_wc_limit, required_umbrella_limit, expiration_warning_days, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 30, ?)`,
+    `INSERT INTO gc_settings (id, user_id, company_name, license_number, address, phone, email, logo_url,
+      additional_insured_wording, required_gl_limit, required_auto_limit, required_wc_limit, required_umbrella_limit,
+      expiration_warning_days, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 30, ?)`,
     [
       uuidv4(),
       userId,
       'Apex Construction Group',
-      'CBC1258904',
-      '2400 Riverside Blvd, Suite 800, Chicago, IL 60601',
-      '(312) 555-0147',
+      'IL-GC-49210-2019',
+      '200 S Michigan Ave, Suite 1400, Chicago, IL 60604',
+      '(312) 555-0100',
       'compliance@apexconstruction.demo',
-      '',
-      'Apex Construction Group, LLC and Project Owner shall be named as Additional Insured on General Liability, Auto Liability, and Umbrella policies. A Waiver of Subrogation applies in favor of Apex Construction Group, LLC.',
+      'Apex Construction Group and its affiliated entities must be named as additional insured on a primary and non-contributory basis, with a waiver of subrogation on all policies.',
       '$1,000,000 / $2,000,000',
       '$1,000,000',
-      'Statutory Limits',
+      'Statutory',
       '$5,000,000',
-      new Date().toISOString(),
+      nowISO,
     ]
   )
 
-  // 3. Subcontractors + COIs
-  const today = new Date()
-  const nowISO = today.toISOString()
-
-  const subDefs = [
+  // 3. Subcontractors with COIs
+  const subs = [
     {
       company_name: 'Horizon Electrical Services',
       trade: 'Electrical',
-      contact_person: 'Elena Ramos',
+      contact_person: 'Elena Rossi',
       phone: '(312) 555-0321',
       email: 'elena@horizonelectric.demo',
       address: '1420 W Grand Ave, Chicago, IL',
@@ -106,7 +120,7 @@ async function seed() {
         am_best: 'A++ (Superior)',
         policy_number: 'TRV-PKG-882103',
         effective: subDays(today, 351),
-        expiration: addDays(today, 14), // EXPIRING SOON!
+        expiration: addDays(today, 14),
         status: 'compliant',
         coverages: [
           { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 1 },
@@ -128,137 +142,157 @@ async function seed() {
       coi: {
         carrier: 'Chubb',
         am_best: 'A++ (Superior)',
-        policy_number: 'CHB-COMM-991204',
-        effective: subDays(today, 245),
-        expiration: addDays(today, 120),
+        policy_number: 'CHB-COMM-663219',
+        effective: subDays(today, 90),
+        expiration: addDays(today, 275),
         status: 'compliant',
         coverages: [
           { type: 'General Liability', per: '$2,000,000', agg: '$4,000,000', ai: 1, wos: 1 },
-          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 0 },
-          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 0, wos: 1 },
+          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 1 },
+          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 1, wos: 1 },
+          { type: 'Umbrella Liability', per: '$10,000,000', agg: '$10,000,000', ai: 1, wos: 1 },
         ],
       },
     },
     {
       company_name: 'Benchmark Concrete & Foundation',
       trade: 'Concrete',
-      contact_person: 'Dmitri Pavlov',
-      phone: '(312) 555-0644',
-      email: 'dmitri@benchmarkconcrete.demo',
-      address: '2210 S Halsted St, Chicago, IL',
-      notes: 'URGENT: expired policy, sub should not be on site until renewed',
+      contact_person: 'James O\'Reilly',
+      phone: '(630) 555-0444',
+      email: 'james@benchmarkconcrete.demo',
+      address: '220 Industrial Dr, Aurora, IL',
+      notes: 'EXPIRED POLICY — do not dispatch until renewal is on file',
       status: 'active',
       coi: {
         carrier: 'Zurich North America',
         am_best: 'A+ (Superior)',
-        policy_number: 'ZNA-GL-2024-7719',
+        policy_number: 'ZUR-PKG-441209',
         effective: subDays(today, 383),
-        expiration: subDays(today, 18), // EXPIRED!
-        status: 'compliant', // was compliant, expiration date makes it expired
+        expiration: subDays(today, 18),
+        status: 'expired',
         coverages: [
-          { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 0 },
-          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 0, wos: 0 },
-          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 0, wos: 1 },
+          { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 1 },
+          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 1 },
+          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 1, wos: 1 },
+          { type: 'Umbrella Liability', per: '$5,000,000', agg: '$5,000,000', ai: 1, wos: 0 },
         ],
       },
     },
     {
       company_name: 'Titan Steel Erectors',
       trade: 'Framing & Structural',
-      contact_person: 'Cole Vance',
-      phone: '(630) 555-0275',
-      email: 'cole@titansteel.demo',
-      address: '500 E North Ave, Glendale Heights, IL',
-      notes: 'Heavy structural frame specialist, great safety record',
+      contact_person: 'Dan Kovacs',
+      phone: '(219) 555-0761',
+      email: 'dan@titansteel.demo',
+      address: '7800 Indianapolis Blvd, Hammond, IN',
+      notes: 'AISC certified, union crew, 8 years with Apex',
       status: 'active',
       coi: {
         carrier: 'The Hartford',
         am_best: 'A+ (Superior)',
-        policy_number: 'TH-PKG-2025-63022',
+        policy_number: 'HTF-COM-910443',
         effective: subDays(today, 145),
         expiration: addDays(today, 220),
         status: 'compliant',
         coverages: [
-          { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 1 },
+          { type: 'General Liability', per: '$2,000,000', agg: '$4,000,000', ai: 1, wos: 1 },
           { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 1 },
-          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 0, wos: 1 },
-          { type: 'Umbrella Liability', per: '$5,000,000', agg: '$5,000,000', ai: 1, wos: 1 },
+          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 1, wos: 1 },
+          { type: 'Umbrella Liability', per: '$15,000,000', agg: '$15,000,000', ai: 1, wos: 1 },
         ],
       },
     },
     {
       company_name: 'Prairie State Roofing & Waterproofing',
       trade: 'Roofing',
-      contact_person: 'Tasha Warren',
-      phone: '(815) 555-0810',
+      contact_person: 'Tasha Williams',
+      phone: '(309) 555-0275',
       email: 'tasha@prairiestateroofing.demo',
-      address: '310 N State St, Aurora, IL',
-      notes: 'Roofing season crunch; renewal binder promised by end of week',
+      address: '1500 N Prospect Ave, Champaign, IL',
+      notes: 'Expires in 5 days; new certificate promised by broker Friday',
       status: 'active',
       coi: {
         carrier: 'Nationwide',
         am_best: 'A+ (Superior)',
-        policy_number: 'NW-COMM-55201',
+        policy_number: 'NW-CP-554129',
         effective: subDays(today, 360),
-        expiration: addDays(today, 5), // EXPIRING SOON — 5 days!
+        expiration: addDays(today, 5),
         status: 'compliant',
         coverages: [
           { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 1 },
-          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 0 },
-          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 0, wos: 1 },
+          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 1 },
+          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 1, wos: 1 },
+          { type: 'Umbrella Liability', per: '$5,000,000', agg: '$5,000,000', ai: 1, wos: 1 },
         ],
       },
     },
     {
       company_name: 'Apex Drywall & Acoustics',
       trade: 'Drywall',
-      contact_person: 'Carlos Delgado',
-      phone: '(773) 555-0456',
+      contact_person: 'Carlos Mendoza',
+      phone: '(708) 555-0639',
       email: 'carlos@apexdrywall.demo',
-      address: '6100 W Belmont Ave, Chicago, IL',
-      notes: 'New sub, COI requested — magic link sent',
-      status: 'pending_review',
-      coi: null, // MISSING
+      address: '9600 S Harlem Ave, Bridgeview, IL',
+      notes: 'New sub for 2026; magic upload link sent 3 days ago, awaiting submission',
+      status: 'active',
+      coi: null,
     },
     {
       company_name: 'Lakeview Painting & Finishing',
       trade: 'Painting',
       contact_person: 'Sora Tanaka',
-      phone: '(312) 555-0799',
+      phone: '(847) 555-0522',
       email: 'sora@lakeviewpainting.demo',
-      address: '1900 N Ashland Ave, Chicago, IL',
-      notes: 'Submitted through self-service upload portal, awaiting review',
-      status: 'pending_review',
+      address: '2500 Gross Point Rd, Evanston, IL',
+      notes: 'Certificate uploaded via self-service portal — please review limits',
+      status: 'active',
       coi: {
         carrier: 'CNA Financial',
         am_best: 'A (Excellent)',
-        policy_number: 'CNA-GL-2025-3310',
-        effective: subDays(today, 10),
-        expiration: addDays(today, 355),
-        status: 'pending_review', // GC must review!
+        policy_number: 'CNA-GL-2026-70114',
+        effective: subDays(today, 20),
+        expiration: addDays(today, 345),
+        status: 'pending_review',
+        self_service: 1,
         coverages: [
-          { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 0 },
-          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 0, wos: 0 },
-          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 0, wos: 1 },
+          { type: 'General Liability', per: '$1,000,000', agg: '$2,000,000', ai: 1, wos: 1 },
+          { type: 'Automobile Liability', per: '$1,000,000', agg: '$1,000,000', ai: 1, wos: 1 },
+          { type: "Workers' Compensation", per: 'Statutory', agg: 'Statutory', ai: 1, wos: 1 },
+          { type: 'Umbrella Liability', per: '$2,000,000', agg: '$2,000,000', ai: 0, wos: 0 },
         ],
       },
     },
   ]
 
-  const createdSubs: any[] = []
-  for (const s of subDefs) {
+  const createdSubs: Array<{ id: string; company_name: string }> = []
+  for (const s of subs) {
     const id = uuidv4()
     await dbRun(
-      `INSERT INTO subcontractors (id, company_name, trade, contact_person, phone, email, address, notes, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, s.company_name, s.trade, s.contact_person, s.phone, s.email, s.address, s.notes, s.status, nowISO, nowISO]
+      `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, address, notes, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, s.company_name, s.trade, s.contact_person, s.phone, s.email, s.address, s.notes, s.status, nowISO, nowISO]
     )
+    createdSubs.push({ id, company_name: s.company_name })
     if (s.coi) {
       const coiId = uuidv4()
       await dbRun(
-        `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [coiId, id, s.coi.carrier, s.coi.am_best, s.coi.policy_number, s.coi.effective, s.coi.expiration, s.coi.status, nowISO, nowISO]
+        `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date,
+          status, reviewer_notes, review_date, certificate_url, certificate_name, certificate_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'seed://coi.pdf', 'ACORD-25-sample.pdf', 342118, ?, ?)`,
+        [
+          coiId,
+          id,
+          s.coi.carrier,
+          s.coi.am_best,
+          s.coi.policy_number,
+          s.coi.effective,
+          s.coi.expiration,
+          s.coi.status,
+          s.coi.status === 'compliant' ? 'Verified against Apex company requirements.' : null,
+          s.coi.status === 'compliant' ? nowISO : null,
+          nowISO,
+          nowISO,
+        ]
       )
       for (const cv of s.coi.coverages) {
         await dbRun(
@@ -268,57 +302,39 @@ async function seed() {
         )
       }
     }
-    createdSubs.push({ id, ...s })
   }
 
-  // 4. Project
+  // 4. Projects
   const projectId = uuidv4()
   await dbRun(
-    `INSERT INTO projects (id, name, code, address, client_name, client_email, start_date, end_date, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      projectId,
-      'Riverside Commerce Center',
-      'RCC-2026',
-      '2100 Riverside Plaza, Chicago, IL',
-      'Meridian Property Partners',
-      'compliance@meridianpp.demo',
-      subDays(today, 120),
-      addDays(today, 240),
-      '14-story core-and-shell mixed-use office tower. Client requires 100% compliant COIs before each sub mobilizes.',
-      nowISO,
-    ]
+    `INSERT INTO projects (id, user_id, name, code, address, client_name, client_email, start_date, end_date, notes, created_at)
+     VALUES (?, ?, 'Riverside Commerce Center', 'RCC-2026', '600 W Randolph St, Chicago, IL 60661', 'Meridian Property Partners', 'projects@meridianpp.demo', ?, ?, '14-story mixed-use tower. Client requires 100% compliant COIs before mobilization.', ?)`,
+    [projectId, userId, subDays(today, 120), addDays(today, 240), nowISO]
   )
-
-  // assign subs 1-7 to project (all except Painting, which joins later)
-  for (const s of createdSubs.slice(0, 7)) {
+  for (let i = 0; i < 7; i++) {
     await dbRun(
-      'INSERT INTO project_subcontractors (id, project_id, subcontractor_id, created_at) VALUES (?, ?, ?, ?)',
-      [uuidv4(), projectId, s.id, nowISO]
+      `INSERT INTO project_subcontractors (id, project_id, subcontractor_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+      [uuidv4(), projectId, createdSubs[i].id, nowISO]
     )
   }
 
-  // 5. Pre-made Client Share Link (testable immediately!)
+  // 5. Client Share Link
   const shareToken = 'rcc-meridian-2026'
   await dbRun(
-    `INSERT INTO client_share_links (id, project_id, token, expires_at, created_at, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [uuidv4(), projectId, shareToken, null, nowISO, 'Permanent demo link for client presentation']
+    `INSERT INTO client_share_links (id, project_id, token, expires_at, created_at, access_count, note)
+     VALUES (?, ?, ?, ?, ?, 3, 'Meridian client portal')`,
+    [uuidv4(), projectId, shareToken, addDays(today, 180), nowISO]
   )
 
-  // 6. Pre-made Subcontractor Upload Requests
-  await dbRun(
-    `INSERT INTO upload_requests (id, subcontractor_id, token, requested_by_email, message, expires_at, used, created_at)
-     VALUES (?, ?, 'upload-horizon-2026', 'compliance@apexconstruction.demo', 'Please upload your 2026/27 renewal COI before the next phase mobilization.', ?, 0, ?)`,
-    [uuidv4(), createdSubs[0].id, addDays(today, 60), nowISO]
-  )
+  // 6. Subcontractor Upload Request
   await dbRun(
     `INSERT INTO upload_requests (id, subcontractor_id, token, requested_by_email, message, expires_at, used, created_at)
      VALUES (?, ?, 'upload-drywall-2026', 'compliance@apexconstruction.demo', 'Welcome to Apex projects — please provide your COI and endorsements.', ?, 0, ?)`,
     [uuidv4(), createdSubs[6].id, addDays(today, 30), nowISO]
   )
 
-  // 7. Sample Email Logs (audit trail)
+  // 7. Sample Email Logs
   const emailSamples = [
     { to: 'brian@midwestmech.demo', subject: 'URGENT: Your Travelers insurance expires in 14 days — action required (Apex Construction Group)', type: 'expiration_reminder', when: subDays(today, 1) },
     { to: 'tasha@prairiestateroofing.demo', subject: 'URGENT: Your Nationwide insurance expires in 5 days — action required (Apex Construction Group)', type: 'expiration_reminder', when: subDays(today, 2) },
@@ -334,32 +350,46 @@ async function seed() {
     )
   }
 
-  // 8. Additional seeded companies on different subscription plans (MRR demo)
-  const extraCompanies = [
-    { name: 'Apex Construction Group', plan: 'Professional', mrr: 149, ownerId: userId, ownerEmail: 'gc@apexconstruction.demo', ownerName: 'Michael Vance' },
-    { name: 'Pinnacle Builders Inc.', plan: 'Professional', mrr: 149, ownerEmail: 'sarah@pinnaclebuilders.demo', ownerName: 'Sarah Lin' },
-    { name: 'Summit Contracting', plan: 'Starter', mrr: 49, ownerEmail: 'dave@summitcontracting.demo', ownerName: 'Dave Morris' },
-    { name: 'Cornerstone Construction', plan: 'Enterprise', mrr: 499, ownerEmail: 'kevin@cornerstone.demo', ownerName: 'Kevin Ortiz' },
-    { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao' },
-  ]
+  // 8. Rich demo subscriber companies (spread over 6 months for real-looking growth bars)
   const defaultPw = await bcrypt.hash('demo1234', 10)
-  for (let i = 0; i < extraCompanies.length; i++) {
-    const comp = extraCompanies[i]
+  const demoCompanies = [
+    { name: 'Apex Construction Group', plan: 'Professional', mrr: 149, ownerId: userId, ownerEmail: 'gc@apexconstruction.demo', ownerName: 'Michael Vance', days: 175 },
+    { name: 'Pinnacle Builders Inc.', plan: 'Professional', mrr: 149, ownerEmail: 'sarah@pinnaclebuilders.demo', ownerName: 'Sarah Lin', days: 160 },
+    { name: 'Cornerstone Construction', plan: 'Enterprise', mrr: 499, ownerEmail: 'kevin@cornerstone.demo', ownerName: 'Kevin Ortiz', days: 135 },
+    { name: 'Summit Contracting', plan: 'Starter', mrr: 49, ownerEmail: 'dave@summitcontracting.demo', ownerName: 'Dave Morris', days: 120 },
+    { name: 'Blue Ridge Constructors', plan: 'Enterprise', mrr: 499, ownerEmail: 'rachel@blueridgegc.demo', ownerName: 'Rachel Kim', days: 105 },
+    { name: 'Harbor Mechanical Group', plan: 'Professional', mrr: 149, ownerEmail: 'omar@harbormechanical.demo', ownerName: 'Omar Hassan', days: 95 },
+    { name: 'Meridian Prime Builders', plan: 'Professional', mrr: 149, ownerEmail: 'jenna@meridianprime.demo', ownerName: 'Jenna Cole', days: 85 },
+    { name: 'Keystone Drywall & Frame', plan: 'Starter', mrr: 49, ownerEmail: 'leo@keystonedrywall.demo', ownerName: 'Leo Ramos', days: 70 },
+    { name: 'Crestline Electrical Co.', plan: 'Starter', mrr: 49, ownerEmail: 'ana@crestlineelectric.demo', ownerName: 'Ana Morales', days: 55 },
+    { name: 'Strata Steel & Structural', plan: 'Starter', mrr: 49, ownerEmail: 'paul@stratasteel.demo', ownerName: 'Paul Nowak', days: 35 },
+    { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao', days: 25 },
+    { name: 'Northgate Construction', plan: 'Free Demo', mrr: 0, ownerEmail: 'tom@northgategc.demo', ownerName: 'Tom Bailey', days: 8 },
+  ]
+
+  for (const comp of demoCompanies) {
     let ownerId = (comp as any).ownerId
     if (!ownerId) {
       ownerId = uuidv4()
       await dbRun(
         `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
          VALUES (?, ?, ?, ?, ?, 'gc', ?)`,
-        [ownerId, comp.ownerEmail, defaultPw, comp.ownerName, comp.name, new Date().toISOString()]
+        [ownerId, comp.ownerEmail, defaultPw, comp.ownerName, comp.name, daysAgo(comp.days)]
       )
     }
     await dbRun(
       `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
        VALUES (?, ?, ?, ?, 'active', ?, ?)`,
-      [uuidv4(), comp.name, comp.plan, comp.mrr, ownerId, new Date().toISOString()]
+      [uuidv4(), comp.name, comp.plan, comp.mrr, ownerId, daysAgo(comp.days)]
     )
   }
+
+  // Kyu's staff company
+  await dbRun(
+    `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
+     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    [uuidv4(), 'SafeCOI', 'Starter', 49, adminId, daysAgo(150)]
+  )
 
   console.log('[seed] Done!')
   console.log(`[seed] Admin login: kyuchang@gmail.com / password123`)
@@ -369,4 +399,12 @@ async function seed() {
   console.log(`[seed] Sub upload link: /upload/upload-drywall-2026`)
 }
 
-seed().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1) })
+// Auto-run when invoked directly
+if (process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js')) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err)
+      process.exit(1)
+    })
+}

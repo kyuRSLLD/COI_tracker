@@ -204,5 +204,8 @@ export const apiAdmin = {
       method: 'PUT',
       body: JSON.stringify({ role }),
     }),
+  deleteCompany: (id: string) => request<{ success: boolean }>(`/api/admin/companies/${id}`, { method: 'DELETE' }),
+  deleteUser: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  resetDemoData: () => request<{ success: boolean; message: string }>('/api/admin/danger/reset', { method: 'POST' }),
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
 }

@@ -15,8 +15,8 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
   const nav = [
     { to: '/dashboard', label: 'Dashboard', icon: ShieldCheck },
     { to: '/subcontractors', label: 'Subcontractors', icon: Users },
-    { to: '/projects', label: 'Projects & Sharing', icon: FolderKanban },
-    { to: '/emails', label: 'Email Log', icon: Mail },
+    { to: '/projects', label: 'Projects', icon: FolderKanban },
+    { to: '/emails', label: 'Emails', icon: Mail },
     { to: '/settings', label: 'Settings', icon: Settings },
   ]
   if (user?.role === 'admin') nav.push({ to: '/staff', label: 'Staff', icon: Crown })
@@ -25,7 +25,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-3">
         <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2 group">
+          <Link to="/" className="flex items-center gap-2 group whitespace-nowrap">
             <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-extrabold text-sm shadow-sm group-hover:bg-slate-800 transition">
               <ShieldCheck className="w-4 h-4" />
             </div>
@@ -40,7 +40,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                   <Link
                     key={item.to}
                     to={item.to}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
                       active
                         ? 'text-brand-700 bg-brand-50 font-semibold'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -54,24 +54,25 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
             </nav>
           )}
         </div>
-
         <div className="flex items-center gap-2">
           {user ? (
             <>
               {onOpenAddSub && (
                 <button
                   onClick={onOpenAddSub}
-                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition"
+                  title="Add subcontractor"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Add Sub
+                  <Plus className="w-3.5 h-3.5" /> + Sub
                 </button>
               )}
               {onOpenRequestCOI && (
                 <button
                   onClick={onOpenRequestCOI}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
+                  title="Request certificate of insurance"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm whitespace-nowrap"
                 >
-                  <FileText className="w-3.5 h-3.5" /> Request COI
+                  <FileText className="w-3.5 h-3.5" /> Request
                 </button>
               )}
               <div className="hidden md:flex flex-col text-right text-xs leading-tight ml-2">
@@ -83,23 +84,23 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                   apiLogout()
                   onLogout()
                 }}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition ml-1"
                 title="Sign out"
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             </>
           ) : (
             <>
               <Link
                 to="/demo"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
               >
                 Demo
               </Link>
               <Link
                 to="/login"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
+                className="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm whitespace-nowrap"
               >
                 Sign In
               </Link>
@@ -107,9 +108,9 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
           )}
         </div>
       </div>
-      {/* Mobile nav */}
+      {/* mobile bottom bar */}
       {user && (
-        <div className="lg:hidden flex items-center justify-around border-t border-slate-200 text-xs py-2 bg-slate-50 overflow-x-auto">
+        <div className="lg:hidden flex items-center justify-around border-t border-slate-200 py-1 bg-white text-[11px]">
           {nav.map((item) => {
             const Icon = item.icon
             const active = loc.pathname === item.to
@@ -117,7 +118,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded ${
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded whitespace-nowrap ${
                   active ? 'text-brand-700 font-bold' : 'text-slate-500'
                 }`}
               >

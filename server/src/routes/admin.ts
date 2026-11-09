@@ -1,19 +1,22 @@
 import express from 'express'
-const Router = express.Router
 import { dbGet, dbAll, dbRun, planToMRR, PLAN_PRICES } from '../db/db.ts'
 import { requireAdmin, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 
-export const adminRouter = Router()
+export const adminRouter = express.Router()
 
 // Platform overview: users, revenue, platform KPIs, growth
 adminRouter.get('/overview', requireAdmin, async (_req, res) => {
   try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+    const sixMonthsAgo = new Date(Date.now() - 180 * 86400000).toISOString()
+
     const totalUsersRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM users')
     const adminsRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'")
     const gcsRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role != 'admin' OR role IS NULL")
     const newThisMonthRow = await dbGet<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM users WHERE created_at >= date('now', '-30 days')"
+      'SELECT COUNT(*) AS count FROM users WHERE created_at >= ?',
+      [thirtyDaysAgo]
     )
 
     const companiesRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM companies')
@@ -33,13 +36,14 @@ adminRouter.get('/overview', requireAdmin, async (_req, res) => {
        FROM companies GROUP BY plan ORDER BY total_mrr DESC`
     )
 
-    // 6-month growth trend
+    // 6-month growth trend (SUBSTR + param is portable across SQLite and PostgreSQL)
     const growth = await dbAll<{ month: string; new_users: number }>(
-      `SELECT strftime('%Y-%m', created_at) AS month, COUNT(*) AS new_users
+      `SELECT SUBSTR(created_at, 1, 7) AS month, COUNT(*) AS new_users
        FROM users
-       WHERE created_at >= date('now', '-6 months')
+       WHERE created_at >= ?
        GROUP BY month
-       ORDER BY month ASC`
+       ORDER BY month ASC`,
+      [sixMonthsAgo]
     )
 
     res.json({
@@ -116,6 +120,16 @@ adminRouter.put('/companies/:id/plan', requireAdmin, async (req, res) => {
   }
 })
 
+// Delete a company
+adminRouter.delete('/companies/:id', requireAdmin, async (req, res) => {
+  try {
+    await dbRun('DELETE FROM companies WHERE id = ?', [req.params.id])
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // All users list
 adminRouter.get('/users', requireAdmin, async (_req, res) => {
   try {
@@ -142,6 +156,41 @@ adminRouter.put('/users/:id/role', requireAdmin, async (req, res) => {
     await dbRun('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id])
     const user = await dbGet('SELECT id, email, name, role, company_name FROM users WHERE id = ?', [req.params.id])
     res.json({ user })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Delete a user (cannot delete yourself, cannot delete the last admin)
+adminRouter.delete('/users/:id', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    if (req.user!.id === req.params.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' })
+    }
+    const target = await dbGet<{ id: string; role: string }>('SELECT id, role FROM users WHERE id = ?', [
+      req.params.id,
+    ])
+    if (!target) return res.status(404).json({ error: 'User not found' })
+    if (target.role === 'admin') {
+      const adminCount = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'")
+      if (Number(adminCount?.count || 0) <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the only admin' })
+      }
+    }
+    await dbRun('DELETE FROM companies WHERE owner_user_id = ?', [req.params.id])
+    await dbRun('DELETE FROM users WHERE id = ?', [req.params.id])
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Reset entire database to fresh demo data (admin only)
+adminRouter.post('/danger/reset', requireAdmin, async (_req, res) => {
+  try {
+    const { seed } = await import('../seed.ts')
+    await seed()
+    res.json({ success: true, message: 'Database reset to demo data' })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
