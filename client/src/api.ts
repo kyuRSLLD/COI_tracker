@@ -182,3 +182,21 @@ export const apiSettings = {
   update: (body: Partial<GCSettings>) =>
     request<{ settings: GCSettings }>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
 }
+
+// Admin dashboard (role='admin' only)
+export const apiAdmin = {
+  overview: () => request<import('./types').AdminOverview>('/api/admin/overview'),
+  companies: () => request<{ companies: import('./types').AdminCompany[] }>('/api/admin/companies'),
+  updatePlan: (id: string, plan: string) =>
+    request<{ company: import('./types').AdminCompany }>(`/api/admin/companies/${id}/plan`, {
+      method: 'PUT',
+      body: JSON.stringify({ plan }),
+    }),
+  users: () => request<{ users: import('./types').AdminUser[] }>('/api/admin/users'),
+  updateRole: (id: string, role: string) =>
+    request<{ user: import('./types').AdminUser }>(`/api/admin/users/${id}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+  makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
+}

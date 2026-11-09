@@ -210,3 +210,50 @@ export interface UploadValidationPayload {
   gc: GCSettings
   request: { token: string; requested_by_email?: string | null; message?: string | null; used: boolean; created_at: string }
 }
+
+export interface AdminOverview {
+  users: { total: number; new_this_month: number; admins: number; gcs: number }
+  revenue: {
+    mrr: number
+    arr: number
+    paying_subscribers: number
+    arpu: number
+    plan_breakdown: Array<{ plan: string; count: number; mrr: number }>
+    available_plans: Array<{ plan: string; price: number }>
+  }
+  platform: {
+    companies: number
+    subcontractors: number
+    cois: number
+    client_share_links: number
+    pending_reviews: number
+    verified_cois: number
+  }
+  growth: Array<{ month: string; new_users: number }>
+}
+
+export interface AdminCompany {
+  id: string
+  name: string
+  plan: string
+  mrr: number
+  status: string
+  owner_user_id?: string | null
+  owner_name?: string | null
+  owner_email?: string | null
+  subcontractor_count: number
+  project_count: number
+  share_count: number
+  created_at: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  name: string
+  company_name?: string | null
+  role: string
+  created_at: string
+  company_plan?: string | null
+  company_mrr?: number | null
+}

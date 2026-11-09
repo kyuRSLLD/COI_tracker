@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, LogOut, FileText, Users, FolderKanban, Mail, Settings, Plus, Sparkles } from 'lucide-react'
+import { ShieldCheck, LogOut, FileText, Users, FolderKanban, Mail, Settings, Plus, Sparkles, Crown } from 'lucide-react'
 import type { User } from '../types'
 import { apiLogout } from '../api'
 
@@ -19,6 +19,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
     { to: '/emails', label: 'Email Log', icon: Mail },
     { to: '/settings', label: 'Settings', icon: Settings },
   ]
+  if (user?.role === 'admin') nav.push({ to: '/admin', label: 'Admin', icon: Crown })
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">

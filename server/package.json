@@ -5,12 +5,12 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "dev": "node --strip-types src/index.ts",
+    "dev": "node --experimental-strip-types src/index.ts",
     "build": "esbuild src/index.ts src/seed.ts --platform=node --format=esm --packages=external --bundle --outdir=dist",
     "start": "node dist/index.js",
-    "seed": "node --strip-types src/seed.ts",
+    "seed": "node --experimental-strip-types src/seed.ts",
     "seed:prod": "node dist/seed.js",
-    "test": "node --strip-types src/test-suite.ts"
+    "test": "node --experimental-strip-types src/test-suite.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

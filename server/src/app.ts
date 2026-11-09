@@ -14,6 +14,7 @@ import { uploadPortalRouter } from './routes/uploadPortal.ts'
 import { statsRouter } from './routes/stats.ts'
 import { emailsRouter } from './routes/emails.ts'
 import { settingsRouter } from './routes/settings.ts'
+import { adminRouter } from './routes/admin.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -45,6 +46,7 @@ export async function createApp() {
   app.use('/api/stats', statsRouter)
   app.use('/api/emails', emailsRouter)
   app.use('/api/settings', settingsRouter)
+  app.use('/api/admin', adminRouter)
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {

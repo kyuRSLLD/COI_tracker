@@ -19,9 +19,18 @@ async function seed() {
   console.log('[seed] Populating database...')
 
   // Clear existing
-  for (const t of ['email_logs', 'upload_requests', 'client_share_links', 'project_subcontractors', 'coi_coverages', 'cois', 'subcontractors', 'gc_settings', 'users', 'projects']) {
+  for (const t of ['email_logs', 'upload_requests', 'client_share_links', 'project_subcontractors', 'coi_coverages', 'cois', 'subcontractors', 'gc_settings', 'users', 'companies']) {
     try { await dbRun(`DELETE FROM ${t}`) } catch {}
   }
+
+    // 0. Admin User
+  const adminId = uuidv4()
+  const adminHash = await bcrypt.hash('admin123', 10)
+  await dbRun(
+    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
+     VALUES (?, ?, ?, ?, ?, 'admin', ?)`,
+    [adminId, 'admin@safecoi.com', adminHash, 'Platform Admin', 'safecoi.com', new Date().toISOString()]
+  )
 
   // 1. GC User
   const userId = uuidv4()
@@ -325,7 +334,35 @@ async function seed() {
     )
   }
 
+  // 8. Additional seeded companies on different subscription plans (MRR demo)
+  const extraCompanies = [
+    { name: 'Apex Construction Group', plan: 'Professional', mrr: 149, ownerId: userId, ownerEmail: 'gc@apexconstruction.demo', ownerName: 'Michael Vance' },
+    { name: 'Pinnacle Builders Inc.', plan: 'Professional', mrr: 149, ownerEmail: 'sarah@pinnaclebuilders.demo', ownerName: 'Sarah Lin' },
+    { name: 'Summit Contracting', plan: 'Starter', mrr: 49, ownerEmail: 'dave@summitcontracting.demo', ownerName: 'Dave Morris' },
+    { name: 'Cornerstone Construction', plan: 'Enterprise', mrr: 499, ownerEmail: 'kevin@cornerstone.demo', ownerName: 'Kevin Ortiz' },
+    { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao' },
+  ]
+  const defaultPw = await bcrypt.hash('demo1234', 10)
+  for (let i = 0; i < extraCompanies.length; i++) {
+    const comp = extraCompanies[i]
+    let ownerId = (comp as any).ownerId
+    if (!ownerId) {
+      ownerId = uuidv4()
+      await dbRun(
+        `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
+         VALUES (?, ?, ?, ?, ?, 'gc', ?)`,
+        [ownerId, comp.ownerEmail, defaultPw, comp.ownerName, comp.name, new Date().toISOString()]
+      )
+    }
+    await dbRun(
+      `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
+       VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+      [uuidv4(), comp.name, comp.plan, comp.mrr, ownerId, new Date().toISOString()]
+    )
+  }
+
   console.log('[seed] Done!')
+  console.log(`[seed] Admin login: admin@safecoi.com / admin123`)
   console.log(`[seed] GC login: gc@apexconstruction.demo / password123`)
   console.log(`[seed] Client share link: /share/${shareToken}`)
   console.log(`[seed] Sub upload link: /upload/upload-drywall-2026`)

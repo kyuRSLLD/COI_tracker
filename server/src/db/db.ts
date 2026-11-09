@@ -3,6 +3,7 @@ import pg from 'pg'
 import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
+import { v4 as uuidv4 } from 'uuid'
 
 dotenv.config()
 
@@ -20,6 +21,17 @@ export const isPostgres = Boolean(DATABASE_URL && !DATABASE_URL.includes('your_'
 let pgPool: pg.Pool | null = null
 let sqliteDb: sqlite3.Database | null = null
 
+export const PLAN_PRICES: Record<string, number> = {
+  'Free Demo': 0,
+  Starter: 49,
+  Professional: 149,
+  Enterprise: 499,
+}
+
+export function planToMRR(plan: string): number {
+  return PLAN_PRICES[plan] ?? 49
+}
+
 function getPgPool(): pg.Pool {
   if (!pgPool) {
     pgPool = new pg.Pool({
@@ -33,7 +45,6 @@ function getPgPool(): pg.Pool {
 }
 
 async function getSqlite(): Promise<sqlite3.Database> {
-  // Loaded lazily: the native binding is only needed (and installed) for local SQLite use.
   const sqlite3 = (await import('sqlite3')).default
   return new Promise((resolve, reject) => {
     if (sqliteDb) return resolve(sqliteDb)
@@ -47,7 +58,6 @@ async function getSqlite(): Promise<sqlite3.Database> {
   })
 }
 
-// Convert '?' placeholders to '$1, $2, ...' for Postgres
 function toPgSql(sql: string): string {
   let i = 1
   return sql.replace(/\?/g, () => `$${i++}`)
@@ -117,6 +127,16 @@ export async function initDatabase(): Promise<void> {
       name TEXT NOT NULL,
       company_name TEXT,
       role TEXT DEFAULT 'gc',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS companies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      plan TEXT DEFAULT 'Starter',
+      mrr INTEGER DEFAULT 49,
+      status TEXT DEFAULT 'active',
+      owner_user_id TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -249,4 +269,20 @@ export async function initDatabase(): Promise<void> {
 
   await dbExec(schema)
   console.log('[db] Schema initialized successfully')
+
+  try {
+    const users = await dbAll('SELECT id, company_name, created_at FROM users WHERE company_name IS NOT NULL')
+    for (const u of users) {
+      const existing = await dbGet('SELECT id FROM companies WHERE name = ?', [u.company_name])
+      if (!existing) {
+        await dbRun(
+          `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
+           VALUES (?, ?, 'Starter', 49, 'active', ?, ?)`,
+          [uuidv4(), u.company_name, u.id, u.created_at || new Date().toISOString()]
+        )
+      }
+    }
+  } catch (e: any) {
+    console.warn('[db] companies backfill warning:', e?.message)
+  }
 }

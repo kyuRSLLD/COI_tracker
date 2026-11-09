@@ -149,6 +149,41 @@ assert('COI request simulation creates email log and returns portalUrl', emailSe
 const emailLogs = await request(app, { url: '/api/emails', headers: auth })
 assert('Email audit log contains simulated entries', emailLogs.status === 200 && emailLogs.json?.logs?.length >= 5)
 
+// 13. Admin dashboard security and endpoints
+const adminNoAuth = await request(app, { url: '/api/admin/overview' })
+assert('Admin overview requires authentication', adminNoAuth.status === 401)
+const adminNonAdmin = await request(app, { url: '/api/admin/overview', headers: auth })
+assert('Admin overview forbidden for non-admin GC user', adminNonAdmin.status === 403)
+const adminLogin = await request(app, {
+  method: 'POST',
+  url: '/api/auth/login',
+  body: { email: 'admin@safecoi.com', password: 'admin123' },
+})
+assert('Admin seeded account logs in', adminLogin.status === 200 && adminLogin.json?.user?.role === 'admin')
+const adminAuth = { authorization: `Bearer ${adminLogin.json.token}` }
+const overview = await request(app, { url: '/api/admin/overview', headers: adminAuth })
+assert('Admin overview returns user counts, revenue MRR, and platform KPIs',
+  overview.status === 200 && overview.json?.users?.total >= 2 && typeof overview.json?.revenue?.mrr === 'number' && overview.json?.platform?.companies >= 1)
+const companies = await request(app, { url: '/api/admin/companies', headers: adminAuth })
+assert('Admin companies list includes plans and stats', companies.status === 200 && companies.json?.companies?.length >= 1)
+const planUpdate = await request(app, {
+  method: 'PUT',
+  url: `/api/admin/companies/${companies.json.companies[0].id}/plan`,
+  headers: adminAuth,
+  body: { plan: 'Enterprise' },
+})
+assert('Admin can update company plan and MRR recalculates', planUpdate.status === 200 && planUpdate.json?.company?.mrr === 499)
+const usersList = await request(app, { url: '/api/admin/users', headers: adminAuth })
+assert('Admin users list returns all accounts with roles', usersList.status === 200 && Array.isArray(usersList.json?.users))
+const gcUser = usersList.json.users.find((u: any) => u.email === 'gc@apexconstruction.demo')
+const roleUpdate = await request(app, {
+  method: 'PUT',
+  url: `/api/admin/users/${gcUser.id}/role`,
+  headers: adminAuth,
+  body: { role: 'admin' },
+})
+assert('Admin can promote user role', roleUpdate.status === 200 && roleUpdate.json?.user?.role === 'admin')
+
 console.log('\n========================================')
 console.log(` Results: ${passed} passed, ${failed} failed`)
 console.log('========================================\n')

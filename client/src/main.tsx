@@ -13,6 +13,7 @@ import { ClientSharePage } from './pages/ClientSharePage'
 import { UploadPortalPage } from './pages/UploadPortalPage'
 import { EmailLogPage } from './pages/EmailLogPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { AdminDashboardPage } from './pages/AdminDashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { DemoLaunchPage } from './pages/DemoLaunchPage'
 import { SubcontractorModal } from './components/SubcontractorModal'
@@ -86,6 +87,10 @@ function App() {
           <Route
             path="/settings"
             element={user ? <SettingsPage /> : <Navigate to="/login" replace />}
+          />
+          <Route
+            path="/admin"
+            element={user && user.role === 'admin' ? <AdminDashboardPage /> : <Navigate to={user ? '/dashboard' : '/login'} replace />}
           />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />
