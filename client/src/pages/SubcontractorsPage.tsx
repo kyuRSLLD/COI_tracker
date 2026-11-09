@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, FileText, Edit2, Trash2, Shield, ExternalLink, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { Plus, Search, FileText, Edit2, Trash2, Shield, ExternalLink, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings } from '../types'
 import { apiSubcontractors, apiSettings, apiCOIs } from '../api'
 import { ExpirationBadge } from '../components/ExpirationBadge'
@@ -81,7 +81,7 @@ export function SubcontractorsPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       {toast && (
         <div className="fixed bottom-6 right-6 z-40 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> {toast}
+          <Check className="w-3.5 h-3.5 text-emerald-400" /> {toast}
         </div>
       )}
 

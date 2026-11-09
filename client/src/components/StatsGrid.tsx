@@ -32,12 +32,12 @@ export function StatsGrid({ stats, onFilterClick }: Props) {
             }`}
           >
             <div className="flex items-center justify-between text-xs text-slate-400 font-['JetBrains_Mono']">
-              <span>{c.num}</span>
-              <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${c.tint}`}>
-                <Icon className="w-4 h-4" />
+              <span className="text-[10px] uppercase tracking-wider">{c.key === 'all' ? 'total' : c.key.replace('_', ' ')}</span>
+              <span className={`w-6 h-6 rounded-md flex items-center justify-center ${c.tint}`}>
+                <Icon className="w-3.5 h-3.5" />
               </span>
             </div>
-            <div className="mt-3 text-3xl font-extrabold text-slate-900 tracking-tight font-['JetBrains_Mono']">
+            <div className="mt-2 text-2xl font-extrabold text-slate-900 tracking-tight font-['JetBrains_Mono']">
               {c.value}
             </div>
             <div className="mt-1 text-xs font-semibold text-slate-700 leading-snug">{c.label}</div>

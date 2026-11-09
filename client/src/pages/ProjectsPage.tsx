@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Share2, Users, ExternalLink, Trash2, Sparkles, FolderKanban } from 'lucide-react'
+import { Plus, Share2, Users, ExternalLink, Trash2, Check, FolderKanban } from 'lucide-react'
 import type { Project, Subcontractor } from '../types'
 import { apiProjects, apiSubcontractors } from '../api'
 import { ProjectModal } from '../components/ProjectModal'
@@ -55,7 +55,7 @@ export function ProjectsPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       {toast && (
         <div className="fixed bottom-6 right-6 z-40 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> {toast}
+          <Check className="w-3.5 h-3.5 text-emerald-400" /> {toast}
         </div>
       )}
 

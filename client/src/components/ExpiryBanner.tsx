@@ -44,20 +44,20 @@ export function ExpiryBanner({ upcoming, onReminderSent }: Props) {
   }
 
   return (
-    <div className="rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 via-amber-50 to-orange-50 p-4 sm:p-5 shadow-card">
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className="w-9 h-9 rounded-xl bg-amber-400 text-amber-950 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" />
+        <div className="flex items-center gap-3">
+          <span className="w-8 h-8 rounded-lg bg-amber-400 text-amber-950 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4" />
           </span>
           <div>
             <div className="text-sm font-bold text-amber-950">
               {expired.length > 0 && <span className="text-rose-700 font-extrabold">{expired.length} expired</span>}
               {expired.length > 0 && expiringSoon.length > 0 && ' · '}
-              {expiringSoon.length > 0 && <span>{expiringSoon.length} expiring within 30 days</span>}
+              {expiringSoon.length > 0 && <span>{expiringSoon.length} expire within 30 days</span>}
             </div>
-            <p className="text-xs text-amber-900/80 mt-0.5">
-              Send automated renewal reminders now so active job sites aren't interrupted.
+            <p className="text-xs text-amber-900/80 mt-0.5 font-mono text-[11px]">
+              renewal reminders queued automatically on the expiration window
             </p>
           </div>
         </div>
@@ -65,10 +65,10 @@ export function ExpiryBanner({ upcoming, onReminderSent }: Props) {
           <button
             onClick={handleRemindAll}
             disabled={batching}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 transition shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 transition shadow-sm"
           >
             <Send className="w-3.5 h-3.5" />
-            {batching ? 'Sending…' : 'Remind all expiring (batch)'}
+            {batching ? 'Sending…' : 'Remind all'}
           </button>
           <button
             onClick={() => setOpen((o) => !o)}

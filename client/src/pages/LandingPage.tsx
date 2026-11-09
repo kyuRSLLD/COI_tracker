@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Sparkles, Building,
+  ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Building,
 } from 'lucide-react'
 import { apiLogin } from '../api'
 
@@ -87,8 +87,8 @@ export function LandingPage({ onLogin }: Props) {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-brand-600/20 via-transparent to-transparent pointer-events-none" />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-24 relative">
           <div className="flex justify-center">
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-brand-200 backdrop-blur border border-white/10">
-              <Sparkles className="w-3.5 h-3.5 text-brand-300" /> All your compliance in one place
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-slate-200 backdrop-blur border border-white/10">
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-300" /> All your compliance in one place
             </span>
           </div>
 
@@ -124,8 +124,8 @@ export function LandingPage({ onLogin }: Props) {
             <div className="rounded-2xl bg-white text-slate-900 p-5 sm:p-8 shadow-card overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-5 border-b border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-extrabold text-lg">
-                    🛡
+                  <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shadow-sm">
+                    <ShieldCheck className="w-6 h-6" />
                   </div>
                   <div>
                     <div className="font-extrabold text-slate-900 text-base">Riverside Commerce Center</div>
@@ -278,7 +278,7 @@ export function LandingPage({ onLogin }: Props) {
                 <p className="text-xs text-slate-600 mt-2 leading-relaxed">{f.body}</p>
                 {f.highlight && (
                   <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
-                    ★ Privacy rule enforced at both UI and API levels
+                    Enforced at both UI and API levels
                   </div>
                 )}
               </div>

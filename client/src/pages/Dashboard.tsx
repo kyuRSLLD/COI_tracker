@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, FileText, Send, Sparkles, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
+import { Plus, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
 import type { Stats, Subcontractor, COI, GCSettings } from '../types'
 import { apiStats, apiSubcontractors, apiCOIs, apiSettings, apiEmails } from '../api'
 import { StatsGrid } from '../components/StatsGrid'
@@ -62,20 +62,15 @@ export function Dashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       {toast && (
         <div className="fixed bottom-6 right-6 z-40 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> {toast}
+          <Check className="w-3.5 h-3.5 text-emerald-400" /> {toast}
         </div>
       )}
 
       {/* Greeting + quick actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 font-['JetBrains_Mono']">
-            {gcSettings?.company_name || 'COI Shield'} · Compliance Command Center
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5">Insurance Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Track expirations, verify coverage limits, and share verified compliance with clients.
-          </p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Dashboard</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Expirations, coverage limits, and compliance for your subcontractors.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -104,23 +99,20 @@ export function Dashboard() {
         <div className="lg:col-span-2">
           <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} />
         </div>
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-card flex flex-col justify-between">
+        <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 font-['JetBrains_Mono']">
-              Client sharing
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mt-1">Privacy-safe client portal</h3>
-            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              When clients view project compliance, all subcontractor phone numbers, emails, contact persons, and addresses are stripped. Verified company names, coverage limits, policy numbers, and expiration dates remain visible — inquiries route back to you.
+            <div className="font-bold text-slate-900">Client portal</div>
+            <p className="text-slate-500 text-[11px] mt-1 leading-relaxed">
+              Clients see verified coverage without subcontractor contact info — inquiries route back to you.
             </p>
           </div>
-          <div className="mt-5 flex items-center justify-between pt-4 border-t border-slate-200 text-xs">
-            <span className="text-slate-500">{stats.share_links_count} active share link{stats.share_links_count === 1 ? '' : 's'}</span>
+          <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-[11px]">
+            <span className="text-slate-400 font-mono">{stats.share_links_count} active link{stats.share_links_count === 1 ? '' : 's'}</span>
             <Link
               to="/share/rcc-meridian-2026"
-              className="inline-flex items-center gap-1 font-bold text-brand-600 hover:text-brand-700"
+              className="font-semibold text-slate-900 hover:underline"
             >
-              Preview client view <ArrowRight className="w-3.5 h-3.5" />
+              Preview client view →
             </Link>
           </div>
         </div>

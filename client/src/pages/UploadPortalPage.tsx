@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import confetti from 'canvas-confetti'
-import { Shield, Upload, CheckCircle2, AlertCircle, Sparkles, FileText, ArrowRight, ArrowLeft } from 'lucide-react'
+import { Shield, Upload, CheckCircle2, AlertCircle, FileText, ArrowRight, ArrowLeft } from 'lucide-react'
 import type { UploadValidationPayload, COI } from '../types'
 import { apiUploadPortal } from '../api'
 
@@ -127,7 +127,7 @@ export function UploadPortalPage() {
         {/* Header */}
         <div className="text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-200">
-            <Sparkles className="w-3.5 h-3.5" /> Certificate of Insurance Self-Service
+            <FileText className="w-3.5 h-3.5" /> Certificate of Insurance Self-Service
           </div>
           <h1 className="text-3xl font-extrabold text-slate-900 mt-3">Upload your COI</h1>
           <p className="text-xs text-slate-500 mt-1">

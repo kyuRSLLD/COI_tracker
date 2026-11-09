@@ -65,8 +65,8 @@ function App() {
 
       <main className="flex-1">
         <Routes>
-          <Route path="/" element={<LandingPage onLogin={refreshUser} />} />
-          <Route path="/login" element={<LoginPage onLogin={refreshUser} />} />
+          <Route path="/" element={user?.role === 'admin' ? <Navigate to="/staff" replace /> : <LandingPage onLogin={refreshUser} />} />
+          <Route path="/login" element={user ? <Navigate to={user.role === 'admin' ? '/staff' : '/dashboard'} replace /> : <LoginPage onLogin={refreshUser} />} />
           <Route path="/demo" element={<DemoLaunchPage onLogin={refreshUser} />} />
           <Route
             path="/dashboard"

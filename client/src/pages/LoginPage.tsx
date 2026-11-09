@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Sparkles, ArrowRight } from 'lucide-react'
+import { ArrowRight, ShieldCheck } from 'lucide-react'
 import { apiLogin, apiRegister } from '../api'
 
 interface Props {
@@ -22,13 +22,11 @@ export function LoginPage({ onLogin }: Props) {
     setLoading(true)
     setError(null)
     try {
-      if (mode === 'login') {
-        await apiLogin(email, password)
-      } else {
-        await apiRegister({ email, password, name, company_name: company })
-      }
+      const data = mode === 'login'
+        ? await apiLogin(email, password)
+        : await apiRegister({ email, password, name, company_name: company })
       onLogin()
-      navigate('/dashboard')
+      navigate(data.user.role === 'admin' ? '/staff' : '/dashboard')
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -45,8 +43,8 @@ export function LoginPage({ onLogin }: Props) {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <Link to="/" className="inline-flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-brand-600 text-white flex items-center justify-center font-extrabold text-lg">
-            🛡
+          <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-sm">
+            <ShieldCheck className="w-6 h-6" />
           </div>
           <span className="font-extrabold text-2xl text-slate-900 tracking-tight">COI Shield</span>
         </Link>
@@ -65,7 +63,7 @@ export function LoginPage({ onLogin }: Props) {
             onClick={fillDemo}
             className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 transition"
           >
-            <Sparkles className="w-4 h-4 text-emerald-600" /> Fill demo credentials (Apex Construction Group)
+            Fill demo account — Apex Construction Group
           </button>
 
           {error && <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">{error}</div>}

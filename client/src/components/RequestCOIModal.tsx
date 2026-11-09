@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Copy, Check, Send, Sparkles } from 'lucide-react'
+import { X, Copy, Check, Send } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { apiEmails } from '../api'
 
@@ -53,7 +53,7 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-brand-600 uppercase tracking-wider font-['JetBrains_Mono']">
-              <Sparkles className="w-3.5 h-3.5" /> Self-service upload
+              <Send className="w-3.5 h-3.5" /> Self-service upload
             </div>
             <h2 className="text-xl font-extrabold text-slate-900 mt-1">Request a COI from a Subcontractor</h2>
             <p className="text-xs text-slate-500 mt-1">

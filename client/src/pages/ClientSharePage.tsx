@@ -44,8 +44,8 @@ export function ClientSharePage() {
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-brand-600 text-white flex items-center justify-center font-extrabold text-lg shadow-sm">
-              🛡
+            <div className="w-11 h-11 rounded-2xl bg-brand-600 text-white flex items-center justify-center shadow-sm">
+              <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
               <div className="font-extrabold text-slate-900 text-base">{contractor.company_name}</div>
@@ -81,7 +81,7 @@ export function ClientSharePage() {
         <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-xs text-emerald-950 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
           <div>
-            <div className="font-bold">Client Compliance Portal — verified insurance, zero intermediary risk</div>
+            <div className="font-bold">Compliance report — verified insurance</div>
             <div className="text-[11px] text-emerald-900/80 mt-0.5 leading-relaxed">
               This report verifies that subcontractors on <strong>{project.name}</strong> carry active insurance meeting project requirements. For any subcontractor-related question, please contact <strong>{contractor.company_name}</strong> directly — subcontractor direct-contact information is omitted by design.
             </div>

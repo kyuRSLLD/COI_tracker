@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, LogOut, FileText, Users, FolderKanban, Mail, Settings, Plus, Sparkles, Crown } from 'lucide-react'
+import { ShieldCheck, LogOut, FileText, Users, FolderKanban, Mail, Settings, Plus, Crown } from 'lucide-react'
 import type { User } from '../types'
 import { apiLogout } from '../api'
 
@@ -25,14 +25,11 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-3">
         <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-brand-600 text-white flex items-center justify-center font-extrabold text-base shadow-sm group-hover:bg-brand-700 transition">
-              🛡
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-extrabold text-sm shadow-sm group-hover:bg-slate-800 transition">
+              <ShieldCheck className="w-4 h-4" />
             </div>
-            <div className="leading-tight">
-              <span className="font-extrabold text-slate-900 tracking-tight text-base">COI Shield</span>
-              <span className="hidden sm:inline text-xs text-slate-400 block -mt-0.5">Insurance compliance, automatic</span>
-            </div>
+            <span className="font-bold text-slate-900 tracking-tight text-base">COI Shield</span>
           </Link>
           {user && (
             <nav className="hidden lg:flex items-center gap-1 text-sm font-medium">
@@ -98,7 +95,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                 to="/demo"
                 className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition"
               >
-                <Sparkles className="w-3.5 h-3.5" /> Live Demo
+                Demo
               </Link>
               <Link
                 to="/login"
