@@ -25,11 +25,11 @@ async function seed() {
 
     // 0. Admin User
   const adminId = uuidv4()
-  const adminHash = await bcrypt.hash('admin123', 10)
+  const adminHash = await bcrypt.hash('password123', 10)
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
      VALUES (?, ?, ?, ?, ?, 'admin', ?)`,
-    [adminId, 'admin@safecoi.com', adminHash, 'Platform Admin', 'safecoi.com', new Date().toISOString()]
+    [adminId, 'kyuchang@gmail.com', adminHash, 'Kyu Chang', 'safecoi.com', new Date().toISOString()]
   )
 
   // 1. GC User
@@ -362,7 +362,8 @@ async function seed() {
   }
 
   console.log('[seed] Done!')
-  console.log(`[seed] Admin login: admin@safecoi.com / admin123`)
+  console.log(`[seed] Admin login: kyuchang@gmail.com / password123`)
+  console.log(`[seed] Staff portal: /staff`)
   console.log(`[seed] GC login: gc@apexconstruction.demo / password123`)
   console.log(`[seed] Client share link: /share/${shareToken}`)
   console.log(`[seed] Sub upload link: /upload/upload-drywall-2026`)

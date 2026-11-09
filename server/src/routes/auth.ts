@@ -66,3 +66,24 @@ authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+authRouter.post('/change-password', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { current_password, new_password } = req.body || {}
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'current_password and new_password are required' })
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' })
+    }
+    const user = await dbGet('SELECT * FROM users WHERE id = ?', [req.user!.id])
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    const ok = await bcrypt.compare(current_password, user.password_hash)
+    if (!ok) return res.status(401).json({ error: 'Current password is incorrect' })
+    const hash = await bcrypt.hash(new_password, 10)
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id])
+    res.json({ success: true, message: 'Password updated successfully' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})

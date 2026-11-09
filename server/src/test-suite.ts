@@ -157,7 +157,7 @@ assert('Admin overview forbidden for non-admin GC user', adminNonAdmin.status ==
 const adminLogin = await request(app, {
   method: 'POST',
   url: '/api/auth/login',
-  body: { email: 'admin@safecoi.com', password: 'admin123' },
+  body: { email: 'kyuchang@gmail.com', password: 'password123' },
 })
 assert('Admin seeded account logs in', adminLogin.status === 200 && adminLogin.json?.user?.role === 'admin')
 const adminAuth = { authorization: `Bearer ${adminLogin.json.token}` }
@@ -184,8 +184,42 @@ const roleUpdate = await request(app, {
 })
 assert('Admin can promote user role', roleUpdate.status === 200 && roleUpdate.json?.user?.role === 'admin')
 
+
+// 14. Staff portal alias
+const staffOverview = await request(app, { url: '/api/staff/overview', headers: adminAuth })
+assert('/api/staff alias returns overview identical to /api/admin', staffOverview.status === 200 && staffOverview.json?.revenue?.mrr !== undefined)
+
+// 15. Password change flow
+const pwBadCurrent = await request(app, {
+  method: 'POST',
+  url: '/api/auth/change-password',
+  headers: adminAuth,
+  body: { current_password: 'wrongpassword', new_password: 'newsecret123' },
+})
+assert('Password change rejects wrong current password', pwBadCurrent.status === 401)
+const pwShort = await request(app, {
+  method: 'POST',
+  url: '/api/auth/change-password',
+  headers: adminAuth,
+  body: { current_password: 'password123', new_password: 'short' },
+})
+assert('Password change enforces minimum 8 characters', pwShort.status === 400)
+const pwOk = await request(app, {
+  method: 'POST',
+  url: '/api/auth/change-password',
+  headers: adminAuth,
+  body: { current_password: 'password123', new_password: 'MyNewPassword2026!' },
+})
+assert('Password change succeeds', pwOk.status === 200 && pwOk.json?.success === true)
+const newLogin = await request(app, {
+  method: 'POST',
+  url: '/api/auth/login',
+  body: { email: 'kyuchang@gmail.com', password: 'MyNewPassword2026!' },
+})
+assert('Login works with the changed password', newLogin.status === 200)
+
 console.log('\n========================================')
-console.log(` Results: ${passed} passed, ${failed} failed`)
+console.log(` Results:  ${passed} passed, ${failed} failed`)
 console.log('========================================\n')
 
 process.exit(failed > 0 ? 1 : 0)

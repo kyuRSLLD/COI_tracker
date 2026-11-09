@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, Save } from 'lucide-react'
+import { Sparkles, Save, Lock, Check } from 'lucide-react'
 import type { GCSettings } from '../types'
-import { apiSettings } from '../api'
+import { apiSettings, apiChangePassword } from '../api'
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<GCSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwMsg, setPwMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   const showToast = (m: string) => {
     setToast(m)
@@ -114,6 +119,59 @@ export function SettingsPage() {
               <input type="number" min="7" max="180" value={settings.expiration_warning_days} onChange={(e) => setSettings({ ...settings, expiration_warning_days: Number(e.target.value) })} className="w-24 rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white font-bold" />
               <span className="text-slate-500">days before expiration</span>
             </div>
+          </div>
+        </div>
+
+        {/* Security / Change password */}
+        <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
+          <div className="flex items-center gap-2">
+            <Lock className="w-5 h-5 text-brand-600" />
+            <h2 className="text-base font-bold text-slate-900">Security — change password</h2>
+          </div>
+          <p className="text-xs text-slate-500">Update your account password anytime. Passwords must be at least 8 characters.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1 text-xs">Current password</label>
+              <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} placeholder="••••••••" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1 text-xs">New password (8+ chars)</label>
+              <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="••••••••" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1 text-xs">Confirm new password</label>
+              <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="••••••••" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" />
+            </div>
+          </div>
+          {pwMsg && (
+            <div className={`p-3 rounded-xl text-xs font-semibold ${pwMsg.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+              {pwMsg.text}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={pwSaving}
+              onClick={async () => {
+                setPwMsg(null)
+                if (!currentPw || !newPw || !confirmPw) return setPwMsg({ text: 'All password fields are required', ok: false })
+                if (newPw.length < 8) return setPwMsg({ text: 'New password must be at least 8 characters', ok: false })
+                if (newPw !== confirmPw) return setPwMsg({ text: 'New passwords do not match', ok: false })
+                try {
+                  setPwSaving(true)
+                  const r = await apiChangePassword(currentPw, newPw)
+                  setPwMsg({ text: r.message || 'Password updated', ok: true })
+                  setCurrentPw(''); setNewPw(''); setConfirmPw('')
+                } catch (err: any) {
+                  setPwMsg({ text: err?.message || 'Update failed', ok: false })
+                } finally {
+                  setPwSaving(false)
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 transition shadow-sm"
+            >
+              <Check className="w-4 h-4" /> {pwSaving ? 'Updating…' : 'Update password'}
+            </button>
           </div>
         </div>
 

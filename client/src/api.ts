@@ -88,6 +88,12 @@ export function apiLogout(): void {
   setToken(null)
   setStoredUser(null)
 }
+export async function apiChangePassword(current_password: string, new_password: string): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password, new_password }),
+  })
+}
 
 // Subcontractors
 export const apiSubcontractors = {

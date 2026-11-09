@@ -47,6 +47,7 @@ export async function createApp() {
   app.use('/api/emails', emailsRouter)
   app.use('/api/settings', settingsRouter)
   app.use('/api/admin', adminRouter)
+  app.use('/api/staff', adminRouter)
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {

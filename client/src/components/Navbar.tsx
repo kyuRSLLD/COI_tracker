@@ -19,7 +19,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
     { to: '/emails', label: 'Email Log', icon: Mail },
     { to: '/settings', label: 'Settings', icon: Settings },
   ]
-  if (user?.role === 'admin') nav.push({ to: '/admin', label: 'Admin', icon: Crown })
+  if (user?.role === 'admin') nav.push({ to: '/staff', label: 'Staff', icon: Crown })
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">

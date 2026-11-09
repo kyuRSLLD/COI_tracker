@@ -89,9 +89,10 @@ function App() {
             element={user ? <SettingsPage /> : <Navigate to="/login" replace />}
           />
           <Route
-            path="/admin"
+            path="/staff"
             element={user && user.role === 'admin' ? <AdminDashboardPage /> : <Navigate to={user ? '/dashboard' : '/login'} replace />}
           />
+          <Route path="/admin" element={<Navigate to="/staff" replace />} />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

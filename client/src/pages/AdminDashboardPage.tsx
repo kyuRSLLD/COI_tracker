@@ -108,9 +108,9 @@ export function AdminDashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-900 border border-purple-200">
-            <Crown className="w-3.5 h-3.5" /> Platform Admin
+            <Crown className="w-3.5 h-3.5" /> Staff Portal
           </div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">Admin Dashboard</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-2">Staff Command Center</h1>
           <p className="text-sm text-slate-500">Live view of users, revenue, companies and platform activity.</p>
         </div>
         <div className="flex items-center gap-3">
