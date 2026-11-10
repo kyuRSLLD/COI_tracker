@@ -11,9 +11,13 @@ export interface User {
   id: string
   email: string
   name: string
+  first_name?: string | null
+  last_name?: string | null
+  phone?: string | null
   role: string
   company_name?: string | null
   subcontractor_id?: string | null
+  phones?: UserPhone[]
 }
 
 export interface Subcontractor {
@@ -301,4 +305,12 @@ export interface TwoFactorState {
   enabled: boolean
   method?: 'authenticator' | 'sms'
   phone_masked?: string
+}
+
+export interface UserPhone {
+  id: string
+  phone: string
+  label?: string | null
+  is_primary?: number | boolean
+  created_at: string
 }

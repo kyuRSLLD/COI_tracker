@@ -8,7 +8,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [phone, setPhone] = useState('')
   const [company, setCompany] = useState('')
   const [role, setRole] = useState<'gc' | 'sub'>('gc')
   const [loading, setLoading] = useState(false)
@@ -21,7 +23,16 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
     try {
       const data = mode === 'login'
         ? await apiLogin(email, password)
-        : await apiRegister({ email, password, name, company_name: company, role })
+        : await apiRegister({
+            email,
+            password,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            name: [firstName.trim(), lastName.trim()].filter(Boolean).join(' '),
+            phone: phone.trim(),
+            company_name: company.trim() || undefined,
+            role,
+          })
       onLogin()
       const r = data.user.role
       navigate(r === 'admin' ? '/staff' : r === 'sub' ? '/subcontractor' : '/dashboard')
@@ -127,20 +138,46 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-slate-600">First name</label>
+                    <input
+                      required
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Jane"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-slate-600">Last name</label>
+                    <input
+                      required
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Doe"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600">Your name</label>
+                  <label className="text-[11px] font-semibold text-slate-600">Phone number</label>
                   <input
                     required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(312) 555-0199"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                   />
+                  <p className="text-[10px] text-slate-400">Your email remains your sign-in identifier. You can add more phone numbers anytime in your profile.</p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-slate-600">Company name</label>
                   <input
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
+                    placeholder="Acme Construction"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                   />
                 </div>

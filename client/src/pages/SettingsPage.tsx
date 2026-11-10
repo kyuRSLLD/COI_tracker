@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import {
   Save, Lock, Check, QrCode, Copy, RefreshCw, Printer, ExternalLink,
   Smartphone, KeyRound, ShieldAlert, Sparkles, AlertTriangle, Download,
+  Phone, Plus, Trash2, Star, Mail,
 } from 'lucide-react'
-import type { GCSettings } from '../types'
-import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite } from '../api'
+import type { GCSettings, UserPhone } from '../types'
+import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe } from '../api'
 import { QRCodeSVG } from 'qrcode.react'
 
 const BACKUP_CODES = ['A3F9-K8X2', '7M1B-QQ40', 'Z9C2-T6L1', '5V0P-9Y7D', 'E8R4-N3W6', '2K7H-B1J5', 'F6S0-X4M9', 'U1A8-D5C3']
@@ -35,6 +36,13 @@ export function SettingsPage() {
   const [show2faSetup, setShow2faSetup] = useState(false)
   const [tfaMsg, setTfaMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const tfaSecret = 'SAFECOI-K7B2-M9F1-Z4Q0'
+  // multi-phone numbers (email is the identifier)
+  const [phones, setPhones] = useState<UserPhone[]>([])
+  const [newPhone, setNewPhone] = useState('')
+  const [newLabel, setNewLabel] = useState('mobile')
+  const [newIsPrimary, setNewIsPrimary] = useState(false)
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
 
   const showToast = (m: string) => {
     setToast(m)
@@ -43,9 +51,16 @@ export function SettingsPage() {
 
   const loadAll = async () => {
     try {
-      const [sr, qr] = await Promise.all([apiSettings.get(), apiQrInvite()])
+      const [sr, qr, pr, me] = await Promise.all([
+        apiSettings.get(),
+        apiQrInvite(),
+        apiPhones.list().catch(() => ({ phones: [] as UserPhone[] })),
+        apiMe().catch(() => ({ user: { email: '' } as any })),
+      ])
       setSettings(sr.settings)
       setQrInvite(qr)
+      setPhones(pr.phones)
+      setUserEmail(me.user.email)
     } finally {
       setLoading(false)
     }
@@ -114,6 +129,39 @@ export function SettingsPage() {
     w.document.close()
   }
 
+  const handleAddPhone = async () => {
+    if (!newPhone.trim()) return
+    setPhoneSaving(true)
+    try {
+      const res = await apiPhones.add({ phone: newPhone.trim(), label: newLabel, is_primary: newIsPrimary || phones.length === 0 })
+      setPhones(res.phones)
+      setNewPhone('')
+      setNewIsPrimary(false)
+      showToast('Phone number added')
+    } catch (err: any) {
+      showToast(err.message)
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+  const handleRemovePhone = async (id: string) => {
+    try {
+      const res = await apiPhones.remove(id)
+      setPhones(res.phones)
+      showToast('Phone number removed')
+    } catch (err: any) {
+      showToast(err.message)
+    }
+  }
+  const handleMakePrimary = async (id: string) => {
+    try {
+      const res = await apiPhones.makePrimary(id)
+      setPhones(res.phones)
+      showToast('Primary phone updated')
+    } catch (err: any) {
+      showToast(err.message)
+    }
+  }
   const handleVerify2fa = () => {
     setTfaMsg(null)
     if (!verifyCode || verifyCode.trim().length < 6) {
@@ -179,7 +227,103 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {/* Subcontractor onboarding QR code */}
+        {/* Account & phone numbers — email is the identifier, phones can be many */}
+        <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-slate-800" />
+            <h2 className="text-sm font-bold text-slate-900">Account identifier &amp; phone numbers</h2>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-1">
+            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Sign-in identifier (required)</div>
+            <div className="font-mono text-slate-900 font-semibold">{userEmail || '—'}</div>
+            <p className="text-[11px] text-slate-400">Your email is the unique identifier for your account. You can keep as many phone numbers on file as you need.</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Phone className="w-4 h-4 text-slate-800" />
+              <h3 className="text-xs font-bold text-slate-900">Your phone numbers</h3>
+            </div>
+            {phones.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No phone numbers on file yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {phones.map((ph) => (
+                  <div key={ph.id} className="flex items-center justify-between p-3 rounded-2xl border border-slate-200 text-xs">
+                    <div className="flex items-center gap-3">
+                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      <div>
+                        <div className="font-semibold text-slate-900 flex items-center gap-2">
+                          {ph.phone}
+                          {ph.is_primary ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold">
+                              <Star className="w-3 h-3 fill-amber-500 text-amber-500" /> primary
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-[11px] text-slate-400 capitalize">{ph.label || 'phone'}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!ph.is_primary && (
+                        <button
+                          type="button"
+                          onClick={() => handleMakePrimary(ph.id)}
+                          className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 transition"
+                        >
+                          Make primary
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhone(ph.id)}
+                        className="text-[11px] text-rose-600 hover:text-rose-800 px-2.5 py-1 rounded-lg border border-rose-200 hover:bg-rose-50 transition inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
+            <input
+              type="tel"
+              required
+              placeholder="(312) 555-0199"
+              value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200"
+            />
+            <select
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200 capitalize"
+            >
+              <option value="mobile">mobile</option>
+              <option value="office">office</option>
+              <option value="home">home</option>
+              <option value="other">other</option>
+            </select>
+            <label className="flex items-center gap-2 text-slate-600 text-[11px] select-none">
+              <input
+                type="checkbox"
+                checked={newIsPrimary}
+                onChange={(e) => setNewIsPrimary(e.target.checked)}
+              />
+              Make primary
+            </label>
+            <button
+              type="button"
+              onClick={handleAddPhone}
+              disabled={phoneSaving}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-40 transition"
+            >
+              <Plus className="w-3.5 h-3.5" /> {phoneSaving ? 'Adding…' : 'Add phone'}
+            </button>
+          </div>
+        </div>
+                {/* Subcontractor onboarding QR code */}
         <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
           <div className="flex items-center gap-2">
             <QrCode className="w-4 h-4 text-slate-800" />

@@ -336,6 +336,42 @@ const sendEmailExistingGc = await request(app, {
 })
 assert('send-coi-email auto-links when recipient is already a registered GC', sendEmailExistingGc.status === 200 && sendEmailExistingGc.json?.ok)
 
+// 20. Sign-up: first name, last name, phone, email-as-identifier
+const regNew = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: `jane-${Date.now()}@example.com`, password: 'password123', first_name: 'Jane', last_name: 'Doe', phone: '(312) 555-0150', company_name: 'Doe Mechanical', role: 'sub' },
+})
+assert('Register accepts first_name, last_name, phone and returns them', regNew.status === 200 && regNew.json?.user?.first_name === 'Jane' && regNew.json?.user?.last_name === 'Doe' && regNew.json?.user?.phone?.includes('555-0150'))
+const regDuplicate = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: `jane-${Date.now()}@example.com`.replace(/-.*@/, '-xx@'), password: 'password123', first_name: 'Jane2', last_name: 'Doe2', phone: '(312) 555-0151' },
+})
+// email-identifier uniqueness check
+const regDupe = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: regNew.json.user.email, password: 'password123', first_name: 'Another', last_name: 'Person', phone: '(312) 555-0199' },
+})
+assert('Email is the required unique identifier (duplicate email rejected 409)', regDupe.status === 409)
+
+// 21. Multi-phone numbers per user (email remains identifier)
+const gcPhones = await request(app, { url: '/api/auth/phones', headers: { ...auth } })
+assert('GC user has multiple phone numbers (seeded office + mobile)', gcPhones.status === 200 && (gcPhones.json?.phones?.length ?? 0) >= 2)
+const addPhone = await request(app, {
+  method: 'POST',
+  url: '/api/auth/phones',
+  headers: { ...auth },
+  body: { phone: '(312) 555-0191', label: 'site office', is_primary: true },
+})
+assert('POST /auth/phones adds a new phone and can mark it primary', addPhone.status === 200 && addPhone.json?.phones?.some((ph: any) => ph.phone.includes('555-0191') && ph.is_primary))
+const meAfter = await request(app, { url: '/api/auth/me', headers: { ...auth } })
+assert('GET /auth/me includes first_name/last_name/phone and phones array', meAfter.status === 200 && meAfter.json?.user?.first_name === 'Michael' && Array.isArray(meAfter.json?.user?.phones) && meAfter.json.user.phones.length >= 3)
+const newPhoneId = addPhone.json?.phones?.find((ph: any) => ph.phone.includes('555-0191'))?.id
+const delPhone = await request(app, { method: 'DELETE', url: `/api/auth/phones/${newPhoneId}`, headers: { ...auth } })
+assert('DELETE /auth/phones removes a phone and keeps primaries consistent', delPhone.status === 200 && !delPhone.json?.phones?.some((ph: any) => ph.id === newPhoneId))
+
 
 console.log('\n========================================')
 console.log(` Results:  ${passed} passed, ${failed} failed`)

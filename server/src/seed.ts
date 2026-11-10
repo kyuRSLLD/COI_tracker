@@ -28,6 +28,7 @@ export async function seed() {
     'subcontractors',
     'gc_settings',
     'users',
+    'user_phones',
     'companies',
   ]) {
     try {
@@ -43,8 +44,8 @@ export async function seed() {
   const adminId = '00000000-0000-4000-8000-000000000001'
   const adminHash = await bcrypt.hash('password123', 10)
   await dbRun(
-    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
-     VALUES (?, ?, ?, ?, ?, 'admin', ?)`,
+    `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at)
+     VALUES (?, ?, ?, ?, 'Kyu', 'Chang', '(312) 555-0900', ?, 'admin', ?)`,
     [adminId, 'kyuchang@gmail.com', adminHash, 'Kyu Chang', 'SafeCOI', daysAgo(150)]
   )
 
@@ -52,8 +53,8 @@ export async function seed() {
   const userId = '00000000-0000-4000-8000-000000000002'
   const userHash = await bcrypt.hash('password123', 10)
   await dbRun(
-    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at)
-     VALUES (?, ?, ?, ?, ?, 'gc', ?)`,
+    `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at)
+     VALUES (?, ?, ?, ?, 'Michael', 'Vance', '(312) 555-0100', ?, 'gc', ?)`,
     [userId, 'gc@apexconstruction.demo', userHash, 'Michael Vance', 'Apex Construction Group', daysAgo(90)]
   )
 
@@ -395,15 +396,30 @@ export async function seed() {
   const horizonSub = createdSubs.find((s) => s.company_name === 'Horizon Electrical Services')
   const blueRidgeSub = createdSubs.find((s) => s.company_name === 'Blue Ridge Plumbing & Fire Protection')
   await dbRun(
-    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
-     VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
+    `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
+     VALUES (?, ?, ?, ?, 'Elena', 'Rossi', '(312) 555-0144', ?, 'sub', ?, ?)`,
     ['00000000-0000-4000-8000-000000000003', 'sub@horizonelectric.demo', userHash, 'Elena Rossi', 'Horizon Electrical Services', daysAgo(30), horizonSub?.id || null]
   )
   await dbRun(
-    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
-     VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
+    `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
+     VALUES (?, ?, ?, ?, 'Marcus', 'Brody', '(312) 555-0177', ?, 'sub', ?, ?)`,
     ['00000000-0000-4000-8000-000000000004', 'sub2@blueridgeplumbing.demo', userHash, 'Marcus Brody', 'Blue Ridge Plumbing & Fire Protection', daysAgo(15), blueRidgeSub?.id || null]
   )
+  // 7. Multi-phone numbers per user (email is the identifier, users may keep several phones)
+  const phoneRows = [
+    [uuidv4(), userId, '(312) 555-0100', 'office', 1, daysAgo(90)],
+    [uuidv4(), userId, '(312) 555-0109', 'mobile', 0, daysAgo(60)],
+    [uuidv4(), '00000000-0000-4000-8000-000000000003', '(312) 555-0144', 'mobile', 1, daysAgo(30)],
+    [uuidv4(), adminId, '(312) 555-0900', 'office', 1, daysAgo(150)],
+    [uuidv4(), adminId, '(312) 555-0909', 'mobile', 0, daysAgo(100)],
+  ]
+  for (const r of phoneRows) {
+    await dbRun(
+      'INSERT INTO user_phones (id, user_id, phone, label, is_primary, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      r
+    )
+  }
+
   console.log('[seed] Done!')
   console.log(`[seed] Admin login: kyuchang@gmail.com / password123`)
   console.log(`[seed] Staff portal: /staff`)

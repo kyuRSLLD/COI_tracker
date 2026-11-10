@@ -16,7 +16,8 @@ export function JoinPage() {
   const [tab, setTab] = useState<'new' | 'existing'>('new')
 
   // new account fields
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [company, setCompany] = useState('')
@@ -64,10 +65,11 @@ export function JoinPage() {
     setWorking(true)
     setError(null)
     try {
+      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
       const res = await apiSub.join(inviteCode, {
         email,
         password,
-        name,
+        name: fullName,
         company_name: company,
         trade,
         phone,
@@ -76,7 +78,7 @@ export function JoinPage() {
         setToken(res.token)
         setStoredUser(res.user)
       }
-      setSuccess(`Welcome, ${name}! Your account is created and linked to ${res.gc_company_name || gcName}. Upload your insurance paper whenever you're ready.`)
+      setSuccess(`Welcome, ${fullName}! Your account is created and linked to ${res.gc_company_name || gcName}. Upload your insurance paper whenever you're ready.`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -223,19 +225,31 @@ export function JoinPage() {
 
                   {tab === 'new' ? (
                     <form onSubmit={handleNewSignUp} className="space-y-3 text-xs">
-                      <div>
-                        <label className="block text-[11px] text-slate-500 mb-1">Your name</label>
-                        <input
-                          required
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          placeholder="Elena Rossi"
-                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-slate-500 mb-1">First name</label>
+                          <input
+                            required
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
+                            placeholder="Elena"
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-slate-500 mb-1">Last name</label>
+                          <input
+                            required
+                            value={lastName}
+                            onChange={(e) => setLastName(e.target.value)}
+                            placeholder="Rossi"
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
+                          />
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[11px] text-slate-500 mb-1">Email</label>
+                          <label className="block text-[11px] text-slate-500 mb-1">Email <span className="text-[10px] text-slate-400">(your sign-in identifier)</span></label>
                           <input
                             required
                             type="email"
@@ -301,7 +315,7 @@ export function JoinPage() {
                         Sign in with the subcontractor account you already use — we'll link it to {gcName} in one step.
                       </p>
                       <div>
-                        <label className="block text-[11px] text-slate-500 mb-1">Email</label>
+                        <label className="block text-[11px] text-slate-500 mb-1">Email <span className="text-[10px] text-slate-400">(your sign-in identifier)</span></label>
                         <input
                           required
                           type="email"

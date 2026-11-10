@@ -68,7 +68,7 @@ export async function apiLogin(email: string, password: string): Promise<{ token
   return data
 }
 
-export async function apiRegister(body: { email: string; password: string; name: string; company_name?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
+export async function apiRegister(body: { email: string; password: string; name?: string; first_name?: string; last_name?: string; phone?: string; company_name?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
   const data = await request<{ token: string; user: User }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -248,4 +248,18 @@ export async function apiSendCOIEmail(body: { to_email: string; gc_company_name?
 }
 export async function apiSubSentEmails() {
   return request<{ emails: { id: string; to_email: string; subject: string; status: string; sent_at: string }[] }>('/api/sub/sent-emails')
+}
+
+// Multi-phone numbers per user (email remains the unique identifier)
+export const apiPhones = {
+  list: () => request<{ phones: import('./types').UserPhone[] }>('/api/auth/phones'),
+  add: (body: { phone: string; label?: string; is_primary?: boolean }) =>
+    request<{ phones: import('./types').UserPhone[] }>('/api/auth/phones', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    request<{ phones: import('./types').UserPhone[] }>(`/api/auth/phones/${id}`, { method: 'DELETE' }),
+  makePrimary: (id: string) =>
+    request<{ phones: import('./types').UserPhone[] }>(`/api/auth/phones/${id}/primary`, { method: 'PATCH' }),
 }

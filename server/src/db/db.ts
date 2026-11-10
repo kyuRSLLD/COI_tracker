@@ -125,6 +125,9 @@ export async function initDatabase(): Promise<void> {
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
+      first_name TEXT,
+      last_name TEXT,
+      phone TEXT,
       company_name TEXT,
       role TEXT DEFAULT 'gc',
       subcontractor_id TEXT,
@@ -266,6 +269,15 @@ export async function initDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_cois_expiration ON cois(expiration_date);
     CREATE INDEX IF NOT EXISTS idx_cois_status ON cois(status);
     CREATE INDEX IF NOT EXISTS idx_share_links_token ON client_share_links(token);
+    CREATE TABLE IF NOT EXISTS user_phones (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      label TEXT DEFAULT 'mobile',
+      is_primary INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_phones_user ON user_phones(user_id);
     CREATE INDEX IF NOT EXISTS idx_upload_requests_token ON upload_requests(token);
   `
 
@@ -274,6 +286,15 @@ export async function initDatabase(): Promise<void> {
 
   try {
     await dbRun('ALTER TABLE users ADD COLUMN subcontractor_id TEXT')
+  } catch {}
+  try {
+    await dbRun('ALTER TABLE users ADD COLUMN first_name TEXT')
+  } catch {}
+  try {
+    await dbRun('ALTER TABLE users ADD COLUMN last_name TEXT')
+  } catch {}
+  try {
+    await dbRun('ALTER TABLE users ADD COLUMN phone TEXT')
   } catch {}
   try {
     await dbRun('ALTER TABLE gc_settings ADD COLUMN invite_code TEXT')
