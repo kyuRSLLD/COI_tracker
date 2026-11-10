@@ -1,7 +1,7 @@
 import express from 'express'; const Router = express.Router
 import { v4 as uuidv4 } from 'uuid'
 import { dbGet, dbRun } from '../db/db.ts'
-import { requireAuth } from '../middleware/auth.ts'
+import { requireAuth } from '../middleware/auth.ts'; import type { AuthRequest } from '../middleware/auth.ts'
 
 export const settingsRouter = Router()
 
@@ -74,6 +74,44 @@ settingsRouter.put('/', requireAuth, async (req, res) => {
     }
     const updated = await dbGet('SELECT * FROM gc_settings LIMIT 1')
     res.json({ settings: updated })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Subcontractor onboarding QR invite endpoints
+settingsRouter.get('/qr-invite', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    let s = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    if (!s) return res.status(404).json({ error: 'Company settings not found' })
+    if (!s.invite_code) {
+      const code = 'join-' + uuidv4().slice(0, 6)
+      await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ?', [code, s.id])
+      s.invite_code = code
+    }
+    const origin = process.env.CLIENT_URL || 'https://safecoi.com'
+    res.json({
+      invite_code: s.invite_code,
+      invite_url: `${origin}/join/${s.invite_code}`,
+      company_name: s.company_name,
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+settingsRouter.post('/qr-invite/regenerate', requireAuth, async (_req, res) => {
+  try {
+    const s = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    if (!s) return res.status(404).json({ error: 'Company settings not found' })
+    const code = 'join-' + uuidv4().slice(0, 6)
+    await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ?', [code, s.id])
+    const origin = process.env.CLIENT_URL || 'https://safecoi.com'
+    res.json({
+      invite_code: code,
+      invite_url: `${origin}/join/${code}`,
+      company_name: s.company_name,
+    })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

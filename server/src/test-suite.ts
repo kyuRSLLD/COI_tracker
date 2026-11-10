@@ -56,6 +56,8 @@ function assert(name: string, ok: boolean, detail?: string) {
   }
 }
 
+
+
 console.log('\n========================================')
 console.log(' COI Tracker API Integration Test Suite')
 console.log('========================================\n')
@@ -244,6 +246,66 @@ assert('Login works with the changed password', newLogin.status === 200)
 // 16. Bootstrap seed guard
 const bootBlock = await request(app, { method: 'POST', url: '/api/admin/bootstrap-seed' })
 assert('Bootstrap-seed is blocked when database already has users', bootBlock.status === 403)
+
+// 17. Subcontractor dashboard API
+const subLogin = await request(app, {
+  method: 'POST',
+  url: '/api/auth/login',
+  body: { email: 'sub@horizonelectric.demo', password: 'password123' },
+})
+assert('Subcontractor demo login succeeds with role=sub', subLogin.status === 200 && subLogin.json?.user?.role === 'sub')
+const subAuth = { authorization: `Bearer ${subLogin.json.token}` }
+const subMe = await request(app, { url: '/api/sub/my', headers: subAuth })
+assert('Subcontractor /my endpoint returns profile and COIs', subMe.status === 200 && subMe.json?.subcontractor?.company_name === 'Horizon Electrical Services')
+assert('Subcontractor has at least one seeded COI', Array.isArray(subMe.json?.cois) && subMe.json.cois.length >= 1)
+const carrierConn = await request(app, {
+  method: 'POST',
+  url: '/api/sub/carrier-connect',
+  headers: subAuth,
+  body: { carrier: 'Travelers', policy_number: 'TRV-PKG-TEST-01' },
+})
+assert('Carrier connect simulation creates a verified COI', carrierConn.status === 200 && carrierConn.json?.verified === true && carrierConn.json?.coi?.carrier === 'Travelers')
+const subMe2 = await request(app, { url: '/api/sub/my', headers: subAuth })
+assert('Sub now has one more COI on file', subMe2.json.cois.length >= subMe.json.cois.length + 1)
+const pubView = await request(app, { url: `/api/sub/public/${subMe.json.subcontractor.id}` })
+assert('Public sub COI view works without authentication', pubView.status === 200 && pubView.json?.subcontractor?.id === subMe.json.subcontractor.id && pubView.json?.coi !== undefined)
+const quickUpload = await request(app, {
+  method: 'POST',
+  url: '/api/sub/quick-upload',
+  headers: { ...subAuth },
+  body: { carrier: 'Manual Uploaded Carrier', policy_number: 'MAN-001' },
+})
+assert('Quick-upload endpoint creates a pending COI', quickUpload.status === 200 && quickUpload.json?.status === 'pending_review')
+const regSub = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: 'newsub@tradecompany.demo', password: 'password123', name: 'Sam Torres', company_name: 'Torres Framing Co.', role: 'sub' },
+})
+assert('Registering with role=sub creates a sub account and subcontractor profile', regSub.status === 200 && regSub.json?.user?.role === 'sub' && regSub.json?.user?.subcontractor_id)
+
+// 18. Subcontractor QR code onboarding
+const qrInvite = await request(app, { url: '/api/settings/qr-invite', headers: auth })
+assert('GC gets their subcontractor QR invite info', qrInvite.status === 200 && qrInvite.json?.invite_code && qrInvite.json?.invite_url?.includes('/join/'))
+const joinInfo = await request(app, { url: `/api/sub/join-info/${qrInvite.json.invite_code}` })
+assert('Public join-info returns GC company info without auth', joinInfo.status === 200 && joinInfo.json?.valid && joinInfo.json?.gc?.company_name)
+const joinNew = await request(app, {
+  method: 'POST',
+  url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  body: { email: 'qrsub@trade.demo', password: 'password123', name: 'Rina Diaz', company_name: 'Diaz Masonry', trade: 'Masonry' },
+})
+assert('QR invite: new sub signs up and is linked to the GC', joinNew.status === 200 && joinNew.json?.linked && joinNew.json?.user?.role === 'sub')
+const joinExisting = await request(app, {
+  method: 'POST',
+  url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  body: { email: 'qrsub@trade.demo', password: 'password123' },
+})
+assert('QR invite: existing sub connects to the GC without re-registering', joinExisting.status === 200 && joinExisting.json?.linked && joinExisting.json?.mode === 'existing')
+const joinAuthed = await request(app, {
+  method: 'POST',
+  url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  headers: { authorization: `Bearer ${joinNew.json.token}` },
+})
+assert('QR invite: authenticated sub connects to the GC', joinAuthed.status === 200 && joinAuthed.json?.linked && joinAuthed.json?.mode === 'authenticated')
 
 
 console.log('\n========================================')

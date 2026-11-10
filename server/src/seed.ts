@@ -61,8 +61,8 @@ export async function seed() {
   await dbRun(
     `INSERT INTO gc_settings (id, user_id, company_name, license_number, address, phone, email, logo_url,
       additional_insured_wording, required_gl_limit, required_auto_limit, required_wc_limit, required_umbrella_limit,
-      expiration_warning_days, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 30, ?)`,
+      expiration_warning_days, invite_code, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 30, 'join-apex-2026', ?)`,
     [
       uuidv4(),
       userId,
@@ -391,11 +391,28 @@ export async function seed() {
     [uuidv4(), 'SafeCOI', 'Pro GC', 29, adminId, daysAgo(150)]
   )
 
+  // 6b. Demo subcontractor users (for testing the subcontractor dashboard)
+  const horizonSub = createdSubs.find((s) => s.company_name === 'Horizon Electrical Services')
+  const blueRidgeSub = createdSubs.find((s) => s.company_name === 'Blue Ridge Plumbing & Fire Protection')
+  await dbRun(
+    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
+     VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
+    ['00000000-0000-4000-8000-000000000003', 'sub@horizonelectric.demo', userHash, 'Elena Rossi', 'Horizon Electrical Services', daysAgo(30), horizonSub?.id || null]
+  )
+  await dbRun(
+    `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
+     VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
+    ['00000000-0000-4000-8000-000000000004', 'sub2@blueridgeplumbing.demo', userHash, 'Marcus Brody', 'Blue Ridge Plumbing & Fire Protection', daysAgo(15), blueRidgeSub?.id || null]
+  )
   console.log('[seed] Done!')
   console.log(`[seed] Admin login: kyuchang@gmail.com / password123`)
   console.log(`[seed] Staff portal: /staff`)
   console.log(`[seed] GC login: gc@apexconstruction.demo / password123`)
+  console.log(`[seed] Subcontractor login: sub@horizonelectric.demo / password123`)
+  console.log(`[seed] Subcontractor (no COI) login: sub2@blueridgeplumbing.demo / password123`)
+  console.log(`[seed] Sub portal: /subcontractor`)
   console.log(`[seed] Client share link: /share/${shareToken}`)
+  console.log(`[seed] Sub onboarding QR link: /join/join-apex-2026`)
   console.log(`[seed] Sub upload link: /upload/upload-drywall-2026`)
 }
 

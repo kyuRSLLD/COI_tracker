@@ -82,6 +82,10 @@ export function LandingPage({ onLogin }: Props) {
       q: 'How does pricing work?',
       a: 'Subcontractors get their first month completely free, then pay a one-time fee of $2 to keep their certificate hosted. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
     },
+    {
+      q: 'How do I onboard subcontractors?',
+      a: 'Go to Profile → Subcontractor onboarding QR code. Share the QR code (print it for your job-site trailer) or the invite link. Subs scan it, create a free account — first month free — and are linked to you instantly. Existing COI Shield users can connect their account with one tap.',
+    },
   ]
 
   return (
@@ -128,6 +132,13 @@ export function LandingPage({ onLogin }: Props) {
               Sign in →
             </Link>
           </div>
+          <p className="mt-4 text-center text-xs text-slate-300">
+            Subcontractor?{' '}
+            <Link to="/login" className="text-emerald-300 font-semibold hover:underline">
+              Upload or connect your insurance paper in 2 minutes
+            </Link>{' '}
+            — free for your first month.
+          </p>
 
           {/* Product mockup frame */}
           <div className="mt-14 max-w-5xl mx-auto rounded-3xl bg-slate-900/80 p-3 sm:p-5 ring-1 ring-white/15 shadow-2xl">

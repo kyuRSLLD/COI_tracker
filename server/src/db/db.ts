@@ -127,6 +127,7 @@ export async function initDatabase(): Promise<void> {
       name TEXT NOT NULL,
       company_name TEXT,
       role TEXT DEFAULT 'gc',
+      subcontractor_id TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -256,6 +257,7 @@ export async function initDatabase(): Promise<void> {
       required_wc_limit TEXT,
       required_umbrella_limit TEXT,
       expiration_warning_days INTEGER DEFAULT 30,
+      invite_code TEXT,
       updated_at TEXT NOT NULL
     );
 
@@ -269,6 +271,13 @@ export async function initDatabase(): Promise<void> {
 
   await dbExec(schema)
   console.log('[db] Schema initialized successfully')
+
+  try {
+    await dbRun('ALTER TABLE users ADD COLUMN subcontractor_id TEXT')
+  } catch {}
+  try {
+    await dbRun('ALTER TABLE gc_settings ADD COLUMN invite_code TEXT')
+  } catch {}
 
   try {
     const users = await dbAll('SELECT id, company_name, created_at FROM users WHERE company_name IS NOT NULL')

@@ -68,7 +68,7 @@ export async function apiLogin(email: string, password: string): Promise<{ token
   return data
 }
 
-export async function apiRegister(body: { email: string; password: string; name: string; company_name?: string }): Promise<{ token: string; user: User }> {
+export async function apiRegister(body: { email: string; password: string; name: string; company_name?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
   const data = await request<{ token: string; user: User }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -208,4 +208,34 @@ export const apiAdmin = {
   deleteUser: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
   resetDemoData: () => request<{ success: boolean; message: string }>('/api/admin/danger/reset', { method: 'POST' }),
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
+}
+
+// Subcontractor portal (upload insurance paper / carrier connect)
+export const apiSub = {
+  my: () => request<import('./types').SubcontractorDashboardData>('/api/sub/my'),
+  quickUpload: (form: FormData) =>
+    request<import('./types').COI>('/api/sub/quick-upload', { method: 'POST', body: form }),
+  carrierConnect: (carrier: string, policy_number?: string) =>
+    request<{ success: boolean; verified: boolean; carrier: string; policy_number: string; coi: import('./types').COI }>('/api/sub/carrier-connect', {
+      method: 'POST',
+      body: JSON.stringify({ carrier, policy_number }),
+    }),
+  updateProfile: (body: Partial<import('./types').Subcontractor>) =>
+    request<import('./types').Subcontractor>('/api/sub/profile', { method: 'POST', body: JSON.stringify(body) }),
+  publicView: (subId: string) =>
+    request<{ subcontractor: import('./types').Subcontractor; coi?: import('./types').COI }>(`/api/sub/public/${subId}`),
+  joinInfo: (inviteCode: string) => request<import('./types').JoinInfo>(`/api/sub/join-info/${inviteCode}`),
+  join: (inviteCode: string, body?: { email?: string; password?: string; name?: string; company_name?: string; trade?: string; contact_person?: string; phone?: string }) =>
+    request<{ token?: string; user?: import('./types').User; linked: boolean; mode?: string; gc_company_name?: string; subcontractor?: import('./types').Subcontractor }>(`/api/sub/join/${inviteCode}`, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+}
+
+// QR onboarding info for GCs
+export async function apiQrInvite(): Promise<import('./types').QrInviteInfo> {
+  return request<import('./types').QrInviteInfo>('/api/settings/qr-invite')
+}
+export async function apiRegenerateQrInvite(): Promise<import('./types').QrInviteInfo> {
+  return request<import('./types').QrInviteInfo>('/api/settings/qr-invite/regenerate', { method: 'POST' })
 }

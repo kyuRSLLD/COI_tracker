@@ -13,6 +13,7 @@ export interface User {
   name: string
   role: string
   company_name?: string | null
+  subcontractor_id?: string | null
 }
 
 export interface Subcontractor {
@@ -160,6 +161,7 @@ export interface EmailLog {
 export interface GCSettings {
   id?: string
   company_name?: string | null
+  subcontractor_id?: string | null
   license_number?: string | null
   address?: string | null
   phone?: string | null
@@ -252,8 +254,51 @@ export interface AdminUser {
   email: string
   name: string
   company_name?: string | null
+  subcontractor_id?: string | null
   role: string
   created_at: string
   company_plan?: string | null
   company_mrr?: number | null
+}
+
+export interface SubcontractorDashboardData {
+  subcontractor: Subcontractor
+  cois: COI[]
+  requests: Array<{
+    id: string
+    subcontractor_id: string
+    token: string
+    requested_by_email?: string | null
+    message?: string | null
+    gc_company_name?: string | null
+    gc_phone?: string | null
+    expires_at?: string | null
+    used: number
+    created_at: string
+  }>
+  connected_gcs: Array<{ company_name: string; email?: string | null; phone?: string | null }>
+  public_share_url: string
+}
+
+export interface QrInviteInfo {
+  invite_code: string
+  invite_url: string
+  company_name: string
+}
+
+export interface JoinInfo {
+  valid: boolean
+  invite_code: string
+  gc: {
+    company_name: string
+    email?: string | null
+    phone?: string | null
+    logo_url?: string | null
+  }
+}
+
+export interface TwoFactorState {
+  enabled: boolean
+  method?: 'authenticator' | 'sms'
+  phone_masked?: string
 }

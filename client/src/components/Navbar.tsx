@@ -1,5 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, LogOut, FileText, Users, FolderKanban, Mail, Settings, Plus, Crown } from 'lucide-react'
+import {
+  ShieldCheck, Users, FolderKanban, Mail, Settings, Plus, FileText, LogOut, Crown,
+} from 'lucide-react'
 import type { User } from '../types'
 import { apiLogout } from '../api'
 
@@ -12,19 +14,29 @@ interface Props {
 
 export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props) {
   const loc = useLocation()
-  const nav = [
-    { to: '/dashboard', label: 'Dashboard', icon: ShieldCheck },
-    { to: '/subcontractors', label: 'Subcontractors', icon: Users },
-    { to: '/projects', label: 'Projects', icon: FolderKanban },
-    { to: '/emails', label: 'Emails', icon: Mail },
-    { to: '/settings', label: 'Settings', icon: Settings },
-  ]
-  if (user?.role === 'admin') nav.push({ to: '/staff', label: 'Staff', icon: Crown })
+
+  const nav = (() => {
+    if (user?.role === 'sub') {
+      return [
+        { to: '/subcontractor', label: 'My COIs', icon: ShieldCheck },
+        { to: '/settings', label: 'Profile', icon: Settings },
+      ]
+    }
+    const items = [
+      { to: '/dashboard', label: 'Dashboard', icon: ShieldCheck },
+      { to: '/subcontractors', label: 'Subcontractors', icon: Users },
+      { to: '/projects', label: 'Projects', icon: FolderKanban },
+      { to: '/emails', label: 'Emails', icon: Mail },
+      { to: '/settings', label: 'Profile', icon: Settings },
+    ]
+    if (user?.role === 'admin') items.push({ to: '/staff', label: 'Staff', icon: Crown })
+    return items
+  })()
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-3">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-8 min-w-0">
           <Link to="/" className="flex items-center gap-2 group whitespace-nowrap">
             <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-extrabold text-sm shadow-sm group-hover:bg-slate-800 transition">
               <ShieldCheck className="w-4 h-4" />
@@ -57,7 +69,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
         <div className="flex items-center gap-2">
           {user ? (
             <>
-              {onOpenAddSub && (
+              {user.role !== 'sub' && onOpenAddSub && (
                 <button
                   onClick={onOpenAddSub}
                   title="Add subcontractor"
@@ -66,7 +78,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                   <Plus className="w-3.5 h-3.5" /> + Sub
                 </button>
               )}
-              {onOpenRequestCOI && (
+              {user.role !== 'sub' && onOpenRequestCOI && (
                 <button
                   onClick={onOpenRequestCOI}
                   title="Request certificate of insurance"
@@ -118,8 +130,8 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded whitespace-nowrap ${
-                  active ? 'text-brand-700 font-bold' : 'text-slate-500'
+                className={`flex flex-col items-center gap-0.5 py-1 px-2 ${
+                  active ? 'text-brand-700 font-semibold' : 'text-slate-500'
                 }`}
               >
                 <Icon className="w-4 h-4" />

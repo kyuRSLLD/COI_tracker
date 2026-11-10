@@ -1,19 +1,16 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { ArrowRight, ShieldCheck } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ShieldCheck, ArrowRight, Sparkles } from 'lucide-react'
 import { apiLogin, apiRegister } from '../api'
 
-interface Props {
-  onLogin: () => void
-}
-
-export function LoginPage({ onLogin }: Props) {
+export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const navigate = useNavigate()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
+  const [role, setRole] = useState<'gc' | 'sub'>('gc')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,9 +21,10 @@ export function LoginPage({ onLogin }: Props) {
     try {
       const data = mode === 'login'
         ? await apiLogin(email, password)
-        : await apiRegister({ email, password, name, company_name: company })
+        : await apiRegister({ email, password, name, company_name: company, role })
       onLogin()
-      navigate(data.user.role === 'admin' ? '/staff' : '/dashboard')
+      const r = data.user.role
+      navigate(r === 'admin' ? '/staff' : r === 'sub' ? '/subcontractor' : '/dashboard')
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -34,9 +32,9 @@ export function LoginPage({ onLogin }: Props) {
     }
   }
 
-  const fillDemo = () => {
-    setEmail('gc@apexconstruction.demo')
-    setPassword('password123')
+  const fill = (em: string, pw: string) => {
+    setEmail(em)
+    setPassword(pw)
   }
 
   return (
@@ -52,46 +50,129 @@ export function LoginPage({ onLogin }: Props) {
           {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          {mode === 'login' ? 'Enter your credentials or try the demo' : 'Register your company profile'}
+          {mode === 'login' ? 'Enter your credentials or try a demo below' : 'Choose your role and get started'}
         </p>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-card border border-slate-200 sm:rounded-3xl space-y-4">
-          <button
-            type="button"
-            onClick={fillDemo}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 transition"
-          >
-            Fill demo account — Apex Construction Group
-          </button>
+          {/* Demo account buttons */}
+          <div className="text-[11px] text-slate-500 space-y-1.5">
+            <p className="font-semibold text-slate-600">Demo accounts (click to fill):</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => fill('gc@apexconstruction.demo', 'password123')}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
+              >
+                GC · Apex Construction
+              </button>
+              <button
+                type="button"
+                onClick={() => fill('sub@horizonelectric.demo', 'password123')}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
+              >
+                Sub · Horizon Electric
+              </button>
+              <button
+                type="button"
+                onClick={() => fill('sub2@blueridgeplumbing.demo', 'password123')}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
+              >
+                Sub (no COI) · Blue Ridge
+              </button>
+              <button
+                type="button"
+                onClick={() => fill('kyuchang@gmail.com', 'password123')}
+                className="px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-semibold"
+              >
+                Staff admin
+              </button>
+            </div>
+          </div>
 
-          {error && <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">{error}</div>}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {error && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
+            )}
 
-          <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
             {mode === 'register' && (
               <>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Your name</label>
-                  <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="Michael Vance" />
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-600">I am a</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setRole('gc')}
+                      className={`py-2 rounded-xl border font-semibold ${
+                        role === 'gc'
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      General Contractor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRole('sub')}
+                      className={`py-2 rounded-xl border font-semibold flex items-center justify-center gap-1 ${
+                        role === 'sub'
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Subcontractor
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800">free 30d</span>
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Company name</label>
-                  <input value={company} onChange={(e) => setCompany(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="Apex Construction Group" />
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-600">Your name</label>
+                  <input
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-600">Company name</label>
+                  <input
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                  />
                 </div>
               </>
             )}
 
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white font-['JetBrains_Mono']" placeholder="gc@apexconstruction.demo" />
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-slate-600">Email</label>
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+              />
             </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Password</label>
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white font-['JetBrains_Mono']" placeholder="password123" />
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-slate-600">Password</label>
+              <input
+                required
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+              />
             </div>
 
-            <button type="submit" disabled={loading} className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-2xl text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 transition shadow-sm">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 disabled:opacity-50 transition shadow-sm"
+            >
               {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight className="w-4 h-4" />
             </button>
           </form>
