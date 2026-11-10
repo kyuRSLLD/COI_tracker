@@ -133,6 +133,9 @@ export function UploadPortalPage() {
           <p className="text-xs text-slate-500 mt-1">
             Requested by <strong>{gc.company_name}</strong> · four quick steps, about 2 minutes
           </p>
+          <p className="text-[11px] text-emerald-700 font-mono mt-1">
+            Free for your first month — no payment information required
+          </p>
         </div>
 
         {/* Step indicator */}

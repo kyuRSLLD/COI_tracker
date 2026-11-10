@@ -80,7 +80,7 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       q: 'How does pricing work?',
-      a: 'Subcontractors pay a one-time fee of $2 to submit and host their certificate. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+      a: 'Subcontractors get their first month completely free, then pay a one-time fee of $2 to keep their certificate hosted. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
     },
   ]
 
@@ -238,7 +238,7 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">Subcontractor</h3>
               <p className="text-xs text-slate-500 mt-1">Upload · Confirm · Stay active</p>
-              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-sky-50 text-sky-800 border border-sky-200">$2 one-time</span></div>
+              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-sky-50 text-sky-800 border border-sky-200">First month free · then $2</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Open the link — no app, no password</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Enter policy #, carrier, limits in a 4-step wizard</span></li>
@@ -393,10 +393,12 @@ export function LandingPage({ onLogin }: Props) {
                 Submit your insurance certificate once and keep it ready for any contractor who asks.
               </p>
               <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$2</span>
-                <span className="text-xs text-slate-400 font-medium">one-time fee</span>
+                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$0</span>
+                <span className="text-xs text-slate-400 font-medium">first month</span>
               </div>
+              <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">then $2 one-time after 30 days</div>
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Free for your first month</strong> — no payment info needed to start</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Upload and host your COI for any requesting contractor</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Expiration alerts so you renew before your policy lapses</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Self-service upload link — done in under two minutes</li>
@@ -407,7 +409,7 @@ export function LandingPage({ onLogin }: Props) {
               to="/login"
               className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition"
             >
-              Get started
+              Start free
             </Link>
           </div>
 
