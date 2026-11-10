@@ -172,9 +172,9 @@ const planUpdate = await request(app, {
   method: 'PUT',
   url: `/api/admin/companies/${companies.json.companies[0].id}/plan`,
   headers: adminAuth,
-  body: { plan: 'Enterprise' },
+  body: { plan: 'Pro GC' },
 })
-assert('Admin can update company plan and MRR recalculates', planUpdate.status === 200 && planUpdate.json?.company?.mrr === 499)
+assert('Admin can update company plan and MRR recalculates', planUpdate.status === 200 && planUpdate.json?.company?.mrr === 29)
 const usersList = await request(app, { url: '/api/admin/users', headers: adminAuth })
 assert('Admin users list returns all accounts with roles', usersList.status === 200 && Array.isArray(usersList.json?.users))
 const gcUser = usersList.json.users.find((u: any) => u.email === 'gc@apexconstruction.demo')

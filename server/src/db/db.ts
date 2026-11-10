@@ -23,13 +23,13 @@ let sqliteDb: sqlite3.Database | null = null
 
 export const PLAN_PRICES: Record<string, number> = {
   'Free Demo': 0,
-  Starter: 49,
-  Professional: 149,
-  Enterprise: 499,
+  Subcontractor: 2,
+  'General Contractor': 10,
+  'Pro GC': 29,
 }
 
 export function planToMRR(plan: string): number {
-  return PLAN_PRICES[plan] ?? 49
+  return PLAN_PRICES[plan] ?? 10
 }
 
 function getPgPool(): pg.Pool {
@@ -133,8 +133,8 @@ export async function initDatabase(): Promise<void> {
     CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      plan TEXT DEFAULT 'Starter',
-      mrr INTEGER DEFAULT 49,
+      plan TEXT DEFAULT 'General Contractor',
+      mrr INTEGER DEFAULT 10,
       status TEXT DEFAULT 'active',
       owner_user_id TEXT,
       created_at TEXT NOT NULL
@@ -277,7 +277,7 @@ export async function initDatabase(): Promise<void> {
       if (!existing) {
         await dbRun(
           `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
-           VALUES (?, ?, 'Starter', 49, 'active', ?, ?)`,
+           VALUES (?, ?, 'General Contractor', 10, 'active', ?, ?)`,
           [uuidv4(), u.company_name, u.id, u.created_at || new Date().toISOString()]
         )
       }

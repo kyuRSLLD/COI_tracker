@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Building,
+  ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Building, Check,
 } from 'lucide-react'
 import { apiLogin } from '../api'
 
@@ -78,6 +78,10 @@ export function LandingPage({ onLogin }: Props) {
       q: 'How do expiration reminders work?',
       a: 'The dashboard highlights policies expiring in the next 30 days. You can send renewal reminders individually or batch-remind all expiring subcontractors in one click. Every reminder is logged in an audit trail.',
     },
+    {
+      q: 'How does pricing work?',
+      a: 'Subcontractors pay a one-time fee of $2 to submit and host their certificate. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+    },
   ]
 
   return (
@@ -111,11 +115,17 @@ export function LandingPage({ onLogin }: Props) {
             >
               Try live demo (pre-filled data) <ArrowRight className="w-4 h-4" />
             </button>
-            <Link
-              to="/login"
+            <a
+              href="#pricing"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-white bg-white/10 hover:bg-white/15 backdrop-blur transition border border-white/15"
             >
-              Sign in
+              View pricing
+            </a>
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-300 hover:text-white transition"
+            >
+              Sign in →
             </Link>
           </div>
 
@@ -211,6 +221,7 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">General Contractor</h3>
               <p className="text-xs text-slate-500 mt-1">Collect · Verify · Monitor · Share</p>
+              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-emerald-50 text-emerald-800 border border-emerald-200">$10/month</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Request COIs with personalized magic links</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Review coverage limits against company requirements</span></li>
@@ -227,6 +238,7 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">Subcontractor</h3>
               <p className="text-xs text-slate-500 mt-1">Upload · Confirm · Stay active</p>
+              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-sky-50 text-sky-800 border border-sky-200">$2 one-time</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Open the link — no app, no password</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Enter policy #, carrier, limits in a 4-step wizard</span></li>
@@ -243,6 +255,7 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">Client / Owner</h3>
               <p className="text-xs text-slate-500 mt-1">Verify · Trust · Print</p>
+              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-slate-100 text-slate-700 border border-slate-200">Free · shared by your GC</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Live project scorecard (e.g. 86% compliant)</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Verified coverage limits per trade at a glance</span></li>
@@ -356,6 +369,113 @@ export function LandingPage({ onLogin }: Props) {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="max-w-6xl mx-auto px-4 sm:px-6 py-20 border-t border-slate-200">
+        <div className="text-center max-w-2xl mx-auto">
+          <div className="text-xs font-bold uppercase tracking-wider text-brand-600 font-['JetBrains_Mono']">PRICING</div>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 mt-2">
+            Simple, honest pricing for every side of the job site.
+          </h2>
+          <p className="mt-3 text-sm text-slate-500 leading-relaxed">
+            No contracts. Cancel anytime. Start free and only pay when you are ready to track or share compliance.
+          </p>
+        </div>
+
+        <div className="mt-12 grid md:grid-cols-3 gap-6 items-stretch">
+          {/* Subcontractor */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-card flex flex-col justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 font-['JetBrains_Mono']">FOR SUBCONTRACTORS</div>
+              <h3 className="text-xl font-extrabold text-slate-900 mt-1">Subcontractor</h3>
+              <p className="text-xs text-slate-500 mt-2 min-h-[40px]">
+                Submit your insurance certificate once and keep it ready for any contractor who asks.
+              </p>
+              <div className="mt-6 flex items-baseline gap-1">
+                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$2</span>
+                <span className="text-xs text-slate-400 font-medium">one-time fee</span>
+              </div>
+              <ul className="mt-7 space-y-3 text-xs text-slate-600">
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Upload and host your COI for any requesting contractor</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Expiration alerts so you renew before your policy lapses</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Self-service upload link — done in under two minutes</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Certificate stored securely, share-ready anytime</li>
+              </ul>
+            </div>
+            <Link
+              to="/login"
+              className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition"
+            >
+              Get started
+            </Link>
+          </div>
+
+          {/* General Contractor — MOST POPULAR */}
+          <div className="rounded-2xl border-2 border-brand-600 bg-white p-7 shadow-xl shadow-brand-500/10 flex flex-col justify-between relative ring-1 ring-brand-500/30">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-brand-600 text-white font-['JetBrains_Mono'] shadow-sm">
+                Most popular
+              </span>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-brand-600 font-['JetBrains_Mono']">FOR GENERAL CONTRACTORS</div>
+              <h3 className="text-xl font-extrabold text-slate-900 mt-1">General Contractor</h3>
+              <p className="text-xs text-slate-500 mt-2 min-h-[40px]">
+                See every subcontractor COI connected to you in one dashboard, and share compliance with clients whenever you want.
+              </p>
+              <div className="mt-6 flex items-baseline gap-1">
+                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$10</span>
+                <span className="text-xs text-slate-400 font-medium">/ month</span>
+              </div>
+              <ul className="mt-7 space-y-3 text-xs text-slate-600">
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>See all subcontractor COIs</strong> connected to you, with status and countdowns</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Optionally share compliance with clients</strong> through privacy-safe links</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Subcontractor contact info is strictly hidden from clients</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> One-click renewal reminders to expiring subcontractors</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Printable compliance scorecards and audit trails</li>
+              </ul>
+            </div>
+            <Link
+              to="/login"
+              className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm"
+            >
+              Start tracking
+            </Link>
+          </div>
+
+          {/* Pro GC */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-card flex flex-col justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 font-['JetBrains_Mono']">FOR GROWING CONTRACTORS</div>
+              <h3 className="text-xl font-extrabold text-slate-900 mt-1">Pro GC</h3>
+              <p className="text-xs text-slate-500 mt-2 min-h-[40px]">
+                For contractors running multiple active jobs, crews, and client stakeholders at once.
+              </p>
+              <div className="mt-6 flex items-baseline gap-1">
+                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$29</span>
+                <span className="text-xs text-slate-400 font-medium">/ month</span>
+              </div>
+              <ul className="mt-7 space-y-3 text-xs text-slate-600">
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Everything in the General Contractor plan</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Unlimited projects and unlimited subcontractors</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Automated weekly expiry digests by email</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> CSV/spreadsheet exports for audits</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Priority support</li>
+              </ul>
+            </div>
+            <Link
+              to="/login"
+              className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition"
+            >
+              Go Pro
+            </Link>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-slate-400 mt-8">
+          All plans include 256-bit encrypted storage, email reminders, and client-safe privacy by design. Need something custom? Let us know.
+        </p>
       </section>
 
       {/* FAQ */}

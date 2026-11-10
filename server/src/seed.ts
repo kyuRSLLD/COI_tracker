@@ -353,16 +353,16 @@ export async function seed() {
   // 8. Rich demo subscriber companies (spread over 6 months for real-looking growth bars)
   const defaultPw = await bcrypt.hash('demo1234', 10)
   const demoCompanies = [
-    { name: 'Apex Construction Group', plan: 'Professional', mrr: 149, ownerId: userId, ownerEmail: 'gc@apexconstruction.demo', ownerName: 'Michael Vance', days: 175 },
-    { name: 'Pinnacle Builders Inc.', plan: 'Professional', mrr: 149, ownerEmail: 'sarah@pinnaclebuilders.demo', ownerName: 'Sarah Lin', days: 160 },
-    { name: 'Cornerstone Construction', plan: 'Enterprise', mrr: 499, ownerEmail: 'kevin@cornerstone.demo', ownerName: 'Kevin Ortiz', days: 135 },
-    { name: 'Summit Contracting', plan: 'Starter', mrr: 49, ownerEmail: 'dave@summitcontracting.demo', ownerName: 'Dave Morris', days: 120 },
-    { name: 'Blue Ridge Constructors', plan: 'Enterprise', mrr: 499, ownerEmail: 'rachel@blueridgegc.demo', ownerName: 'Rachel Kim', days: 105 },
-    { name: 'Harbor Mechanical Group', plan: 'Professional', mrr: 149, ownerEmail: 'omar@harbormechanical.demo', ownerName: 'Omar Hassan', days: 95 },
-    { name: 'Meridian Prime Builders', plan: 'Professional', mrr: 149, ownerEmail: 'jenna@meridianprime.demo', ownerName: 'Jenna Cole', days: 85 },
-    { name: 'Keystone Drywall & Frame', plan: 'Starter', mrr: 49, ownerEmail: 'leo@keystonedrywall.demo', ownerName: 'Leo Ramos', days: 70 },
-    { name: 'Crestline Electrical Co.', plan: 'Starter', mrr: 49, ownerEmail: 'ana@crestlineelectric.demo', ownerName: 'Ana Morales', days: 55 },
-    { name: 'Strata Steel & Structural', plan: 'Starter', mrr: 49, ownerEmail: 'paul@stratasteel.demo', ownerName: 'Paul Nowak', days: 35 },
+    { name: 'Apex Construction Group', plan: 'General Contractor', mrr: 10, ownerId: userId, ownerEmail: 'gc@apexconstruction.demo', ownerName: 'Michael Vance', days: 175 },
+    { name: 'Pinnacle Builders Inc.', plan: 'General Contractor', mrr: 10, ownerEmail: 'sarah@pinnaclebuilders.demo', ownerName: 'Sarah Lin', days: 160 },
+    { name: 'Cornerstone Construction', plan: 'Pro GC', mrr: 29, ownerEmail: 'kevin@cornerstone.demo', ownerName: 'Kevin Ortiz', days: 135 },
+    { name: 'Summit Contracting', plan: 'Subcontractor', mrr: 2, ownerEmail: 'dave@summitcontracting.demo', ownerName: 'Dave Morris', days: 120 },
+    { name: 'Blue Ridge Constructors', plan: 'Pro GC', mrr: 29, ownerEmail: 'rachel@blueridgegc.demo', ownerName: 'Rachel Kim', days: 105 },
+    { name: 'Harbor Mechanical Group', plan: 'General Contractor', mrr: 10, ownerEmail: 'omar@harbormechanical.demo', ownerName: 'Omar Hassan', days: 95 },
+    { name: 'Meridian Prime Builders', plan: 'General Contractor', mrr: 10, ownerEmail: 'jenna@meridianprime.demo', ownerName: 'Jenna Cole', days: 85 },
+    { name: 'Keystone Drywall & Frame', plan: 'Subcontractor', mrr: 2, ownerEmail: 'leo@keystonedrywall.demo', ownerName: 'Leo Ramos', days: 70 },
+    { name: 'Crestline Electrical Co.', plan: 'Subcontractor', mrr: 2, ownerEmail: 'ana@crestlineelectric.demo', ownerName: 'Ana Morales', days: 55 },
+    { name: 'Strata Steel & Structural', plan: 'Subcontractor', mrr: 2, ownerEmail: 'paul@stratasteel.demo', ownerName: 'Paul Nowak', days: 35 },
     { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao', days: 25 },
     { name: 'Northgate Construction', plan: 'Free Demo', mrr: 0, ownerEmail: 'tom@northgategc.demo', ownerName: 'Tom Bailey', days: 8 },
   ]
@@ -388,7 +388,7 @@ export async function seed() {
   await dbRun(
     `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
      VALUES (?, ?, ?, ?, 'active', ?, ?)`,
-    [uuidv4(), 'SafeCOI', 'Starter', 49, adminId, daysAgo(150)]
+    [uuidv4(), 'SafeCOI', 'Pro GC', 29, adminId, daysAgo(150)]
   )
 
   console.log('[seed] Done!')
