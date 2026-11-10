@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Building, Check,
 } from 'lucide-react'
-import { apiLogin } from '../api'
 
 interface Props {
   onLogin: () => void
@@ -14,16 +13,6 @@ export function LandingPage({ onLogin }: Props) {
   const [calcTotal, setCalcTotal] = useState(12)
   const [calcCompliant, setCalcCompliant] = useState(10)
   const score = calcTotal > 0 ? Math.round((calcCompliant / calcTotal) * 100) : 100
-
-  const handleDemo = async () => {
-    try {
-      await apiLogin('gc@apexconstruction.demo', 'password123')
-      onLogin()
-      navigate('/dashboard')
-    } catch {
-      navigate('/login')
-    }
-  }
 
   const features = [
     {
@@ -113,12 +102,12 @@ export function LandingPage({ onLogin }: Props) {
           </div>
 
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <button
-              onClick={handleDemo}
+            <Link
+              to="/login"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-950 bg-gradient-to-r from-emerald-300 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 transition shadow-lg shadow-emerald-500/30"
             >
-              Try live demo (pre-filled data) <ArrowRight className="w-4 h-4" />
-            </button>
+              Sign in <ArrowRight className="w-4 h-4" />
+            </Link>
             <a
               href="#pricing"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-white bg-white/10 hover:bg-white/15 backdrop-blur transition border border-white/15"
@@ -371,12 +360,12 @@ export function LandingPage({ onLogin }: Props) {
               <div className="mt-3 text-xs text-slate-300">
                 {score >= 90 ? 'Healthy — audit-ready' : score >= 70 ? 'Action needed — send renewals' : 'High risk — stop-work exposure'}
               </div>
-              <button
-                onClick={handleDemo}
+              <Link
+                to="/login"
                 className="mt-6 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-300 hover:bg-emerald-400 transition"
               >
-                Track this live in the demo <ChevronRight className="w-4 h-4" />
-              </button>
+                Sign in to see it live <ChevronRight className="w-4 h-4" />
+              </Link>
             </div>
           </div>
         </div>
@@ -516,15 +505,15 @@ export function LandingPage({ onLogin }: Props) {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl sm:text-4xl font-extrabold">Ready to never lose a COI again?</h2>
           <p className="text-xs text-slate-300 mt-2">
-            The demo is pre-loaded with realistic construction data. Explore the GC dashboard, try the sub upload wizard, and preview the client portal in two minutes.
+            Explore the GC dashboard, try the sub upload wizard, and preview the client portal in two minutes.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <button
-              onClick={handleDemo}
+            <Link
+              to="/login"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-950 bg-gradient-to-r from-emerald-300 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 transition shadow-lg shadow-emerald-500/30"
             >
-              Open live demo <ArrowRight className="w-4 h-4" />
-            </button>
+              Sign in to get started <ArrowRight className="w-4 h-4" />
+            </Link>
             <Link
               to="/share/rcc-meridian-2026"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-white bg-white/10 hover:bg-white/15 backdrop-blur transition border border-white/15"

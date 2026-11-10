@@ -7,7 +7,6 @@ import type { User, Subcontractor } from './types'
 import { Navbar } from './components/Navbar'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
-import { DemoLaunchPage } from './pages/DemoLaunchPage'
 import { Dashboard } from './pages/Dashboard'
 import { SubcontractorsPage } from './pages/SubcontractorsPage'
 import { ProjectsPage } from './pages/ProjectsPage'
@@ -55,8 +54,7 @@ function App() {
     location.pathname.startsWith('/share/') ||
     location.pathname.startsWith('/upload/') ||
     location.pathname.startsWith('/join/') ||
-    location.pathname === '/login' ||
-    location.pathname === '/demo'
+    location.pathname === '/login'
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -78,7 +76,7 @@ function App() {
             path="/login"
             element={user ? <Navigate to={roleHome(user)} replace /> : <LoginPage onLogin={refreshUser} />}
           />
-          <Route path="/demo" element={<DemoLaunchPage onLogin={refreshUser} />} />
+          <Route path="/demo" element={<Navigate to="/login" replace />} />
           <Route
             path="/dashboard"
             element={

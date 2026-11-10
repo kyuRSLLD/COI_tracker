@@ -8,6 +8,15 @@ import type { AuthRequest } from '../middleware/auth.ts'
 
 export const authRouter = Router()
 
+// Normalizes any raw phone into (xxx) xxx-xxxx. Falls back to trimmed raw for non-US formats.
+export function normalizePhone(raw: string | undefined | null): string | null {
+  if (!raw) return null
+  const d = String(raw).replace(/\D/g, '')
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
+  return String(raw).trim() || null
+}
+
 authRouter.post('/register', async (req, res) => {
   try {
     const { email, password, name, first_name, last_name, phone, company_name, role } = req.body || {}
@@ -25,6 +34,7 @@ authRouter.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'First name, last name, and phone are required' })
     }
     const finalRole = role === 'sub' ? 'sub' : 'gc'
+    const phoneFormatted = normalizePhone(phone)
     const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email.toLowerCase()])
     if (existing) {
       return res.status(409).json({ error: 'An account with that email already exists' })
@@ -38,21 +48,21 @@ authRouter.post('/register', async (req, res) => {
       await dbRun(
         `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
          VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?, ?)`,
-        [subId, id, company_name || fullName, fullName, phone ? String(phone).trim() : null, email.toLowerCase(), now, now]
+        [subId, id, company_name || fullName, fullName, phoneFormatted, email.toLowerCase(), now, now]
       )
     }
     await dbRun(
       `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, email.toLowerCase(), hash, fullName, fn || null, ln || null, phone ? String(phone).trim() : null, company_name || null, finalRole, new Date().toISOString(), subId]
+      [id, email.toLowerCase(), hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, new Date().toISOString(), subId]
     )
     if (phone) {
       await dbRun(
         'INSERT INTO user_phones (id, user_id, phone, label, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-        [uuidv4(), id, String(phone).trim(), 'mobile', new Date().toISOString()]
+        [uuidv4(), id, phoneFormatted || String(phone).trim(), 'mobile', new Date().toISOString()]
       )
     }
-    const user = { id, email: email.toLowerCase(), name: fullName, first_name: fn || null, last_name: ln || null, phone: phone ? String(phone).trim() : null, role: finalRole, subcontractor_id: subId }
+    const user = { id, email: email.toLowerCase(), name: fullName, first_name: fn || null, last_name: ln || null, phone: phoneFormatted, role: finalRole, subcontractor_id: subId }
     const token = signToken(user)
     res.json({ token, user })
   } catch (err: any) {
@@ -133,7 +143,7 @@ authRouter.post('/phones', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { phone, label, is_primary } = req.body || {}
     if (!phone || !String(phone).trim()) return res.status(400).json({ error: 'Phone is required' })
-    const clean = String(phone).trim()
+    const clean = normalizePhone(phone) || String(phone).trim()
     const id = uuidv4()
     const makePrimary = !!is_primary
     if (makePrimary) {

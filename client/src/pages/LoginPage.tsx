@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ShieldCheck, ArrowRight, Sparkles } from 'lucide-react'
+import { ShieldCheck, ArrowRight } from 'lucide-react'
 import { apiLogin, apiRegister } from '../api'
+import { formatPhone } from '../lib/formatPhone'
 
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const navigate = useNavigate()
@@ -43,11 +44,6 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
     }
   }
 
-  const fill = (em: string, pw: string) => {
-    setEmail(em)
-    setPassword(pw)
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -61,47 +57,12 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
           {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          {mode === 'login' ? 'Enter your credentials or try a demo below' : 'Choose your role and get started'}
+          {mode === 'login' ? 'Enter your email and password to continue' : 'Choose your role and get started'}
         </p>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-card border border-slate-200 sm:rounded-3xl space-y-4">
-          {/* Demo account buttons */}
-          <div className="text-[11px] text-slate-500 space-y-1.5">
-            <p className="font-semibold text-slate-600">Demo accounts (click to fill):</p>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => fill('gc@apexconstruction.demo', 'password123')}
-                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
-              >
-                GC · Apex Construction
-              </button>
-              <button
-                type="button"
-                onClick={() => fill('sub@horizonelectric.demo', 'password123')}
-                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
-              >
-                Sub · Horizon Electric
-              </button>
-              <button
-                type="button"
-                onClick={() => fill('sub2@blueridgeplumbing.demo', 'password123')}
-                className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700"
-              >
-                Sub (no COI) · Blue Ridge
-              </button>
-              <button
-                type="button"
-                onClick={() => fill('kyuchang@gmail.com', 'password123')}
-                className="px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-semibold"
-              >
-                Staff admin
-              </button>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-3">
             {error && (
               <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
@@ -133,7 +94,6 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                       }`}
                     >
                       Subcontractor
-                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800">free 30d</span>
                     </button>
                   </div>
                 </div>
@@ -166,8 +126,10 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                     required
                     type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => setPhone(formatPhone(e.target.value))}
                     placeholder="(312) 555-0199"
+                    pattern="\\(\d{3}\\) \d{3}-\d{4}"
+                    title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                   />
                   <p className="text-[10px] text-slate-400">Your email remains your sign-in identifier. You can add more phone numbers anytime in your profile.</p>

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { GCSettings, UserPhone } from '../types'
 import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe } from '../api'
+import { formatPhone } from '../lib/formatPhone'
 import { QRCodeSVG } from 'qrcode.react'
 
 const BACKUP_CODES = ['A3F9-K8X2', '7M1B-QQ40', 'Z9C2-T6L1', '5V0P-9Y7D', 'E8R4-N3W6', '2K7H-B1J5', 'F6S0-X4M9', 'U1A8-D5C3']
@@ -214,7 +215,7 @@ export function SettingsPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">Office phone</label>
-              <input value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+              <input value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: formatPhone(e.target.value) })} placeholder="(312) 555-0100" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">Compliance email (used for reminders &amp; invites)</label>
@@ -292,7 +293,9 @@ export function SettingsPage() {
               required
               placeholder="(312) 555-0199"
               value={newPhone}
-              onChange={(e) => setNewPhone(e.target.value)}
+              onChange={(e) => setNewPhone(formatPhone(e.target.value))}
+              pattern="\\(\d{3}\\) \d{3}-\d{4}"
+              title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
               className="px-3 py-2 rounded-xl border border-slate-200"
             />
             <select

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Building2 } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { apiSubcontractors } from '../api'
+import { formatPhone } from '../lib/formatPhone'
 
 const TRADES = [
   'Electrical',
@@ -150,7 +151,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
               <label className="block text-xs font-semibold text-slate-700 mb-1">Phone</label>
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhone(e.target.value))}
                 placeholder="(312) 555-0321"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
               />

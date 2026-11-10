@@ -103,20 +103,12 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
               </button>
             </>
           ) : (
-            <>
-              <Link
-                to="/demo"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
-              >
-                Demo
-              </Link>
-              <Link
-                to="/login"
-                className="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm whitespace-nowrap"
-              >
-                Sign In
-              </Link>
-            </>
+            <Link
+              to="/login"
+              className="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm whitespace-nowrap"
+            >
+              Sign In
+            </Link>
           )}
         </div>
       </div>
