@@ -25,6 +25,10 @@ The design and project structure match the patterns used for **lldrestaurantsupp
 - **Printable compliance reports** — browser-print-ready client reports matching the shared table.
 - **Email audit log** — every COI request and renewal reminder is logged for proof-of-notice compliance (simulation mode until SMTP is configured).
 - **Batch renewal reminders** — one-click reminder to all subcontractors expiring within 30 days.
+- **Subcontractor portal (`/subcontractor`)** — drag-and-drop ACORD upload, 7-carrier simulated login, certificates on file, and public share page with QR.
+- **Email a contractor** — subcontractors can email their verified COI summary and document link to any GC, even one without a COI Shield account, with a built-in contractor invitation.
+- **QR onboarding** — GCs get a live QR invite (`/join/:code`) under Profile for job-site flyers that link subs on signup or connect existing accounts in one tap.
+- **Two-method authentication (2FA) and password management** under Profile.
 - **Railway + AWS S3 ready** — Dockerfile, `railway.json`, `Procfile`, `.env.example`, Postgres + SQLite dual adapter, S3 storage with local fallback.
 
 ---

@@ -307,6 +307,35 @@ const joinAuthed = await request(app, {
 })
 assert('QR invite: authenticated sub connects to the GC', joinAuthed.status === 200 && joinAuthed.json?.linked && joinAuthed.json?.mode === 'authenticated')
 
+// 19. Sub emails COI to contractor (even one without an account)
+const sendEmailBad = await request(app, {
+  method: 'POST',
+  url: '/api/sub/send-coi-email',
+  headers: { ...subAuth },
+  body: { to_email: 'not-an-email' },
+})
+assert('send-coi-email validates email format', sendEmailBad.status === 400)
+const sendEmailNewGc = await request(app, {
+  method: 'POST',
+  url: '/api/sub/send-coi-email',
+  headers: { ...subAuth },
+  body: {
+    to_email: 'newgc@outreachgc.demo',
+    gc_company_name: 'Outreach Builders Inc.',
+    message: 'Here is our updated COI for your project file.',
+  },
+})
+assert('send-coi-email succeeds for contractor without account', sendEmailNewGc.status === 200 && sendEmailNewGc.json?.ok && sendEmailNewGc.json?.verify_url?.includes('/sub/share/'))
+const sentList = await request(app, { url: '/api/sub/sent-emails', headers: { ...subAuth } })
+assert('sent-emails lists emails sent by this sub', sentList.status === 200 && sentList.json?.emails?.length >= 1 && sentList.json.emails.some((e: any) => e.to_email === 'newgc@outreachgc.demo'))
+const sendEmailExistingGc = await request(app, {
+  method: 'POST',
+  url: '/api/sub/send-coi-email',
+  headers: { ...subAuth },
+  body: { to_email: 'gc@apexconstruction.demo', gc_company_name: 'Apex Construction' },
+})
+assert('send-coi-email auto-links when recipient is already a registered GC', sendEmailExistingGc.status === 200 && sendEmailExistingGc.json?.ok)
+
 
 console.log('\n========================================')
 console.log(` Results:  ${passed} passed, ${failed} failed`)

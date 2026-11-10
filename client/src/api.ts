@@ -239,3 +239,13 @@ export async function apiQrInvite(): Promise<import('./types').QrInviteInfo> {
 export async function apiRegenerateQrInvite(): Promise<import('./types').QrInviteInfo> {
   return request<import('./types').QrInviteInfo>('/api/settings/qr-invite/regenerate', { method: 'POST' })
 }
+// Subcontractor emailing COI to contractors (even those without an account)
+export async function apiSendCOIEmail(body: { to_email: string; gc_company_name?: string; message?: string; coi_id?: string }) {
+  return request<{ ok: boolean; email_log_id: string; sent_to: string; subject: string; verify_url: string }>('/api/sub/send-coi-email', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+export async function apiSubSentEmails() {
+  return request<{ emails: { id: string; to_email: string; subject: string; status: string; sent_at: string }[] }>('/api/sub/sent-emails')
+}

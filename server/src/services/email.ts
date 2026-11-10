@@ -75,3 +75,57 @@ Thank you,
 ${params.gcCompany}`,
   }
 }
+
+export function buildCOIShareEmail(params: {
+  subName: string
+  trade?: string | null
+  carrier: string
+  policyNumber?: string | null
+  expirationDate: string
+  coverages: { type: string; per_occurrence_limit?: string | null; aggregate_limit?: string | null }[]
+  verifyUrl: string
+  signUpUrl: string
+  gcCompany?: string | null
+  personalMessage?: string | null
+}): { subject: string; body: string } {
+  const greeting = params.gcCompany ? `Hi ${params.gcCompany} team,` : 'Hi,'
+  const lines: string[] = []
+  lines.push(`${greeting}`)
+  lines.push('')
+  lines.push(`${params.subName}${params.trade ? ` (${params.trade})` : ''} has shared their verified Certificate of Insurance with you.`)
+  if (params.personalMessage) {
+    lines.push('')
+    lines.push(`Note from ${params.subName}:`)
+    lines.push(`"${params.personalMessage}"`)
+  }
+  lines.push('')
+  lines.push('POLICY SUMMARY')
+  lines.push(`  Carrier:      ${params.carrier}`)
+  if (params.policyNumber) lines.push(`  Policy #:     ${params.policyNumber}`)
+  lines.push(`  Expires:      ${params.expirationDate}`)
+  if (params.coverages && params.coverages.length > 0) {
+    lines.push('')
+    lines.push('COVERAGE')
+    for (const c of params.coverages) {
+      const parts = [c.type]
+      if (c.per_occurrence_limit) parts.push(`per: ${c.per_occurrence_limit}`)
+      if (c.aggregate_limit) parts.push(`agg: ${c.aggregate_limit}`)
+      lines.push(`  - ${parts.join(' · ')}`)
+    }
+  }
+  lines.push('')
+  lines.push('VIEW AND DOWNLOAD THE FULL DOCUMENT:')
+  lines.push(params.verifyUrl)
+  lines.push('')
+  lines.push('----------------------------------------')
+  lines.push('Manage all your subcontractors\' insurance in one place —')
+  lines.push('expiration reminders, client-safe compliance reports, and')
+  lines.push('one-click COI requests. Create your free contractor account:')
+  lines.push(params.signUpUrl)
+  lines.push('')
+  lines.push(`This message was sent by ${params.subName} via COI Shield · safecoi.com`)
+  return {
+    subject: `Certificate of Insurance from ${params.subName} — verified via COI Shield`,
+    body: lines.join('\n'),
+  }
+}

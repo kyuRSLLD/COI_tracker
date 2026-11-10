@@ -7,6 +7,7 @@ import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { requireAuth, signToken } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { storeFile } from '../services/storage.ts'
+import { sendEmail, buildCOIShareEmail } from '../services/email.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -295,6 +296,79 @@ subPortalRouter.post('/join/:inviteCode', async (req: AuthRequest, res) => {
     await linkSubToGc(sub, gc.email)
     const token = signToken({ id: userId, email: email.toLowerCase(), role: 'sub', name, subcontractor_id: subId })
     return res.json({ token, user: { id: userId, email: email.toLowerCase(), name, role: 'sub', subcontractor_id: subId }, linked: true, mode: 'new', subcontractor: sub, gc_company_name: gc.company_name })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Email the sub's verified COI to any contractor (even one without an account)
+subPortalRouter.post('/send-coi-email', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { to_email, gc_company_name, message, coi_id } = req.body || {}
+    if (!to_email || !to_email.includes('@')) {
+      return res.status(400).json({ error: 'A valid contractor email address is required' })
+    }
+    const sub = await resolveSubProfile(req.user!)
+    let coi = null
+    if (coi_id) {
+      coi = await dbGet('SELECT * FROM cois WHERE id = ? AND subcontractor_id = ?', [coi_id, sub.id])
+    }
+    if (!coi) {
+      coi = await dbGet('SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY created_at DESC LIMIT 1', [sub.id])
+    }
+    if (!coi) {
+      return res.status(400).json({ error: 'You don\'t have any insurance certificates on file yet. Upload one first.' })
+    }
+    const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
+    const baseUrl = (process.env.CLIENT_URL || 'https://safecoi.com').replace(/\/$/, '')
+    const verifyUrl = `${baseUrl}/sub/share/${sub.id}`
+    const signUpUrl = `${baseUrl}/login?role=gc&email=${encodeURIComponent(to_email)}&ref=${encodeURIComponent(sub.company_name)}`
+    const { subject, body } = buildCOIShareEmail({
+      subName: sub.company_name,
+      trade: sub.trade,
+      carrier: coi.carrier || 'Carrier on file',
+      policyNumber: coi.policy_number,
+      expirationDate: coi.expiration_date,
+      coverages,
+      verifyUrl,
+      signUpUrl,
+      gcCompany: gc_company_name || null,
+      personalMessage: message ? String(message).slice(0, 1000) : null,
+    })
+    const { id: logId } = await sendEmail({ to: to_email.toLowerCase().trim(), subject, body, type: 'general' })
+    // If a GC with that email already exists, link them now
+    const existingGc = await dbGet('SELECT * FROM users WHERE LOWER(email) = ? AND role = ?', [to_email.toLowerCase().trim(), 'gc'])
+    if (existingGc && existingGc.email) {
+      const already = await dbGet(
+        'SELECT id FROM upload_requests WHERE subcontractor_id = ? AND LOWER(requested_by_email) = ?',
+        [sub.id, existingGc.email.toLowerCase()]
+      )
+      if (!already) {
+        await dbRun(
+          `INSERT INTO upload_requests (id, subcontractor_id, token, requested_by_email, message, expires_at, created_at)
+           VALUES (?, ?, ?, ?, 'COI shared via email', ?, ?)`,
+          [uuidv4(), sub.id, 'share-' + uuidv4().slice(0, 8), existingGc.email.toLowerCase(), new Date(Date.now() + 60 * 86400000).toISOString(), new Date().toISOString()]
+        )
+      }
+    }
+    console.log(`[sub] COI emailed to contractor ${to_email} for sub ${sub.company_name}`)
+    res.json({ ok: true, email_log_id: logId, sent_to: to_email.toLowerCase().trim(), subject, verify_url: verifyUrl })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// List emails this subcontractor has sent to contractors
+subPortalRouter.get('/sent-emails', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const sub = await resolveSubProfile(req.user!)
+    const pattern = `Certificate of Insurance from ${sub.company_name}%`
+    const rows = await dbAll(
+      `SELECT id, to_email, subject, status, sent_at FROM email_logs
+       WHERE subject LIKE ? ORDER BY sent_at DESC LIMIT 30`,
+      [pattern]
+    )
+    res.json({ emails: rows })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

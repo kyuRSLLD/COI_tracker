@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ShieldCheck, Upload, LogIn, CheckCircle2, Clock, FileText, AlertTriangle,
-  Copy, Check, ExternalLink, RefreshCw, Sparkles, Building2, Phone, Mail, Award,
+  Copy, Check, ExternalLink, RefreshCw, Sparkles, Building2, Phone, Mail, Award, Send,
 } from 'lucide-react'
-import { apiSub, apiLogout } from '../api'
+import { apiSub, apiLogout, apiSendCOIEmail, apiSubSentEmails } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
 import { QRCodeSVG } from 'qrcode.react'
 
@@ -33,20 +33,52 @@ export function SubcontractorDashboardPage() {
   // share
   const [copied, setCopied] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  // email-a-contractor
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailGcName, setEmailGcName] = useState('')
+  const [emailMsg, setEmailMsg] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [sentOk, setSentOk] = useState<string | null>(null)
+  const [sentError, setSentError] = useState<string | null>(null)
+  const [sentList, setSentList] = useState<{ id: string; to_email: string; subject: string; status: string; sent_at: string }[]>([])
 
   const load = async () => {
     try {
       setError(null)
       const res = await apiSub.my()
       setData(res)
+      apiSubSentEmails().then((r) => setSentList(r.emails || [])).catch(() => {})
     } catch (err: any) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
   }
-
   useEffect(() => { load() }, [])
+  const handleSendEmail = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!emailTo) return
+    setSendingEmail(true)
+    setSentOk(null)
+    setSentError(null)
+    try {
+      await apiSendCOIEmail({
+        to_email: emailTo.trim(),
+        gc_company_name: emailGcName.trim() || undefined,
+        message: emailMsg.trim() || undefined,
+      })
+      setSentOk(`COI emailed to ${emailTo.trim()} — they'll receive your verified coverage summary and a link to view the full document, plus an invite to join COI Shield free.`)
+      setEmailTo('')
+      setEmailGcName('')
+      setEmailMsg('')
+      apiSubSentEmails().then((r) => setSentList(r.emails || [])).catch(() => {})
+    } catch (err: any) {
+      setSentError(err.message || 'Failed to send email')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
 
   const handleQuickUpload = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -429,6 +461,14 @@ export function SubcontractorDashboardPage() {
             >
               Open <ExternalLink className="w-3 h-3" />
             </a>
+            <button
+              type="button"
+              onClick={() => { setEmailOpen(true); setSentOk(null); setSentError(null) }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 flex items-center gap-1.5 shadow-sm"
+              title="Email your COI directly to a GC — even if they don't have an account"
+            >
+              <Mail className="w-3.5 h-3.5" /> Email a contractor
+            </button>
           </div>
 
           {showQr && publicUrl && (
@@ -441,7 +481,131 @@ export function SubcontractorDashboardPage() {
               </p>
             </div>
           )}
+          {sentOk && (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-900 text-xs">
+              {sentOk}
+            </div>
+          )}
         </section>
+        {/* Email a contractor modal */}
+        {emailOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 overflow-hidden">
+              <div className="p-5 border-b border-slate-200 flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-emerald-600" /> Email your COI to a contractor
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Great when the GC doesn't have a COI Shield account yet — they'll receive your verified COI summary, a link to view/download the full document, and an invite to create a free contractor account.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEmailOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 text-lg leading-none px-1"
+                >
+                  ×
+                </button>
+              </div>
+              <form onSubmit={handleSendEmail} className="p-5 space-y-3.5 text-xs">
+                {sentError && (
+                  <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-rose-800">{sentError}</div>
+                )}
+                {cois.length === 0 ? (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900">
+                    Upload or connect a certificate first before emailing it to a contractor.
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-800">Sending your latest verified COI:</span>{' '}
+                    {cois[0].carrier || 'Carrier on file'} · {cois[0].policy_number ? `Pol. ${cois[0].policy_number} · ` : ''}expires {cois[0].expiration_date}
+                  </div>
+                )}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Contractor email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={emailTo}
+                    onChange={(e) => setEmailTo(e.target.value)}
+                    placeholder="pm@acmecontracting.com"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Contractor company name (optional)</label>
+                  <input
+                    type="text"
+                    value={emailGcName}
+                    onChange={(e) => setEmailGcName(e.target.value)}
+                    placeholder="Acme Contracting"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Personal note (optional)</label>
+                  <textarea
+                    rows={3}
+                    value={emailMsg}
+                    onChange={(e) => setEmailMsg(e.target.value)}
+                    placeholder="e.g. Here is our updated insurance certificate for the Meridian job site."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 text-[11px] text-slate-500 space-y-1">
+                  <div className="font-semibold text-slate-700">What they'll receive:</div>
+                  <div>- Your carrier, policy #, expiration date, and coverage summary</div>
+                  <div>- Direct link to view/download the full COI document</div>
+                  <div>- Free contractor account invite pre-filled with their email</div>
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEmailOpen(false)}
+                    className="px-3.5 py-1.5 rounded-lg border border-slate-200 font-semibold hover:bg-slate-50 text-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendingEmail || cois.length === 0}
+                    className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {sendingEmail ? 'Sending…' : 'Send COI via email'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        {/* Emails sent log */}
+        {sentList.length > 0 && (
+          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Emails you've sent to contractors</h3>
+                <p className="text-slate-500">Every COI you emailed is logged for your records.</p>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-400">{sentList.length} sent</span>
+            </div>
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+              {sentList.map((em) => (
+                <div key={em.id} className="p-3 flex flex-wrap items-center justify-between gap-2 hover:bg-slate-50/60">
+                  <div>
+                    <span className="font-semibold text-slate-900">{em.to_email}</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">{em.subject}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{em.status}</span>
+                    <span className="text-slate-400">{new Date(em.sent_at).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Footer info */}
         <div className="text-center text-[11px] text-slate-400 py-4">
