@@ -42,6 +42,7 @@ export function SubcontractorDashboardPage() {
   const [sentOk, setSentOk] = useState<string | null>(null)
   const [sentError, setSentError] = useState<string | null>(null)
   const [sentList, setSentList] = useState<{ id: string; to_email: string; subject: string; status: string; sent_at: string }[]>([])
+  const [emailPreviewOpen, setEmailPreviewOpen] = useState(true)
 
   const load = async () => {
     try {
@@ -553,11 +554,68 @@ export function SubcontractorDashboardPage() {
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
-                <div className="rounded-xl bg-slate-50 p-3 text-[11px] text-slate-500 space-y-1">
-                  <div className="font-semibold text-slate-700">What they'll receive:</div>
-                  <div>- Your carrier, policy #, expiration date, and coverage summary</div>
-                  <div>- Direct link to view/download the full COI document</div>
-                  <div>- Free contractor account invite pre-filled with their email</div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-2">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-emerald-600" /> Email preview (what the contractor will receive)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEmailPreviewOpen((v) => !v)}
+                      className="text-emerald-700 hover:underline font-semibold"
+                    >
+                      {emailPreviewOpen ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  {emailPreviewOpen && (
+                    <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2 text-slate-700">
+                      <div className="text-[10px] text-slate-400 font-mono pb-2 border-b border-slate-100 flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span><strong>FROM:</strong> {sub?.company_name || 'Your company'} &lt;noreply@safecoi.com&gt;</span>
+                        <span><strong>TO:</strong> {emailTo || '(enter email above)'}</span>
+                      </div>
+                      <div className="font-bold text-slate-900 text-xs">
+                        Subject: Certificate of Insurance from {sub?.company_name || 'your subcontractor'} — verified via COI Shield
+                      </div>
+                      <p className="text-slate-600">
+                        Hi {emailGcName ? `${emailGcName} team` : 'team'},
+                      </p>
+                      <p className="text-slate-600">
+                        <strong>{sub?.company_name || 'Your company'}</strong>{sub?.trade ? ` (${sub.trade})` : ''} has shared their verified Certificate of Insurance with you.
+                      </p>
+                      {emailMsg && (
+                        <blockquote className="border-l-2 border-emerald-500 pl-2.5 text-slate-700 italic">
+                          "{emailMsg}"
+                        </blockquote>
+                      )}
+                      {cois.length > 0 && (
+                        <div className="rounded-md bg-slate-50 border border-slate-200 p-2 text-[10px] space-y-1">
+                          <div className="font-semibold text-slate-800">POLICY SUMMARY</div>
+                          <div>Carrier: <span className="font-mono">{cois[0].carrier || 'on file'}</span></div>
+                          {cois[0].policy_number && <div>Policy #: <span className="font-mono">{cois[0].policy_number}</span></div>}
+                          <div>Expires: <span className="font-mono font-semibold text-slate-900">{cois[0].expiration_date}</span></div>
+                          {cois[0].coverages && cois[0].coverages.length > 0 && (
+                            <div>
+                              Coverages: {cois[0].coverages.map((cv: any) => `${cv.type}${cv.per_occurrence_limit ? ` · ${cv.per_occurrence_limit}` : ''}`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="pt-1 flex flex-wrap gap-2 text-[10px]">
+                        <span className="px-2.5 py-1 rounded-md bg-emerald-600 text-white font-semibold inline-flex items-center gap-1">
+                          View &amp; download full COI ↗
+                        </span>
+                        <span className="px-2.5 py-1 rounded-md border border-slate-300 font-semibold text-slate-700">
+                          Create free contractor account
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 pt-1">
+                        Manage all your subcontractors' insurance in one place — expiration reminders, client-safe compliance reports, and one-click COI requests.
+                      </p>
+                      <div className="text-[9px] text-slate-400 pt-1 border-t border-slate-100">
+                        This message was sent by {sub?.company_name || 'your subcontractor'} via COI Shield · safecoi.com
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end gap-2 pt-1">
                   <button
