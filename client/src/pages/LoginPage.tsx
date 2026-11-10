@@ -13,7 +13,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [lastName, setLastName] = useState('')
   const [phone, setPhone] = useState('')
   const [company, setCompany] = useState('')
-  const [role, setRole] = useState<'gc' | 'sub'>('gc')
+  const [role, setRole] = useState<'gc' | 'sub' | 'admin'>('gc')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -72,7 +72,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
               <>
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-slate-600">I am a</label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
                     <button
                       type="button"
                       onClick={() => setRole('gc')}
@@ -87,13 +87,24 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                     <button
                       type="button"
                       onClick={() => setRole('sub')}
-                      className={`py-2 rounded-xl border font-semibold flex items-center justify-center gap-1 ${
+                      className={`py-2 rounded-xl border font-semibold ${
                         role === 'sub'
                           ? 'border-slate-900 bg-slate-900 text-white'
                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
                       Subcontractor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRole('admin')}
+                      className={`py-2 rounded-xl border font-semibold ${
+                        role === 'admin'
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Admin
                     </button>
                   </div>
                 </div>

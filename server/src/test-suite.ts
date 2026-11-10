@@ -77,6 +77,13 @@ const reg = await request(app, {
   body: { email: `qa-${Date.now()}@example.com`, password: 'password123', name: 'QA Tester', company_name: 'QA Builders' },
 })
 assert('User registration succeeds and returns JWT', reg.status === 200 && Boolean(reg.json?.token))
+// 2b. Admin registration
+const regAdmin = await request(app, {
+  method: 'POST',
+  url: '/api/auth/register',
+  body: { email: `admin-${Date.now()}@example.com`, password: 'password123', first_name: 'Super', last_name: 'Admin', phone: '3125550259', role: 'admin' },
+})
+assert('Admin registration succeeds and sets admin role', regAdmin.status === 200 && regAdmin.json?.user?.role === 'admin')
 
 // 3. Login
 const login = await request(app, {

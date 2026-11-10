@@ -33,7 +33,7 @@ authRouter.post('/register', async (req, res) => {
     if ((fn || ln) && (!fn || !ln)) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' })
     }
-    const finalRole = role === 'sub' ? 'sub' : 'gc'
+    const finalRole = role === 'admin' ? 'admin' : role === 'sub' ? 'sub' : 'gc'
     const phoneFormatted = normalizePhone(phone)
     const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email.toLowerCase()])
     if (existing) {
