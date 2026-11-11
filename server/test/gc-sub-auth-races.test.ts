@@ -1,3 +1,4 @@
+import { migrateFreshFixture, addFreshFixtureEvidence } from './fresh-profile-fixture.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto'
@@ -5,7 +6,7 @@ import pg from 'pg'
 import jwt from 'jsonwebtoken'
 import { migrateGcSubConsentV1 } from '../src/db/migrations/002_gc_sub_consent.ts'
 import { migrateAuthV2V1 } from '../src/db/migrations/003_auth_v2.ts'
-import { gcSubConsentService, CONSENT_V1, UnavailableError } from '../src/services/gcSubConsent.ts'
+import { gcSubConsentService, CONSENT_V2, UnavailableError } from '../src/services/gcSubConsent.ts'
 
 const url = process.env.GC_SUB_TEST_PG_URL
 if (!url) throw new Error('GC_SUB_TEST_PG_URL required')
@@ -32,11 +33,12 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
       INSERT INTO subcontractors VALUES('s','Sub Co','trade','active');
       INSERT INTO cois VALUES('c','s','carrier','2020','2030','active')`)
     const c = await pool.connect()
-    try { await migrateGcSubConsentV1(c); await migrateAuthV2V1(c) } finally { c.release() }
+    try { await migrateGcSubConsentV1(c); await migrateAuthV2V1(c); await migrateFreshFixture(c) } finally { c.release() }
     await pool.query(`INSERT INTO auth_v2_accounts(user_id,login_email,password_hash,email_verified_at,verification_reference,enabled)
       SELECT id,id||'@example.test','unused',clock_timestamp(),'review',true FROM users`)
     const profile = randomUUID()
-    await pool.query("INSERT INTO gc_sub_profiles VALUES($1,'s','sub',clock_timestamp(),'review',NULL)", [profile])
+    await pool.query("INSERT INTO gc_sub_profiles VALUES($1,'s','sub',clock_timestamp(),'email-control-only:test',NULL)", [profile])
+    await addFreshFixtureEvidence(pool, profile)
     await pool.query("INSERT INTO gc_sub_coi_ownership VALUES('c',$1,'s',clock_timestamp(),'review')", [profile])
     const service = gcSubConsentService(pool, config)
     const mint = async (user: string, opts: jwt.SignOptions = {}, claims: Record<string, unknown> = {}, rowUser = user, dbExpiry?: string) => {
@@ -53,19 +55,20 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
       }
       throw new Error(`Timed out waiting for lock: ${fragment}`)
     }
-    const subjectFor = (op: string) => ['issue', 'preview', 'accept', 'revoke'].includes(op) ? 'sub' : 'gc'
-    const operations = ['issue', 'redeem', 'invite', 'preview', 'accept', 'revoke', 'subs', 'cois'] as const
+    const subjectFor = (op: string) => ['profile', 'issue', 'preview', 'accept', 'revoke'].includes(op) ? 'sub' : 'gc'
+    const operations = ['profile', 'issue', 'redeem', 'invite', 'preview', 'accept', 'revoke', 'subs', 'cois'] as const
     type Op = typeof operations[number]
     const prepare = async (op: Op, gc: string, sub: string): Promise<() => Promise<unknown>> => {
-      if (op === 'issue') return () => service.issueSubQr(sub, profile, CONSENT_V1)
-      if (op === 'redeem') { const q = await service.issueSubQr(sub, profile, CONSENT_V1); return () => service.redeemSubQr(gc, q.token) }
+      if (op === 'profile') return () => service.getOwnProfile(sub)
+      if (op === 'issue') return () => service.issueSubQr(sub, profile, CONSENT_V2)
+      if (op === 'redeem') { const q = await service.issueSubQr(sub, profile, CONSENT_V2); return () => service.redeemSubQr(gc, q.token) }
       if (op === 'invite') return () => service.createGcInvite(gc, profile)
       if (op === 'preview' || op === 'accept') {
         const inv = await service.createGcInvite(gc, profile)
-        return op === 'preview' ? () => service.previewGcInvite(sub, inv.token) : () => service.acceptGcInvite(sub, inv.token, CONSENT_V1)
+        return op === 'preview' ? () => service.previewGcInvite(sub, inv.token) : () => service.acceptGcInvite(sub, inv.token, CONSENT_V2)
       }
       if (op === 'revoke' || op === 'subs' || op === 'cois') {
-        const q = await service.issueSubQr(sub, profile, CONSENT_V1); await service.redeemSubQr(gc, q.token)
+        const q = await service.issueSubQr(sub, profile, CONSENT_V2); await service.redeemSubQr(gc, q.token)
         return op === 'revoke' ? () => service.revoke(sub, profile, 'gc') : op === 'subs' ? () => service.listGrantedSubs(gc) : () => service.listGrantedCois(gc, profile)
       }
       throw new Error('unknown operation')
@@ -79,6 +82,8 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
         await pool.query("UPDATE auth_v2_accounts SET enabled=true WHERE user_id=$1 AND NOT enabled", [who])
         const validGc = await mint('gc'), validSub = await mint('sub')
         const runValid = await prepare(op, validGc, validSub)
+        // Create the invitation while both accounts are live; non-acting account is also checked now.
+        const preInvite = op === 'preview' || op === 'accept' ? await service.createGcInvite(validGc, profile) : undefined
         let invalid: string
         if (variant === 'missing') invalid = sign(who)
         else if (variant === 'wrong-user') invalid = await mint(who, {}, {}, who === 'gc' ? 'other' : 'gc')
@@ -111,16 +116,16 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
         // invalid credentials but reuse no one-use tokens from the valid closure.
         // For preparation, temporarily use a good token on the invalid subject too.
         let run: () => Promise<unknown>
-        if (op === 'issue') run = () => service.issueSubQr(invalid, profile, CONSENT_V1)
+        if (op === 'profile') run = () => service.getOwnProfile(invalid)
+        else if (op === 'issue') run = () => service.issueSubQr(invalid, profile, CONSENT_V2)
         else if (op === 'invite') run = () => service.createGcInvite(invalid, profile)
         else if (op === 'subs') run = () => service.listGrantedSubs(invalid)
         else if (op === 'cois') run = () => service.listGrantedCois(invalid, profile)
         else if (op === 'revoke') run = () => service.revoke(invalid, profile, 'gc')
         else {
-          // Obtain capability independently from the unaffected counterpart. When
-          // sub is disabled, createGcInvite uses only its live role, not its account.
-          if (op === 'redeem') { const q = await service.issueSubQr(validSub, profile, CONSENT_V1); run = () => service.redeemSubQr(invalid, q.token) }
-          else { const inv = await service.createGcInvite(validGc, profile); run = op === 'preview' ? () => service.previewGcInvite(invalid, inv.token) : () => service.acceptGcInvite(invalid, inv.token, CONSENT_V1) }
+          // Create an invitation before the target account is disabled or removed.
+          if (op === 'redeem') { const q = await service.issueSubQr(validSub, profile, CONSENT_V2); run = () => service.redeemSubQr(invalid, q.token) }
+          else { const inv = preInvite!; run = op === 'preview' ? () => service.previewGcInvite(invalid, inv.token) : () => service.acceptGcInvite(invalid, inv.token, CONSENT_V2) }
         }
         const snapshot = async () => ({ caps: (await pool!.query('SELECT * FROM gc_sub_capabilities ORDER BY token_hash')).rows, grants: (await pool!.query('SELECT * FROM gc_sub_grants ORDER BY profile_id,gc_user_id')).rows, events: (await pool!.query('SELECT * FROM gc_sub_grant_events ORDER BY id')).rows })
         const before = await snapshot()
@@ -133,7 +138,7 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
     // Claims never determine role, including misleading elevated roles.
     const claimedAdmin = await mint('gc', {}, { role: 'admin' })
     assert.ok(Array.isArray(await service.listGrantedSubs(claimedAdmin)))
-    await assert.rejects(service.issueSubQr(claimedAdmin, profile, CONSENT_V1), UnavailableError)
+    await assert.rejects(service.issueSubQr(claimedAdmin, profile, CONSENT_V2), UnavailableError)
     type Event = 'logout' | 'logout-all' | 'disable' | 'role'
     const applyEvent = async (client: pg.PoolClient, event: Event, who: string, token: string) => {
       if (event === 'logout') return client.query('UPDATE auth_v2_sessions SET revoked_at=clock_timestamp() WHERE token_hash=$1 AND user_id=$2 AND revoked_at IS NULL', [hash(token), who])
@@ -146,7 +151,7 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
       return client.query('UPDATE auth_v2_sessions SET revoked_at=clock_timestamp() WHERE user_id=$1 AND revoked_at IS NULL', [who])
     }
     const eventFragment = (event: Event) => event === 'logout' ? 'UPDATE auth_v2_sessions SET revoked_at=' : event === 'logout-all' ? "SELECT id FROM users WHERE id=$1 AND role IN" : event === 'disable' ? 'UPDATE auth_v2_accounts SET enabled=false' : "UPDATE users SET role='admin'"
-    for (const op of operations) for (const event of ['logout', 'logout-all', 'disable', 'role'] as Event[]) for (const first of ['event', 'operation'] as const) {
+    for (const op of operations.filter(op => op !== 'cois')) for (const event of ['logout', 'logout-all', 'disable', 'role'] as Event[]) for (const first of ['event', 'operation'] as const) {
       await pool.query("UPDATE users SET role=CASE id WHEN 'gc' THEN 'gc' WHEN 'sub' THEN 'sub' ELSE role END WHERE id IN ('gc','sub') AND role='admin'")
       await pool.query('UPDATE auth_v2_accounts SET enabled=true WHERE NOT enabled')
       const gc = await mint('gc'), sub = await mint('sub'), who = subjectFor(op), token = who === 'gc' ? gc : sub
@@ -190,11 +195,11 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
       const short = stage === 'jwt-insert' ? await mint('sub', { expiresIn: 3 }) : await mint('sub', {}, {}, 'sub', "clock_timestamp()+interval '800 milliseconds'")
       const gate = await pool.connect()
       try {
-        const before = (await pool.query('SELECT count(*)::int AS n FROM gc_sub_capabilities')).rows[0].n
+        const before: number = (await pool.query('SELECT count(*)::int AS n FROM gc_sub_capabilities')).rows[0].n
         await gate.query('BEGIN')
         if (stage === 'profile') await gate.query('SELECT id FROM gc_sub_profiles WHERE id=$1 FOR UPDATE', [profile])
         else await gate.query('LOCK TABLE gc_sub_capabilities IN ACCESS EXCLUSIVE MODE')
-        const pending = service.issueSubQr(short, profile, CONSENT_V1).then(value => ({ ok: true, value }), error => ({ ok: false, error }))
+        const pending = service.issueSubQr(short, profile, CONSENT_V2).then(value => ({ ok: true, value }), error => ({ ok: false, error }))
         await waitLock(stage === 'profile' ? 'SELECT id, subcontractor_id, sub_user_id FROM gc_sub_profiles' : 'INSERT INTO gc_sub_capabilities')
         const delay = stage === 'jwt-insert' ? Math.max(0, (jwt.decode(short) as jwt.JwtPayload).exp! * 1000 - Date.now() + 200) : 1000
         await new Promise(resolve => setTimeout(resolve, delay))
@@ -210,7 +215,7 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
     await pool.query("UPDATE users SET role=CASE id WHEN 'gc' THEN 'gc' ELSE 'sub' END WHERE id IN ('gc','sub') AND role='admin'")
     await pool.query('UPDATE auth_v2_accounts SET enabled=true WHERE NOT enabled')
     const gc = await mint('gc'), sub = await mint('sub')
-    const q = await service.issueSubQr(sub, profile, CONSENT_V1); await service.redeemSubQr(gc, q.token)
+    const q = await service.issueSubQr(sub, profile, CONSENT_V2); await service.redeemSubQr(gc, q.token)
     await pool.query(`ALTER TABLE subcontractors RENAME TO subcontractors_base;
       CREATE FUNCTION pause_name(t text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$
       BEGIN PERFORM pg_advisory_lock(7654321); PERFORM pg_advisory_unlock(7654321); RETURN t; END $$;
@@ -224,20 +229,11 @@ test('auth-v2 session binding, forced lock order and statement snapshot boundari
       await gate.query('SELECT pg_advisory_unlock(7654321)')
       assert.deepEqual((await reading).map(r => r.id), ['s'], 'in-flight read sees its earlier statement snapshot')
       assert.deepEqual(await service.listGrantedSubs(gc), [], 'subsequent statement sees committed revoke')
+      const revokedGrant = await pool.query('SELECT consent_version,revoked_at FROM gc_sub_grants WHERE profile_id=$1 AND gc_user_id=$2', [profile, 'gc'])
+      assert.equal(revokedGrant.rows[0].consent_version, CONSENT_V2, 'snapshot test must not downgrade or rewrite consent')
+      assert.ok(revokedGrant.rows[0].revoked_at)
     } finally { await gate.query('SELECT pg_advisory_unlock_all()'); gate.release() }
-    const q2 = await service.issueSubQr(sub, profile, CONSENT_V1); await service.redeemSubQr(gc, q2.token)
-    await pool.query(`ALTER TABLE cois RENAME TO cois_base;
-      CREATE VIEW cois AS SELECT id,subcontractor_id,pause_name(carrier) AS carrier,effective_date,expiration_date,status FROM cois_base`)
-    const coiGate = await pool.connect()
-    try {
-      await coiGate.query('SELECT pg_advisory_lock(7654321)')
-      const reading = service.listGrantedCois(gc, profile)
-      await waitLock('SELECT c.id, c.subcontractor_id')
-      assert.equal(await service.revoke(sub, profile, 'gc'), true)
-      await coiGate.query('SELECT pg_advisory_unlock(7654321)')
-      assert.deepEqual((await reading).map(r => r.id), ['c'])
-      assert.deepEqual(await service.listGrantedCois(gc, profile), [])
-    } finally { await coiGate.query('SELECT pg_advisory_unlock_all()'); coiGate.release() }
+    assert.deepEqual(await service.listGrantedCois(gc, profile), []) // no COI data statement exists in profile-only v2
     const invite = await service.createGcInvite(gc, profile)
     await pool.query(`ALTER TABLE gc_sub_capabilities RENAME TO gc_sub_capabilities_base;
       CREATE FUNCTION pause_expiry(t timestamptz) RETURNS timestamptz LANGUAGE plpgsql VOLATILE AS $$

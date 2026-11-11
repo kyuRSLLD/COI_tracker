@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto'
+import jwt from 'jsonwebtoken'
 import express from 'express'
 import type { RequestHandler } from 'express'
 import pg from 'pg'
@@ -37,6 +38,8 @@ test('disposable PostgreSQL: authenticated owner-scoped HTTP operations', async 
     pool = new pg.Pool({ connectionString, options: `-c search_path=${schema}`, max: 4 })
     const sql = [
       `CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL)`,
+      `CREATE TABLE auth_v2_accounts (user_id TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL, email_verified_at TIMESTAMPTZ)`,
+      `CREATE TABLE auth_v2_sessions (token_hash BYTEA PRIMARY KEY, user_id TEXT NOT NULL, revoked_at TIMESTAMPTZ, expires_at TIMESTAMPTZ NOT NULL)`,
       `CREATE TABLE subcontractors (id TEXT PRIMARY KEY, user_id TEXT, company_name TEXT NOT NULL, trade TEXT NOT NULL, contact_person TEXT, phone TEXT, email TEXT, address TEXT, notes TEXT, status TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
       `CREATE TABLE cois (id TEXT PRIMARY KEY, subcontractor_id TEXT NOT NULL, carrier TEXT NOT NULL, am_best_rating TEXT, policy_number TEXT, effective_date TEXT NOT NULL, expiration_date TEXT NOT NULL, status TEXT, reviewer_notes TEXT, certificate_url TEXT, certificate_key TEXT, certificate_name TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(id, subcontractor_id))`,
       `CREATE TABLE owner_subcontractor_connections (subcontractor_id TEXT PRIMARY KEY REFERENCES subcontractors(id), owner_user_id TEXT NOT NULL REFERENCES users(id), assigned_at TEXT NOT NULL, UNIQUE(owner_user_id, subcontractor_id))`,
@@ -51,6 +54,14 @@ test('disposable PostgreSQL: authenticated owner-scoped HTTP operations', async 
       // Simulate a verified but stale session: DB role always wins.
       'token-stale': { subject: 'stale', role: 'gc' }, 'token-unknown': { subject: 'unknown', role: 'gc' },
     }
+    const keys = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    const tokens: Record<string, string> = {}
+    for (const [name, identity] of Object.entries(sessions)) {
+      const token = jwt.sign({}, keys.privateKey, { algorithm: 'RS256', issuer: 'test', audience: 'test', subject: identity.subject, jwtid: randomBytes(32).toString('base64url'), expiresIn: 900 })
+      tokens[name] = token
+      await pool.query(`INSERT INTO auth_v2_accounts VALUES($1,true,clock_timestamp()) ON CONFLICT DO NOTHING`, [identity.subject])
+      await pool.query(`INSERT INTO auth_v2_sessions VALUES($1,$2,NULL,clock_timestamp()+interval '15 minutes')`, [createHash('sha256').update(token, 'ascii').digest(), identity.subject])
+    }
     const authenticate: RequestHandler = (req, res, next) => {
       const token = req.get('authorization')?.replace(/^Bearer /, '')
       if (token === 'missing-principal') { next(); return }
@@ -59,7 +70,9 @@ test('disposable PostgreSQL: authenticated owner-scoped HTTP operations', async 
         next(); return
       }
       if (token === 'error-middleware') throw new Error('secret middleware details')
-      const identity = token && sessions[token]
+      const name = Object.keys(tokens).find(k => tokens[k] === token)
+      const identity = name && sessions[name]
+      try { if (!token || !identity) throw new Error(); jwt.verify(token, keys.publicKey, { algorithms: ['RS256'], issuer: 'test', audience: 'test', maxAge: 900 }) } catch { res.status(401).json({ error: 'Authentication required' }); return }
       if (!identity) { res.status(401).json({ error: 'Authentication required' }); return }
       Object.defineProperty(req, 'securePrincipal', { value: Object.freeze({ ...identity, credential: token }), writable: false, configurable: false })
       next()
@@ -67,12 +80,13 @@ test('disposable PostgreSQL: authenticated owner-scoped HTTP operations', async 
     const app = express()
     app.use('/api/v2', createGcOwnerV2Router({ pool, authenticate }))
     server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)) })
+    assert.ok(server)
     const addr = server.address()
     assert.ok(addr && typeof addr !== 'string')
     const base = `http://127.0.0.1:${addr.port}/api/v2`
     async function call(method: string, path: string, token?: string, body?: unknown, extras: Record<string, string> = {}) {
       const headers: Record<string, string> = { ...extras }
-      if (token) headers.authorization = `Bearer ${token}`
+      if (token) headers.authorization = `Bearer ${tokens[token] ?? token}`
       if (body !== undefined) headers['content-type'] = 'application/json'
       const response = await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
       assert.equal(response.headers.get('cache-control'), 'no-store')
@@ -144,7 +158,7 @@ test('disposable PostgreSQL: authenticated owner-scoped HTTP operations', async 
       ['PATCH', `/cois/${x}`, { effective_date: '2030-01-01' }],
       ['POST', `/subcontractors/${a}/cois`, { ...coi, expiration_date: '2025-02-30' }],
     ] as const) assert.deepEqual(await call(method, path, 'token-one', body), invalid)
-    const malformed = await fetch(`${base}/subcontractors`, { method: 'POST', headers: { authorization: 'Bearer token-one', 'content-type': 'application/json' }, body: '{' })
+    const malformed = await fetch(`${base}/subcontractors`, { method: 'POST', headers: { authorization: `Bearer ${tokens['token-one']}`, 'content-type': 'application/json' }, body: '{' })
     assert.equal(malformed.status, 400); assert.deepEqual(await malformed.json(), invalid.body)
     const oversized = await call('POST', '/subcontractors', 'token-one', { ...sub, notes: 'x'.repeat(70000) })
     assert.deepEqual(oversized, { status: 413, body: { error: 'Invalid input' } })

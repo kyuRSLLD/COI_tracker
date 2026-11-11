@@ -113,10 +113,14 @@ export function createV2Registration(pool: pg.Pool, deps: RegistrationDependenci
         if (sub) {
           await c.query(`INSERT INTO subcontractors(id,user_id,company_name,trade,contact_person,email,status,created_at,updated_at)
             VALUES($1,$2,$3,$4,$5,$6,'pending_review',$7,$7)`, [sub, user, b.company_name.trim(), b.trade.trim(), name, email, now])
-          // Deliberately not a gc_sub_profiles row: that consumer requires independently
-          // verified business identity, which email control alone does not establish.
+          // Only a brand-new application profile, never a claim to an existing business or COI.
+          const profile = randomUUID()
           await c.query(`INSERT INTO auth_v2_sub_profiles(id,subcontractor_id,sub_user_id,email_verified_at,verification_reference)
-            VALUES($1,$2,$3,clock_timestamp(),$4)`, [randomUUID(), sub, user, reference])
+            VALUES($1,$2,$3,clock_timestamp(),$4)`, [profile, sub, user, reference])
+          await c.query(`INSERT INTO gc_sub_profiles(id,subcontractor_id,sub_user_id,verified_at,verification_reference)
+            VALUES($1,$2,$3,clock_timestamp(),$4)`, [profile, sub, user, reference])
+          await c.query(`INSERT INTO gc_sub_fresh_profile_evidence(profile_id,subcontractor_id,sub_user_id,evidence_type,verification_reference,registration_challenge_hash)
+            VALUES($1,$2,$3,'fresh_self_asserted_email_control_v1',$4,$5)`, [profile, sub, user, reference, tokenHash])
         }
         const used = await c.query(`UPDATE auth_v2_registration_challenges SET used_at=clock_timestamp()
           WHERE token_hash=$1 AND used_at IS NULL AND delivered_at IS NOT NULL AND expires_at>clock_timestamp()`, [tokenHash])

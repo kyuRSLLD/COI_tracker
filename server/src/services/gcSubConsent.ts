@@ -7,6 +7,9 @@ import type { PoolClient } from 'pg'
 export const CONSENT_V1 = 'share-current-and-future-coi-v1' as const
 export const QR_CONSENT_V1_TEXT = 'I consent to share my current and future verified subcontractor-owned COI information with whichever authenticated general contractor scans this one-time code, until I revoke access.'
 export const INVITE_CONSENT_V1_TEXT = 'I consent to share my current and future verified subcontractor-owned COI information with the identified inviting general contractor until I revoke access.'
+export const CONSENT_V2 = 'share-self-reported-profile-only-v2' as const
+export const QR_CONSENT_V2_TEXT = 'I consent to share this application profile’s identifiers, email-control-only evidence type, and current and future self-reported company name and trade with whichever signed-in account with a general contractor role scans this one-time code, until I revoke access. Email control does not verify my company, authority, or insurance, and the general contractor role does not verify the recipient’s business. This consent does not share COIs or documents.'
+export const INVITE_CONSENT_V2_TEXT = 'I consent to share this application profile’s identifiers, email-control-only evidence type, and current and future self-reported company name and trade with the identified inviting account with a general contractor role until I revoke access. Email control does not verify my company, authority, or insurance, and the general contractor role does not verify the recipient’s business. This consent does not share COIs or documents.'
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TOKEN = /^[A-Za-z0-9_-]{43}$/
 const AUTH_TTL_SECONDS = 15 * 60
@@ -19,7 +22,7 @@ function digest(token: string): Buffer {
   if (typeof token !== 'string' || !TOKEN.test(token)) unavailable()
   return createHash('sha256').update(token, 'ascii').digest()
 }
-function consent(value: unknown) { if (value !== CONSENT_V1) unavailable() }
+function consent(value: unknown) { if (value !== CONSENT_V2) unavailable() }
 
 /** Configuration must be controlled by the server, not the request. No symmetric or fallback key. */
 export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; issuer: string; audience: string }) {
@@ -65,6 +68,10 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
     const session = await c.query('SELECT token_hash FROM auth_v2_sessions WHERE token_hash=$1 AND user_id=$2 AND revoked_at IS NULL FOR SHARE', [createHash('sha256').update(credential, 'ascii').digest(), user])
     if (!session.rowCount) unavailable()
   }
+  async function lockOtherAccount(c: PoolClient, sub: string) {
+    const r = await c.query('SELECT user_id FROM auth_v2_accounts WHERE user_id=$1 AND enabled=true AND email_verified_at IS NOT NULL FOR SHARE', [sub])
+    if (!r.rowCount) unavailable()
+  }
   // Recheck after potentially blocking locks. Locks prevent state changes until
   // commit; expiry is evaluated at this authorization point, not at commit.
   async function currentSession(c: PoolClient, credential: string, user: string) {
@@ -75,12 +82,14 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
     if (!r.rowCount) unavailable()
   }
   async function profile(c: PoolClient, profileId: string) {
-    const r = await c.query('SELECT id, subcontractor_id, sub_user_id FROM gc_sub_profiles WHERE id=$1 AND revoked_at IS NULL FOR UPDATE', [profileId])
+    const r = await c.query(`SELECT id, subcontractor_id, sub_user_id FROM gc_sub_profiles WHERE id=$1 AND revoked_at IS NULL
+      AND EXISTS (SELECT 1 FROM gc_sub_fresh_profile_evidence e WHERE e.profile_id=gc_sub_profiles.id AND e.evidence_type='fresh_self_asserted_email_control_v1') FOR UPDATE`, [profileId])
     if (!r.rowCount) unavailable()
     return r.rows[0] as { id: string; subcontractor_id: string; sub_user_id: string }
   }
   async function lookupProfile(c: PoolClient, id: string) {
-    const r = await c.query('SELECT sub_user_id FROM gc_sub_profiles WHERE id=$1 AND revoked_at IS NULL', [id])
+    const r = await c.query(`SELECT sub_user_id FROM gc_sub_profiles WHERE id=$1 AND revoked_at IS NULL
+      AND EXISTS (SELECT 1 FROM gc_sub_fresh_profile_evidence e WHERE e.profile_id=gc_sub_profiles.id AND e.evidence_type='fresh_self_asserted_email_control_v1')`, [id])
     if (!r.rowCount) unavailable()
     return r.rows[0].sub_user_id as string
   }
@@ -89,11 +98,24 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
     await c.query(`INSERT INTO gc_sub_grants(profile_id,gc_user_id,consent_version,consented_at,granted_at,revoked_at)
       VALUES ($1,$2,$3,$4,clock_timestamp(),NULL)
       ON CONFLICT(profile_id,gc_user_id) DO UPDATE SET consent_version=EXCLUDED.consent_version,
-        consented_at=EXCLUDED.consented_at, granted_at=EXCLUDED.granted_at, revoked_at=NULL`, [p.id, gc, CONSENT_V1, consentedAt])
+        consented_at=EXCLUDED.consented_at, granted_at=EXCLUDED.granted_at, revoked_at=NULL`, [p.id, gc, CONSENT_V2, consentedAt])
     await c.query(`INSERT INTO gc_sub_grant_events(profile_id,gc_user_id,sub_user_id,action,consent_version,consented_at)
-      VALUES($1,$2,$3,$4,$5,$6)`, [p.id, gc, p.sub_user_id, action, CONSENT_V1, consentedAt])
+      VALUES($1,$2,$3,$4,$5,$6)`, [p.id, gc, p.sub_user_id, action, CONSENT_V2, consentedAt])
   }
   return {
+    /** Discover only the caller's own active fresh profile. */
+    async getOwnProfile(credential: string) {
+      const sub = subject(credential)
+      return tx(credential, sub, async c => {
+        await lockActors(c, [[sub, 'sub']]); await lockSession(c, credential, sub)
+        const r = await c.query(`SELECT p.id FROM gc_sub_profiles p JOIN gc_sub_fresh_profile_evidence e ON e.profile_id=p.id
+          WHERE p.sub_user_id=$1 AND p.revoked_at IS NULL AND e.evidence_type='fresh_self_asserted_email_control_v1'`, [sub])
+        if (r.rowCount !== 1) unavailable()
+        const p = await profile(c, r.rows[0].id)
+        if (p.sub_user_id !== sub) unavailable()
+        return { profileId: p.id, evidenceType: 'fresh_self_asserted_email_control_v1' }
+      })
+    },
     /** Explicit pre-consent; raw code is returned once to the authenticated sub for QR encoding. */
     async issueSubQr(credential: string, profileId: string, affirmativeConsent: unknown) {
       const sub = subject(credential); validProfile(profileId); consent(affirmativeConsent)
@@ -103,7 +125,7 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
         await currentSession(c, credential, sub)
         const { token, hash } = makeToken()
         const r = await c.query(`INSERT INTO gc_sub_capabilities(token_hash,kind,profile_id,consent_version,consented_at,created_at,expires_at)
-          VALUES($1,'qr',$2,$3,clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '5 minutes') RETURNING expires_at`, [hash, p.id, CONSENT_V1])
+          VALUES($1,'qr',$2,$3,clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '5 minutes') RETURNING expires_at`, [hash, p.id, CONSENT_V2])
         return { token, expiresAt: r.rows[0].expires_at as Date }
       })
     },
@@ -114,22 +136,22 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
         const found = await c.query("SELECT profile_id FROM gc_sub_capabilities WHERE token_hash=$1 AND kind='qr'", [hash])
         if (!found.rowCount) unavailable()
         const id = found.rows[0].profile_id as string; const sub = await lookupProfile(c, id)
-        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, gc); const p = await profile(c, id)
+        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, gc); await lockOtherAccount(c, sub); const p = await profile(c, id)
         if (p.sub_user_id !== sub) unavailable()
         await currentSession(c, credential, gc)
         const used = await c.query(`UPDATE gc_sub_capabilities SET used_at=clock_timestamp()
           WHERE token_hash=$1 AND kind='qr' AND profile_id=$2 AND used_at IS NULL AND invalidated_at IS NULL
-            AND expires_at > clock_timestamp() AND consent_version=$3 RETURNING consented_at`, [hash, id, CONSENT_V1])
+            AND expires_at > clock_timestamp() AND consent_version=$3 RETURNING consented_at`, [hash, id, CONSENT_V2])
         if (!used.rowCount) unavailable()
         await grant(c, p, gc, 'granted_qr', used.rows[0].consented_at)
       })
     },
-    /** Invite is bound to one verified profile and a current GC; it conveys no sharing consent. */
+    /** Invite is bound to one fresh profile and a current GC; it conveys no sharing consent. */
     async createGcInvite(credential: string, profileId: string) {
       const gc = subject(credential); validProfile(profileId)
       return tx(credential, gc, async c => {
         const sub = await lookupProfile(c, profileId)
-        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, gc); const p = await profile(c, profileId)
+        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, gc); await lockOtherAccount(c, sub); const p = await profile(c, profileId)
         if (p.sub_user_id !== sub) unavailable()
         await currentSession(c, credential, gc)
         const { token, hash } = makeToken()
@@ -138,7 +160,7 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
         return { token, expiresAt: r.rows[0].expires_at as Date }
       })
     },
-    /** Identify the live inviting GC to the verified sub before asking for consent. */
+    /** Identify the live inviting account to the profile owner before asking for consent. */
     async previewGcInvite(credential: string, token: string) {
       const sub = subject(credential); const hash = digest(token)
       return tx(credential, sub, async c => {
@@ -146,22 +168,24 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
         const r = await c.query(`SELECT g.id AS gc_user_id, g.name AS gc_name, p.id AS profile_id, cap.expires_at
         FROM gc_sub_capabilities cap
         JOIN gc_sub_profiles p ON p.id=cap.profile_id AND p.revoked_at IS NULL AND p.sub_user_id=$2
+        JOIN gc_sub_fresh_profile_evidence e ON e.profile_id=p.id AND e.evidence_type='fresh_self_asserted_email_control_v1'
         JOIN users s ON s.id=p.sub_user_id AND s.role='sub'
         JOIN users g ON g.id=cap.gc_user_id AND g.role='gc'
+        JOIN auth_v2_accounts ga ON ga.user_id=g.id AND ga.enabled=true AND ga.email_verified_at IS NOT NULL
         WHERE cap.token_hash=$1 AND cap.kind='invite' AND cap.used_at IS NULL
           AND cap.invalidated_at IS NULL AND cap.expires_at > clock_timestamp()`, [hash, sub])
         if (!r.rowCount) unavailable()
         return r.rows[0]
       })
     },
-    /** Only the verified profile owner can accept, and only after affirmative consent. */
+    /** Only the email-control profile owner can accept, and only after affirmative consent. */
     async acceptGcInvite(credential: string, token: string, affirmativeConsent: unknown): Promise<void> {
       const sub = subject(credential); const hash = digest(token); consent(affirmativeConsent)
       return tx(credential, sub, async c => {
         const found = await c.query("SELECT profile_id,gc_user_id FROM gc_sub_capabilities WHERE token_hash=$1 AND kind='invite'", [hash])
         if (!found.rowCount) unavailable()
         const { profile_id: id, gc_user_id: gc } = found.rows[0] as { profile_id: string; gc_user_id: string }
-        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, sub); const p = await profile(c, id)
+        await lockActors(c, [[gc, 'gc'], [sub, 'sub']]); await lockSession(c, credential, sub); await lockOtherAccount(c, gc); const p = await profile(c, id)
         if (p.sub_user_id !== sub) unavailable()
         await currentSession(c, credential, sub)
         const used = await c.query(`UPDATE gc_sub_capabilities SET used_at=clock_timestamp()
@@ -192,12 +216,14 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
       const gc = subject(credential)
       return tx(credential, gc, async c => {
         await lockActors(c, [[gc, 'gc']]); await lockSession(c, credential, gc); await currentSession(c, credential, gc)
-        const r = await c.query(`SELECT s.id, s.company_name, s.trade, s.status, p.id AS profile_id
+        const r = await c.query(`SELECT s.id, s.company_name, s.trade, p.id AS profile_id, e.evidence_type
         FROM gc_sub_grants g JOIN gc_sub_profiles p ON p.id=g.profile_id AND p.revoked_at IS NULL
+        JOIN gc_sub_fresh_profile_evidence e ON e.profile_id=p.id AND e.evidence_type='fresh_self_asserted_email_control_v1'
         JOIN users su ON su.id=p.sub_user_id AND su.role='sub'
+        JOIN auth_v2_accounts sa ON sa.user_id=su.id AND sa.enabled=true AND sa.email_verified_at IS NOT NULL
         JOIN users gu ON gu.id=g.gc_user_id AND gu.role='gc'
         JOIN subcontractors s ON s.id=p.subcontractor_id
-        WHERE g.gc_user_id=$1 AND g.revoked_at IS NULL ORDER BY s.id`, [gc])
+        WHERE g.gc_user_id=$1 AND g.revoked_at IS NULL AND g.consent_version=$2 ORDER BY s.id`, [gc, CONSENT_V2])
         return r.rows
       })
     },
@@ -205,14 +231,8 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
       const gc = subject(credential); validProfile(profileId)
       return tx(credential, gc, async c => {
         await lockActors(c, [[gc, 'gc']]); await lockSession(c, credential, gc); await currentSession(c, credential, gc)
-        const r = await c.query(`SELECT c.id, c.subcontractor_id, c.carrier, c.effective_date, c.expiration_date, c.status
-        FROM gc_sub_grants g JOIN gc_sub_profiles p ON p.id=g.profile_id AND p.revoked_at IS NULL
-        JOIN users su ON su.id=p.sub_user_id AND su.role='sub'
-        JOIN users gu ON gu.id=g.gc_user_id AND gu.role='gc'
-        JOIN gc_sub_coi_ownership o ON o.profile_id=p.id AND o.subcontractor_id=p.subcontractor_id
-        JOIN cois c ON c.id=o.coi_id AND c.subcontractor_id=o.subcontractor_id
-        WHERE g.gc_user_id=$1 AND g.profile_id=$2 AND g.revoked_at IS NULL ORDER BY c.id`, [gc, profileId])
-        return r.rows
+        // Profile-only v2 consent never authorizes COI metadata, even if a mapping exists.
+        return []
       })
     },
   }

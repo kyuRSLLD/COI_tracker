@@ -1,5 +1,6 @@
-// NOT wired into routes. The caller must verify an authentication credential and
-// supply its immutable subject ID, not a request parameter or a claimed role.
+// Subject-scoped low-level reads. The caller must verify the credential and supply
+// its immutable subject ID, never a request parameter or a claimed role. The v2 GC
+// router additionally uses the locked, session-checked withOwnerV2Transaction scope.
 import type { OwnerConnection } from '../db/ownerConnection.ts'
 
 type SubRow = {

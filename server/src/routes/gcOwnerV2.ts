@@ -2,9 +2,8 @@
 import express from 'express'
 import type { Request, Response, RequestHandler, ErrorRequestHandler } from 'express'
 import type pg from 'pg'
-import { postgresOwnerConnection } from '../db/ownerConnection.ts'
 import { ownerReads } from '../services/ownerReads.ts'
-import { ownerWrites, OwnerWriteError } from '../services/ownerWrites.ts'
+import { ownerWrites, OwnerWriteError, OwnerV2AuthError, OwnerV2RoleError, withOwnerV2Transaction } from '../services/ownerWrites.ts'
 
 /** Established ONLY by the trusted, credential-verifying middleware, never request data. */
 export type SecurePrincipal = Readonly<{
@@ -18,7 +17,7 @@ type RouterOptions = {
   pool: pg.Pool
   authenticate: RequestHandler
 }
-type Action = (req: Request, db: ReturnType<typeof postgresOwnerConnection>, subject: string) => Promise<{ status: number; body: unknown }>
+type Action = (req: Request, reads: ReturnType<typeof ownerReads>, writes: ReturnType<typeof ownerWrites>) => Promise<{ status: number; body: unknown }>
 
 const missing = () => ({ status: 404, body: { error: 'Not found' } })
 const found = (value: unknown) => value === undefined ? missing() : { status: 200, body: value }
@@ -41,7 +40,8 @@ function coiView(c: Awaited<ReturnType<ReturnType<typeof ownerReads>['getCoi']>>
 /**
  * The trusted middleware MUST authenticate credentials and set an immutable
  * securePrincipal before next(). It must reject invalid credentials itself.
- * This factory cannot verify that middleware and does not implement sessions.
+ * It must perform the full auth-v2 JWT verification on the exact credential. The
+ * transaction independently locks and checks its auth-v2 account, session and role.
  */
 export function createGcOwnerV2Router({ pool, authenticate }: RouterOptions): express.Router {
   if (!pool || typeof pool.connect !== 'function' || typeof authenticate !== 'function') {
@@ -60,7 +60,7 @@ export function createGcOwnerV2Router({ pool, authenticate }: RouterOptions): ex
       res.status(401).json({ error: 'Authentication required' }); return
     }
     if (p.role !== 'gc') { res.status(404).json({ error: 'Not found' }); return }
-    res.locals.gcOwnerSubject = p.subject
+    res.locals.gcOwnerPrincipal = Object.freeze({ subject: p.subject, credential: p.credential })
     next()
   })
   router.use(express.json({ limit: '64kb', strict: true }))
@@ -71,19 +71,19 @@ export function createGcOwnerV2Router({ pool, authenticate }: RouterOptions): ex
       let destroy = false
       try {
         client = await pool.connect()
-        const db = postgresOwnerConnection(client)
-        const subject = res.locals.gcOwnerSubject as string
-        // Needed to distinguish a revoked/unknown GC from an authorized empty
-        // collection. Services independently re-check live role for each operation.
-        const role = await db.query<{ id: string }>("SELECT id FROM users WHERE id = ? AND role = 'gc'", [subject])
-        const result = role.length ? await action(req, db, subject) : missing()
+        const principal = res.locals.gcOwnerPrincipal as Readonly<{ subject: string; credential: string }>
+        const result = await withOwnerV2Transaction(client, principal, (reads, writes) => action(req, reads, writes))
         // Release before responding so a release failure cannot result in success.
         client.release(); client = undefined
         res.status(result.status).json(result.body)
       } catch (error) {
         destroy = true
         if (!res.headersSent) {
-          if (error instanceof OwnerWriteError && error.code === 'INVALID_INPUT') {
+          if (error instanceof OwnerV2AuthError) {
+            res.status(401).json({ error: 'Authentication required' })
+          } else if (error instanceof OwnerV2RoleError) {
+            res.status(404).json({ error: 'Not found' })
+          } else if (error instanceof OwnerWriteError && error.code === 'INVALID_INPUT') {
             res.status(400).json({ error: 'Invalid input' })
           } else {
             res.status(503).json({ error: 'Service unavailable' })
@@ -99,33 +99,32 @@ export function createGcOwnerV2Router({ pool, authenticate }: RouterOptions): ex
     })()
   }
 
-  router.get('/subcontractors', handle(async (_req, db, subject) => ({
-    status: 200, body: (await ownerReads(db, subject).listSubcontractors()).map(subView),
+  router.get('/subcontractors', handle(async (_req, reads, _writes) => ({
+    status: 200, body: (await reads.listSubcontractors()).map(subView),
   })))
-  router.get('/subcontractors/:id', handle(async (req, db, subject) => found(subView(await ownerReads(db, subject).getSubcontractor(req.params.id)))))
-  router.post('/subcontractors', handle(async (req, db, subject) => created(receipt(await ownerWrites(db, subject).createSubcontractor(req.body)))))
-  router.patch('/subcontractors/:id', handle(async (req, db, subject) => {
-    if (!await ownerReads(db, subject).getSubcontractor(req.params.id)) return missing()
-    return found(receipt(await ownerWrites(db, subject).updateSubcontractor(req.params.id, req.body)))
+  router.get('/subcontractors/:id', handle(async (req, reads, writes) => found(subView(await reads.getSubcontractor(req.params.id)))))
+  router.post('/subcontractors', handle(async (req, reads, writes) => created(receipt(await writes.createSubcontractor(req.body)))))
+  router.patch('/subcontractors/:id', handle(async (req, reads, writes) => {
+    if (!await reads.getSubcontractor(req.params.id)) return missing()
+    return found(receipt(await writes.updateSubcontractor(req.params.id, req.body)))
   }))
-  router.get('/subcontractors/:id/cois', handle(async (req, db, subject) => {
-    const reads = ownerReads(db, subject)
+  router.get('/subcontractors/:id/cois', handle(async (req, reads, writes) => {
     if (!await reads.getSubcontractor(req.params.id)) return missing()
     return { status: 200, body: (await reads.listCois(req.params.id)).map(coiView) }
   }))
-  router.post('/subcontractors/:id/cois', handle(async (req, db, subject) => {
-    if (!await ownerReads(db, subject).getSubcontractor(req.params.id)) return missing()
+  router.post('/subcontractors/:id/cois', handle(async (req, reads, writes) => {
+    if (!await reads.getSubcontractor(req.params.id)) return missing()
     // Parent ID is exclusively the path value; do not let a body override it.
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
         Object.prototype.hasOwnProperty.call(req.body, 'subcontractor_id')) {
       throw new OwnerWriteError('INVALID_INPUT')
     }
-    return created(receipt(await ownerWrites(db, subject).createCoi({ ...req.body, subcontractor_id: req.params.id })))
+    return created(receipt(await writes.createCoi({ ...req.body, subcontractor_id: req.params.id })))
   }))
-  router.get('/cois/:id', handle(async (req, db, subject) => found(coiView(await ownerReads(db, subject).getCoi(req.params.id)))))
-  router.patch('/cois/:id', handle(async (req, db, subject) => {
-    if (!await ownerReads(db, subject).getCoi(req.params.id)) return missing()
-    return found(receipt(await ownerWrites(db, subject).updateCoi(req.params.id, req.body)))
+  router.get('/cois/:id', handle(async (req, reads, writes) => found(coiView(await reads.getCoi(req.params.id)))))
+  router.patch('/cois/:id', handle(async (req, reads, writes) => {
+    if (!await reads.getCoi(req.params.id)) return missing()
+    return found(receipt(await writes.updateCoi(req.params.id, req.body)))
   }))
   // Including DELETE: no global deletion, no fallthrough to another router.
   router.use((_req, res) => { res.status(404).json({ error: 'Not found' }) })

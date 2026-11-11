@@ -6,6 +6,9 @@ import pg from 'pg'
 import { createSecureV2App } from './secure-v2-app.ts'
 import { createV2Auth } from './v2/auth.ts'
 import type { V2AuthConfig, V2AuthContext } from './v2/auth.ts'
+import { createV2Registration } from './v2/registration.ts'
+import type { RegistrationRateLimiter } from './v2/registration.ts'
+import { createSesRegistrationDelivery } from './v2/sesRegistrationDelivery.ts'
 import { createGcOwnerV2Router } from './routes/gcOwnerV2.ts'
 import { createGcSubConnectionsV2Router } from './routes/gcSubConnectionsV2.ts'
 import { privateCertificatesRouter } from './routes/privateCertificates.ts'
@@ -19,6 +22,9 @@ type Options = {
   authConfig: V2AuthConfig
   // Test callback only; NOT an implementation of production rate limiting.
   testRateLimit?: (input: LimitInput) => Promise<boolean>
+  // Both are explicit synthetic seams; absence of either disables registration.
+  testRegistrationRateLimit?: RegistrationRateLimiter['allow']
+  unsafeTestOnlyMockSes?: NonNullable<Parameters<typeof createSesRegistrationDelivery>[1]>
   // Unsafe opt-in is for controlled synthetic HTTP tests, never production.
   unsafeTestOnlyEnableConsent?: boolean
   testAuthorizeInviteRecipient?: (input: { gcSubject: string; profileId: string }) => Promise<boolean>
@@ -90,7 +96,23 @@ export function createSecureV2SyntheticTestApp(options: Options) {
     }, () => { res.status(503).json({ error: 'Unavailable' }) })
   }
   const authRouter = express.Router()
-  authRouter.use(middlewareLimit('auth', 'preauth'), auth.router)
+  const delivery = options.unsafeTestOnlyMockSes
+    ? createSesRegistrationDelivery({ region: 'us-east-1', fromEmailAddress: 'verify@example.test', timeoutMs: 1000 }, options.unsafeTestOnlyMockSes)
+    : undefined
+  const registration = createV2Registration(options.pool, {
+    delivery,
+    rateLimiter: options.testRegistrationRateLimit
+      ? { allow: input => withDeadline(() => options.testRegistrationRateLimit!(input)) }
+      : undefined,
+  })
+  authRouter.use(middlewareLimit('auth', 'preauth'))
+  // Scope the registration parser and handlers to the two canonical paths only;
+  // the auth router still owns login, logout and its disabled /register placeholder.
+  authRouter.use((req, res, next) => {
+    if (req.method === 'POST' && (req.path === '/register/request' || req.path === '/register/confirm')) return registration(req, res, next)
+    next()
+  })
+  authRouter.use(auth.router)
   const gcRouter = createGcOwnerV2Router({ pool: options.pool, authenticate: adapter })
   // Default off, synthetic-only: transactional consent session enforcement does
   // not resolve the remaining owner/file and production-readiness blockers.

@@ -1,7 +1,7 @@
 // Disconnected: callers must explicitly mount this router and supply trusted policies.
 import express from 'express'
 import type { Request, RequestHandler } from 'express'
-import { CONSENT_V1, QR_CONSENT_V1_TEXT, INVITE_CONSENT_V1_TEXT, UnavailableError } from '../services/gcSubConsent.ts'
+import { CONSENT_V2, QR_CONSENT_V2_TEXT, INVITE_CONSENT_V2_TEXT, UnavailableError } from '../services/gcSubConsent.ts'
 import type { gcSubConsentService } from '../services/gcSubConsent.ts'
 
 type Principal = { subject: string; role: 'gc' | 'sub'; credential: string }
@@ -80,9 +80,10 @@ export function createGcSubConnectionsV2Router(options: ConnectionsV2Options): e
   }
   const bad = (): never => { throw new UnavailableError() }
 
-  router.get('/consent', route('either', async () => ({ version: CONSENT_V1, qrText: QR_CONSENT_V1_TEXT, invitationText: INVITE_CONSENT_V1_TEXT })))
+  router.get('/consent', route('either', async () => ({ version: CONSENT_V2, qrText: QR_CONSENT_V2_TEXT, invitationText: INVITE_CONSENT_V2_TEXT })))
+  router.get('/profile', route('sub', async (_req, p) => options.service.getOwnProfile(p.credential)))
   router.post('/qr', route('sub', async (req, p) => {
-    if (!bodyHas(req, ['profileId', 'consentVersion', 'affirmative']) || !validId(req.body.profileId) || req.body.consentVersion !== CONSENT_V1 || req.body.affirmative !== true) return bad()
+    if (!bodyHas(req, ['profileId', 'consentVersion', 'affirmative']) || !validId(req.body.profileId) || req.body.consentVersion !== CONSENT_V2 || req.body.affirmative !== true) return bad()
     return options.service.issueSubQr(p.credential, req.body.profileId, req.body.consentVersion)
   }))
   router.post('/qr/redeem', route('gc', async (req, p) => {
@@ -97,10 +98,10 @@ export function createGcSubConnectionsV2Router(options: ConnectionsV2Options): e
   router.post('/invitations/preview', route('sub', async (req, p) => {
     if (!bodyHas(req, ['token']) || !validToken(req.body.token)) return bad()
     const invitation = await options.service.previewGcInvite(p.credential, req.body.token)
-    return { invitation, consent: { version: CONSENT_V1, text: INVITE_CONSENT_V1_TEXT } }
+    return { invitation, consent: { version: CONSENT_V2, text: INVITE_CONSENT_V2_TEXT } }
   }))
   router.post('/invitations/accept', route('sub', async (req, p) => {
-    if (!bodyHas(req, ['token', 'consentVersion', 'affirmative']) || !validToken(req.body.token) || req.body.consentVersion !== CONSENT_V1 || req.body.affirmative !== true) return bad()
+    if (!bodyHas(req, ['token', 'consentVersion', 'affirmative']) || !validToken(req.body.token) || req.body.consentVersion !== CONSENT_V2 || req.body.affirmative !== true) return bad()
     await options.service.acceptGcInvite(p.credential, req.body.token, req.body.consentVersion)
   }))
   router.post('/revoke', route('sub', async (req, p) => {

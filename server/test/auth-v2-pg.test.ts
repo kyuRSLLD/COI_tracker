@@ -1,3 +1,4 @@
+import { migrateFreshFixture, addFreshFixtureEvidence } from './fresh-profile-fixture.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes, randomUUID, createHash } from 'node:crypto'
@@ -8,7 +9,7 @@ import jwt from 'jsonwebtoken'
 import { migrateAuthV2V1 } from '../src/db/migrations/003_auth_v2.ts'
 import { migrateGcSubConsentV1 } from '../src/db/migrations/002_gc_sub_consent.ts'
 import { createV2Auth, hashV2Password } from '../src/v2/auth.ts'
-import { gcSubConsentService, CONSENT_V1, UnavailableError } from '../src/services/gcSubConsent.ts'
+import { gcSubConsentService, CONSENT_V2, UnavailableError } from '../src/services/gcSubConsent.ts'
 
 const url = process.env.AUTH_V2_TEST_PG_URL
 if (!url) throw new Error('AUTH_V2_TEST_PG_URL is required; use a disposable local PostgreSQL 16 database')
@@ -47,6 +48,7 @@ test('disposable PostgreSQL: sessions, lifecycle, HTTP and consent compatibility
       await assert.rejects(migrateAuthV2V1(c), /changed/)
       await c.query('UPDATE auth_v2_schema_migrations SET checksum=$1 WHERE version=1', [originalChecksum])
       await migrateGcSubConsentV1(c)
+      await migrateFreshFixture(c)
     } finally { c.release() }
     const passhash = await hashV2Password(password)
     await pool.query(`INSERT INTO auth_v2_accounts VALUES ('gc1','gc@example.test',$1,clock_timestamp(),'synthetic-review',true),('sub1','sub@example.test',$1,clock_timestamp(),'synthetic-review',true),('admin1','admin@example.test',$1,clock_timestamp(),'synthetic-review',true)`, [passhash])
@@ -102,8 +104,9 @@ test('disposable PostgreSQL: sessions, lifecycle, HTTP and consent compatibility
     assert.deepEqual(await (await me(forged)).json(), { subject: 'gc1', role: 'gc' })
     const profile = randomUUID()
     await pool.query("INSERT INTO subcontractors VALUES('verified',NULL,'Verified','trade','active','other@example.test')")
-    await pool.query("INSERT INTO gc_sub_profiles(id,subcontractor_id,sub_user_id,verified_at,verification_reference) VALUES($1,'verified','sub1',clock_timestamp(),'synthetic-review')", [profile])
-    const qr = await consent.issueSubQr(sub, profile, CONSENT_V1); await consent.redeemSubQr(gc, qr.token)
+    await pool.query("INSERT INTO gc_sub_profiles(id,subcontractor_id,sub_user_id,verified_at,verification_reference) VALUES($1,'verified','sub1',clock_timestamp(),'email-control-only:synthetic')", [profile])
+    await addFreshFixtureEvidence(pool, profile)
+    const qr = await consent.issueSubQr(sub, profile, CONSENT_V2); await consent.redeemSubQr(gc, qr.token)
     assert.equal((await request('/consent', { headers: { authorization: `Bearer ${gc}` } })).status, 200)
     assert.equal((await post('/api/v2/auth/logout', {}, gc)).status, 204)
     assert.equal((await me(gc)).status, 401)

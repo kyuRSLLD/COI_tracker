@@ -18,21 +18,22 @@ All paths below are relative to `/api/v2/connections`. Tokens are opaque bearer 
 
 | Method and path | Role | JSON input | Result |
 | --- | --- | --- | --- |
-| `GET /consent` | either | — | `version`, `qrText`, `invitationText` from the service's exported v1 constants. |
-| `POST /qr` | sub | `{profileId, consentVersion, affirmative: true}` | One-time `{token, expiresAt}`. Only verified profile owner; consent permits whichever eligible GC scans. |
+| `GET /consent` | either | — | `version`, `qrText`, `invitationText` from the service's exact v2 constants. |
+| `GET /profile` | sub | — | `{profileId, evidenceType}` for the caller’s own active fresh profile only. |
+| `POST /qr` | sub | `{profileId, consentVersion, affirmative: true}` | One-time `{token, expiresAt}`. Only authenticated fresh profile owner; consent permits whichever eligible GC scans. |
 | `POST /qr/redeem` | GC | `{token}` | 204; one-time atomic consumption/grant. |
 | `POST /invitations` | GC | `{profileId}` | One-time `{token, expiresAt}`, after independent recipient authorization; **not** consent. |
-| `POST /invitations/preview` | sub | `{token}` | `{invitation, consent: {version, text}}`; preview reveals the actual inviting GC identity and profile only to that profile's verified sub. |
-| `POST /invitations/accept` | sub | `{token, consentVersion, affirmative: true}` | 204; only verified owner of the profile can consent. |
+| `POST /invitations/preview` | sub | `{token}` | `{invitation, consent: {version, text}}`; preview reveals the actual inviting GC identity and profile only to that profile's authenticated fresh-profile owner. |
+| `POST /invitations/accept` | sub | `{token, consentVersion, affirmative: true}` | 204; only the fresh-profile owner can consent. |
 | `POST /revoke` | sub | `{profileId, gcUserId}` | 204 even if there was no active grant; invalidates all unspent profile QRs and that GC's pending invites. |
 | `GET /subcontractors` | GC | — | `{subcontractors: [...]}`; service's currently granted minimal projection only. |
-| `POST /cois` | GC | `{profileId}` | `{cois: [...]}`; service's explicitly mapped, granted COI metadata only; no grant and no matching records both yield an empty list. |
+| `POST /cois` | GC | `{profileId}` | `{cois: [...]}`; always empty under profile-only v2 consent, even with a COI mapping. |
 
-The frontend must actually show the current exact QR disclosure before collecting the affirmative action. For invitations it must first call preview, display the identified inviter and corresponding exact disclosure, and then obtain a separate affirmative action with the version. The service/router cannot prove a human saw the preview; a version string and boolean alone are not proof of informed consent. For QR, consent is untargeted. Identified-GC preapproval requires the invitation flow or a new design. Consent remains current only for explicitly verified sub-owned COI metadata mapped in the service; documents and storage URLs are not provided. UI, accessible presentation, localization, consent capture evidence beyond the service's events, secure token delivery, and QR generation are not implemented.
+The frontend must actually show the current exact QR disclosure before collecting the affirmative action. For invitations it must first call preview, display the identified inviter and corresponding exact disclosure, and then obtain a separate affirmative action with the version. The service/router cannot prove a human saw the preview; a version string and boolean alone are not proof of informed consent. For QR, consent is untargeted. Identified-GC preapproval requires the invitation flow or a new design. Consent covers the profile identifiers and email-control evidence type plus current and future self-reported company name and trade; COIs, insurance validity, documents and storage URLs are not provided or verified. UI, accessible presentation, localization, consent capture evidence beyond the service's events, secure token delivery, and QR generation are not implemented.
 
 Wrong role, invalid body or unavailable token/profile/authorization return generic 404. Trusted authentication may return 401; limit denial 429; parser, database, policy and other internal failures 503, with generic bodies and no error details. JSON-only malformed input is not a validation oracle for profile existence. No log is emitted by the router. Already-started reads follow PostgreSQL statement snapshots, so revocation cannot retract previously seen data or guarantee cancellation of in-flight reads. See the service documentation for all lifecycle, role, mapping, concurrency and provisioning constraints.
 
-The service has no endpoint to list the sub's own grants, obtain a verified profile or invite recipient discovery, create/verify profiles, map COIs, deliver invitations, serve documents, or revoke bearer sessions. This router does not fabricate those capabilities. GC list results include profile IDs only for live grants, and invitation preview discloses its profile ID only to the verified owner.
+The service has no endpoint to list the sub's own grants, perform invite recipient discovery, verify a company, map COIs, deliver invitations, serve documents, or revoke bearer sessions. Own-profile discovery is restricted to the authenticated owner of a fresh profile. GC list results include profile IDs and evidence type only for live v2 grants, and invitation preview discloses its profile ID only to that profile owner.
 
 ## Test
 
@@ -43,4 +44,4 @@ GC_SUB_TEST_PG_URL=postgresql://ubuntu@127.0.0.1:55489/gc_sub_test_disposable \
   node --experimental-strip-types --test server/test/gc-sub-connections-v2.test.ts
 ```
 
-Coverage includes both flows, explicit consent/version, independent same-name tenant isolation, recipient-policy denial, no private COI fields, replay and revoked access, pending capability invalidation, live-role changes, invalid RS256/HS256 credentials (including when synthetic authentication is intentionally broken), generic DB/policy errors, 429/503 fail-closed limiting, and no-store responses. The original service integration test provides deeper race, expiry, rollback and migration coverage. Neither suite substitutes for production schema rehearsal, recipient authorization review, or a live deployment assessment.
+Coverage includes both flows, explicit consent/version, independent same-name tenant isolation, recipient-policy denial, no COI metadata even when mapped, replay and revoked access, pending capability invalidation, live-role changes, invalid RS256/HS256 credentials (including when synthetic authentication is intentionally broken), generic DB/policy errors, 429/503 fail-closed limiting, and no-store responses. The original service integration test provides deeper race, expiry, rollback and migration coverage. Neither suite substitutes for production schema rehearsal, recipient authorization review, or a live deployment assessment.

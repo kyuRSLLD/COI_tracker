@@ -1,3 +1,4 @@
+import { migrateFreshFixture, addFreshFixtureEvidence } from './fresh-profile-fixture.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomUUID } from 'node:crypto'
@@ -10,7 +11,7 @@ import { migrateGcSubConsentV1 } from '../src/db/migrations/002_gc_sub_consent.t
 import { migrateAuthV2V1 } from '../src/db/migrations/003_auth_v2.ts'
 import { createV2Auth, hashV2Password } from '../src/v2/auth.ts'
 import { createVerifiedPrincipalAdapter } from '../src/secure-v2-synthetic.ts'
-import { gcSubConsentService, CONSENT_V1, QR_CONSENT_V1_TEXT, INVITE_CONSENT_V1_TEXT } from '../src/services/gcSubConsent.ts'
+import { gcSubConsentService, CONSENT_V2, QR_CONSENT_V2_TEXT, INVITE_CONSENT_V2_TEXT } from '../src/services/gcSubConsent.ts'
 import { createGcSubConnectionsV2Router } from '../src/routes/gcSubConnectionsV2.ts'
 
 const url = process.env.GC_SUB_TEST_PG_URL
@@ -36,14 +37,15 @@ test('disconnected HTTP router: synthetic PostgreSQL consent, isolation and fail
       CREATE TABLE subcontractors(id TEXT PRIMARY KEY,company_name TEXT NOT NULL,trade TEXT NOT NULL,status TEXT,contact_person TEXT,phone TEXT,email TEXT);
       CREATE TABLE cois(id TEXT PRIMARY KEY,subcontractor_id TEXT NOT NULL,carrier TEXT NOT NULL,effective_date TEXT NOT NULL,expiration_date TEXT NOT NULL,status TEXT,certificate_key TEXT,certificate_url TEXT)`)
     const c = await pool.connect()
-    try { await migrateGcSubConsentV1(c); await migrateAuthV2V1(c) } finally { c.release() }
+    try { await migrateGcSubConsentV1(c); await migrateAuthV2V1(c); await migrateFreshFixture(c) } finally { c.release() }
     await pool.query(`INSERT INTO users(id,role,name) VALUES ('gc1','gc','Same'),('gc2','gc','Same'),('sub1','sub','Same'),('sub2','sub','Same');
       INSERT INTO subcontractors VALUES ('s1','Same','Trade','active','secret','secret','secret'),('s2','Same','Trade','active','secret','secret','secret');
       INSERT INTO cois VALUES ('c1','s1','Carrier','2020','2030','active','secret-key','https://private'),('unmapped','s1','Carrier','2020','2030','active','secret-key','https://private'),('c2','s2','Carrier','2020','2030','active','secret-key','https://private')`)
     const passhash = await hashV2Password(password)
     await pool.query(`INSERT INTO auth_v2_accounts(user_id,login_email,password_hash,email_verified_at,verification_reference,enabled) SELECT id,id||'@example.test',$1,clock_timestamp(),'synthetic',true FROM users`, [passhash])
     const p1 = randomUUID(), p2 = randomUUID(), nonexistent = randomUUID()
-    await pool.query("INSERT INTO gc_sub_profiles(id,subcontractor_id,sub_user_id,verified_at,verification_reference) VALUES($1,'s1','sub1',now(),'verified'),($2,'s2','sub2',now(),'verified')", [p1, p2])
+    await pool.query("INSERT INTO gc_sub_profiles(id,subcontractor_id,sub_user_id,verified_at,verification_reference) VALUES($1,'s1','sub1',now(),'email-control-only:test-1'),($2,'s2','sub2',now(),'email-control-only:test-2')", [p1, p2])
+    await addFreshFixtureEvidence(pool, p1); await addFreshFixtureEvidence(pool, p2)
     await pool.query("INSERT INTO gc_sub_coi_ownership VALUES('c1',$1,'s1',now(),'verified'),('c2',$2,'s2',now(),'verified')", [p1, p2])
     const service = gcSubConsentService(pool, config)
     const authV2 = createV2Auth(pool, config)
@@ -86,12 +88,12 @@ test('disconnected HTTP router: synthetic PostgreSQL consent, isolation and fail
       return { status: res.status, body: text ? JSON.parse(text) : null, text }
     }
     const disclosure = await call('/consent', sub1)
-    assert.deepEqual(disclosure.body, { version: CONSENT_V1, qrText: QR_CONSENT_V1_TEXT, invitationText: INVITE_CONSENT_V1_TEXT })
-    assert.equal((await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V1, affirmative: false })).status, 404)
+    assert.deepEqual(disclosure.body, { version: CONSENT_V2, qrText: QR_CONSENT_V2_TEXT, invitationText: INVITE_CONSENT_V2_TEXT })
+    assert.equal((await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V2, affirmative: false })).status, 404)
     assert.equal((await call('/qr', sub1, { profileId: p1, consentVersion: 'wrong', affirmative: true })).status, 404)
-    const unauthorized = await call('/qr', sub2, { profileId: p1, consentVersion: CONSENT_V1, affirmative: true })
+    const unauthorized = await call('/qr', sub2, { profileId: p1, consentVersion: CONSENT_V2, affirmative: true })
     assert.equal(unauthorized.status, 404); assert.equal(unauthorized.text.includes(p1), false)
-    const issued = await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V1, affirmative: true })
+    const issued = await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V2, affirmative: true })
     assert.equal(issued.status, 200); assert.match(issued.body.token, /^[A-Za-z0-9_-]{43}$/)
     assert.equal((await call('/qr/redeem', sub2, { token: issued.body.token })).status, 404)
     assert.equal((await call('/qr/redeem', gc1, { token: issued.body.token })).status, 204)
@@ -100,7 +102,7 @@ test('disconnected HTTP router: synthetic PostgreSQL consent, isolation and fail
     assert.deepEqual((await call('/subcontractors', gc2)).body.subcontractors, [])
     assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois, [])
     const cois = (await call('/cois', gc1, { profileId: p1 })).body.cois
-    assert.deepEqual(cois.map((x: any) => x.id), ['c1'])
+    assert.deepEqual(cois, [])
     assert.ok(!JSON.stringify(cois).includes('secret')); assert.ok(!JSON.stringify(cois).includes('private'))
     assert.deepEqual((await call('/cois', gc1, { profileId: p2 })).body.cois, [])
     // Arbitrary/guessed UUIDs give no discovery oracle when policy denies both.
@@ -113,27 +115,27 @@ test('disconnected HTTP router: synthetic PostgreSQL consent, isolation and fail
     assert.equal((await call('/invitations/preview', sub2, { token: invitation.body.token })).status, 404)
     const preview = await call('/invitations/preview', sub1, { token: invitation.body.token })
     assert.equal(preview.status, 200); assert.equal(preview.body.invitation.gc_user_id, 'gc2')
-    assert.deepEqual(preview.body.consent, { version: CONSENT_V1, text: INVITE_CONSENT_V1_TEXT })
-    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V1, affirmative: false })).status, 404)
-    assert.equal((await call('/invitations/accept', sub2, { token: invitation.body.token, consentVersion: CONSENT_V1, affirmative: true })).status, 404)
-    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V1, affirmative: true })).status, 204)
-    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V1, affirmative: true })).status, 404)
-    assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois.map((x: any) => x.id), ['c1'])
-    const qr2 = await call('/qr', sub2, { profileId: p2, consentVersion: CONSENT_V1, affirmative: true })
+    assert.deepEqual(preview.body.consent, { version: CONSENT_V2, text: INVITE_CONSENT_V2_TEXT })
+    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V2, affirmative: false })).status, 404)
+    assert.equal((await call('/invitations/accept', sub2, { token: invitation.body.token, consentVersion: CONSENT_V2, affirmative: true })).status, 404)
+    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V2, affirmative: true })).status, 204)
+    assert.equal((await call('/invitations/accept', sub1, { token: invitation.body.token, consentVersion: CONSENT_V2, affirmative: true })).status, 404)
+    assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois.map((x: any) => x.id), [])
+    const qr2 = await call('/qr', sub2, { profileId: p2, consentVersion: CONSENT_V2, affirmative: true })
     assert.equal((await call('/qr/redeem', gc2, { token: qr2.body.token })).status, 204)
-    assert.deepEqual((await call('/cois', gc2, { profileId: p2 })).body.cois.map((x: any) => x.id), ['c2'])
+    assert.deepEqual((await call('/cois', gc2, { profileId: p2 })).body.cois.map((x: any) => x.id), [])
     const before = (await pool.query('SELECT * FROM cois ORDER BY id')).rows
-    const staleQr = await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V1, affirmative: true })
+    const staleQr = await call('/qr', sub1, { profileId: p1, consentVersion: CONSENT_V2, affirmative: true })
     const staleInvite = await call('/invitations', gc2, { profileId: p1 })
     assert.equal((await call('/revoke', sub2, { profileId: p1, gcUserId: 'gc1' })).status, 404)
     assert.equal((await call('/revoke', sub1, { profileId: p1, gcUserId: 'gc1' })).status, 204)
     assert.equal((await call('/revoke', sub1, { profileId: p1, gcUserId: 'gc1' })).status, 204)
     assert.deepEqual((await call('/cois', gc1, { profileId: p1 })).body.cois, [])
     assert.deepEqual((await call('/subcontractors', gc1)).body.subcontractors, [])
-    assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois.map((x: any) => x.id), ['c1'])
+    assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois.map((x: any) => x.id), [])
     assert.equal((await call('/qr/redeem', gc1, { token: staleQr.body.token })).status, 404)
     assert.equal((await call('/revoke', sub1, { profileId: p1, gcUserId: 'gc2' })).status, 204)
-    assert.equal((await call('/invitations/accept', sub1, { token: staleInvite.body.token, consentVersion: CONSENT_V1, affirmative: true })).status, 404)
+    assert.equal((await call('/invitations/accept', sub1, { token: staleInvite.body.token, consentVersion: CONSENT_V2, affirmative: true })).status, 404)
     assert.deepEqual((await call('/cois', gc2, { profileId: p1 })).body.cois, [])
     assert.deepEqual((await pool.query('SELECT * FROM cois ORDER BY id')).rows, before)
     await pool.query("UPDATE users SET role='admin' WHERE id='gc2'")
@@ -146,7 +148,7 @@ test('disconnected HTTP router: synthetic PostgreSQL consent, isolation and fail
     assert.equal((await call('/consent?unexpected=1', sub1)).status, 404)
     await pool.query('ALTER TABLE cois RENAME TO temporarily_unavailable_cois')
     const dbFailure = await call('/cois', gc1, { profileId: p1 })
-    assert.equal(dbFailure.status, 503); assert.deepEqual(dbFailure.body, { error: 'Unavailable' })
+    assert.equal(dbFailure.status, 200); assert.deepEqual(dbFailure.body, { cois: [] }) // no COI query under profile-only consent
     await pool.query('ALTER TABLE temporarily_unavailable_cois RENAME TO cois')
     for (const bad of [credential('gc1','gc', { issuer: 'wrong' }), credential('gc1','gc', { audience: 'wrong' }), credential('gc1','gc', { expiresIn: -1 }), jwt.sign({ sub: 'gc1', role: 'gc' }, 'bad', { algorithm: 'HS256', issuer: config.issuer, audience: config.audience, expiresIn: '5m' })]) {
       assert.equal((await call('/subcontractors', bad)).status, 401)
