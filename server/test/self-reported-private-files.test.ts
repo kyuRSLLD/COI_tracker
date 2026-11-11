@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { readFile } from 'node:fs/promises'
+import { Readable } from 'node:stream'
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import express from 'express'
 import pg from 'pg'
 import jwt from 'jsonwebtoken'
@@ -16,6 +18,7 @@ import { gcSubConsentService, CONSENT_V2 } from '../src/services/gcSubConsent.ts
 import { selfReportedCoiMetadataService, METADATA_CONSENT_V1 } from '../src/services/selfReportedCoiMetadata.ts'
 import { selfReportedPrivateFileService, FILE_CONSENT_V1, type FileMime, type PrivateFileInspector } from '../src/services/selfReportedPrivateFiles.ts'
 import { inspectPrivateFile } from '../src/services/privateFileInspection.ts'
+import { createPrivateFileS3Storage, type PrivateFileS3Client } from '../src/services/privateFileS3Storage.ts'
 import { mockScanner } from './mock-clamav-fixture.ts'
 
 const url=process.env.GC_SUB_TEST_PG_URL
@@ -93,7 +96,7 @@ test('fresh self-reported file is scanned, version-bound and shared only on expl
       store.set(k,{bytes:copy,version})
       if(storageMode==='throw-after') throw new Error('ambiguous write failure')
       return {mime,size:copy.length,sha256:storageMode==='bad-digest'?'0'.repeat(64):digest(copy),version:storageMode==='no-version'?'':storageMode==='null-version'?'null':version}
-    },async getVersion(k:string,v:string){ gets++; if(getStarted) getStarted(); if(getGate) await getGate; const r=store.get(k); if(!r || r.version!==v || storageMode==='read-fail') throw new Error('secret storage error'); return {bytes:Buffer.from(r.bytes),version:storageMode==='wrong-version'?'wrong':r.version} }}
+    },async getVersion(k:string,v:string,maxBytes:number){ gets++; if(getStarted) getStarted(); if(getGate) await getGate; const r=store.get(k); if(!r || r.version!==v || r.bytes.length>maxBytes || storageMode==='read-fail') throw new Error('secret storage error'); return {bytes:Buffer.from(r.bytes),version:storageMode==='wrong-version'?'wrong':r.version} }}
     const files=selfReportedPrivateFileService(pool,{...config,maxFileBytes:1024},inspector,storage)
     const unavailable=async(f:Promise<unknown>)=>assert.rejects(f,(e:any)=>e.message==='Unavailable')
     assert.throws(() => selfReportedPrivateFileService(pool!, {...config,maxFileBytes:1024}, null as any, storage), /configuration/)
@@ -129,6 +132,48 @@ test('fresh self-reported file is scanned, version-bound and shared only on expl
     // A different valid sub receives no ownership information and cannot change this grant.
     await files.revoke(sub2,file.id,'gc1'); assert.deepEqual((await files.download(gc1,file.id)).bytes,data)
     await unavailable(files.download(gc2,file.id)); await unavailable(files.download(client,file.id)); await unavailable(files.download(gc1,duplicate.id))
+    await t.test('file service with isolated S3 adapter and synthetic SDK transport', async () => {
+      const objects=new Map<string,{bytes:Buffer; mime:string; sha:string; version:string}>()
+      const operations:string[]=[]
+      let stall=false, entered!:()=>void, release!:()=>void
+      const gate=new Promise<void>(r=>release=r), started=new Promise<void>(r=>entered=r)
+      const sdk={async send(command:any, options:{abortSignal:AbortSignal}) {
+        operations.push(command.constructor.name)
+        const i=command.input
+        if(command instanceof PutObjectCommand) {
+          assert.equal(i.IfNoneMatch,'*'); assert.equal(objects.has(i.Key),false)
+          if(stall) { entered(); await gate }
+          const bytes=Buffer.from(i.Body), sha=createHash('sha256').update(bytes).digest('base64')
+          assert.equal(i.ChecksumSHA256,sha)
+          objects.set(i.Key,{bytes,mime:i.ContentType,sha,version:'synthetic-version'})
+          return {VersionId:'synthetic-version'}
+        }
+        const obj=objects.get(i.Key); assert.ok(obj); assert.equal(i.VersionId,obj.version)
+        assert.equal(i.ChecksumMode,'ENABLED')
+        const headers={VersionId:obj.version,ContentLength:obj.bytes.length,ContentType:obj.mime,ChecksumSHA256:obj.sha,ChecksumType:'FULL_OBJECT'}
+        if(command instanceof HeadObjectCommand) return headers
+        assert.ok(command instanceof GetObjectCommand)
+        return {...headers,Body:Readable.from([obj.bytes])}
+      }}
+      const s3=createPrivateFileS3Storage({bucket:'private-example-bucket',expectedBucketOwner:'123456789012',maxFileBytes:1024,deadlineMs:5000},sdk as unknown as PrivateFileS3Client)
+      const integrated=selfReportedPrivateFileService(pool!,{...config,maxFileBytes:1024},inspector,s3)
+      const controller=new AbortController()
+      const uploaded=await integrated.upload(sub,coi.id,data,'application/pdf',{signal:controller.signal,deadlineAt:Date.now()+5000})
+      await unavailable(integrated.download(gc1,uploaded.id))
+      assert.deepEqual((await integrated.downloadOwn(sub,uploaded.id)).bytes,data)
+      await integrated.grant(sub,uploaded.id,'gc1',FILE_CONSENT_V1,true)
+      assert.deepEqual((await integrated.download(gc1,uploaded.id)).bytes,data)
+      await integrated.revoke(sub,uploaded.id,'gc1'); await unavailable(integrated.download(gc1,uploaded.id))
+      assert.deepEqual(operations,['PutObjectCommand','HeadObjectCommand','GetObjectCommand','GetObjectCommand'])
+      stall=true
+      const cancellation=new AbortController()
+      const pending=integrated.upload(sub,coi.id,data,'application/pdf',{signal:cancellation.signal,deadlineAt:Date.now()+5000})
+      await started; cancellation.abort(); await unavailable(pending)
+      const operationCount=operations.length
+      release(); await pause(20)
+      assert.equal(operations.length,operationCount) // no HEAD after cancelled PUT, even if it commits late
+      assert.equal(objects.size,2) // ambiguous object requires reconciliation
+    })
     await t.test('actual parser adapter, mock ClamAV and version-bound synthetic storage', { skip: !process.env.PRIVATE_INSPECTION_TEST_PYTHON && 'Set PRIVATE_INSPECTION_TEST_PYTHON to run real-parser composition' }, async () => {
       const python = process.env.PRIVATE_INSPECTION_TEST_PYTHON!
       assert.ok(python.startsWith('/'))

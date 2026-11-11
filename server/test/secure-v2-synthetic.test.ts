@@ -17,6 +17,8 @@ import { migrateRegistrationV2V1 } from '../src/db/migrations/004_registration_v
 import { migrateSelfReportedCoiMetadataV1 } from '../src/db/migrations/006_self_reported_coi_metadata.ts'
 import { migrateAnonymousReportsV1 } from '../src/db/migrations/006_anonymous_client_reports.ts'
 import { migrateSelfReportedPrivateFilesV1 } from '../src/db/migrations/007_self_reported_private_files.ts'
+import { createPrivateFilesPostgresLimiter, migratePrivateFilesRateLimitV1 } from '../src/services/privateFilesRateLimiter.ts'
+import { FILE_CONSENT_V1, FILE_CONSENT_V1_TEXT, type FileMime } from '../src/services/selfReportedPrivateFiles.ts'
 import { METADATA_CONSENT_V1, METADATA_CONSENT_V1_TEXT } from '../src/services/selfReportedCoiMetadata.ts'
 import { postgresOwnerConnection } from '../src/db/ownerConnection.ts'
 import { createV2Auth, hashV2Password } from '../src/v2/auth.ts'
@@ -87,9 +89,19 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
       } finally { await c.query('ROLLBACK'); await other.query('RESET lock_timeout'); other.release() }
       assert.equal(await migrateSelfReportedPrivateFilesV1(c), 'applied')
       assert.equal(await migrateSelfReportedPrivateFilesV1(c), 'already-applied')
+      assert.equal(await migratePrivateFilesRateLimitV1(c), 'applied')
+      assert.equal(await migratePrivateFilesRateLimitV1(c), 'already-applied')
       assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'already-applied')
       assert.equal(await migrateAnonymousReportsV1(c), 'already-applied')
     } finally { c.release() }
+    const atomicLimit=createPrivateFilesPostgresLimiter(pool,{windowSeconds:60,preauthMax:5,principalMax:3})
+    const atomicInput={phase:'preauth' as const,remoteAddress:'127.0.0.99'}
+    const attempts=await Promise.all(Array.from({length:30},()=>atomicLimit(atomicInput)))
+    assert.equal(attempts.filter(Boolean).length,5)
+    assert.equal(await atomicLimit({phase:'preauth',remoteAddress:'127.0.0.100'}),true)
+    const principalAttempts=await Promise.all(Array.from({length:20},(_,i)=>atomicLimit({phase:'principal',remoteAddress:`127.0.0.${i+1}`,subject:'sub'})))
+    assert.equal(principalAttempts.filter(Boolean).length,3)
+    assert.equal(await atomicLimit({phase:'principal',remoteAddress:'127.0.0.1'}),false)
     const passhash = await hashV2Password(password)
     await pool.query(`INSERT INTO users(id,email,password_hash,name,role,created_at) VALUES ('gc1','gc1@example.test','legacy','GC One','gc','now'),('gc2','gc2@example.test','legacy','GC Two','gc','now'),('sub1','sub1@example.test','legacy','Sub One','sub','now'),('sub2','sub2@example.test','legacy','Sub Two','sub','now'),('client','client@example.test','legacy','Client','admin','now');`)
     await pool.query(`INSERT INTO auth_v2_accounts(user_id,login_email,password_hash,email_verified_at,verification_reference,enabled)
@@ -98,6 +110,7 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
     let mode: 'allow' | 'deny' | 'error' = 'allow'
     const testRateLimit = async (x: { scope: string; phase: string; remoteAddress: string; subject?: string }) => {
       phases.push(`${x.scope}:${x.phase}`); assert.ok(x.remoteAddress)
+      if (x.scope==='files-router') assert.equal(x.remoteAddress,'127.0.0.1')
       if (mode === 'error') throw new Error('sensitive test limiter error')
       return mode === 'allow'
     }
@@ -107,7 +120,21 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
       async put(command: any) { s3Calls++; objects.set(command.input.Key, { body: Buffer.from(command.input.Body), mime: command.input.ContentType }) },
       async get(command: any) { s3Calls++; const obj = objects.get(command.input.Key); if (!obj) throw Error('secret mock S3 key'); return { Body: Readable.from([obj.body]), ContentLength: obj.body.length, ContentType: obj.mime } },
     }
-    const options = { pool, authConfig: config, testRateLimit, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyEnableMetadata: true, unsafeTestOnlyMockS3: s3 }
+    const fileObjects = new Map<string,{bytes:Buffer,version:string}>()
+    let scanMode='ok', fileStoreMode='ok', filePuts=0, fileGets=0
+    const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex')
+    const inspector={async inspect(bytes:Uint8Array,mime:FileMime) { const mode=scanMode; if(mode==='slow') await new Promise(r=>setTimeout(r,400)); else if(mode!=='ok') throw new Error('secret malware or scanner error'); return {mime,size:bytes.length,sha256:digest(bytes)} }}
+    const fileStorage={async putNew(key:string,bytes:Uint8Array,mime:FileMime) {
+      filePuts++; if(fileStoreMode==='put-error' || fileObjects.has(key)) throw new Error('secret storage failure')
+      const value={bytes:Buffer.from(bytes),version:randomBytes(12).toString('hex')}; fileObjects.set(key,value)
+      return {mime,size:bytes.length,sha256:digest(bytes),version:value.version}
+    },async getVersion(key:string,version:string,maxBytes:number) {
+      fileGets++; const value=fileObjects.get(key)
+      if(fileStoreMode==='get-error' || !value || value.version!==version || value.bytes.length>maxBytes) throw new Error('secret object or redirect failure')
+      return {bytes:fileStoreMode==='tamper' ? Buffer.alloc(value.bytes.length,1) : Buffer.from(value.bytes),version:fileStoreMode==='version'?'wrong-version':value.version}
+    }}
+    const unsafeTestOnlyPrivateFiles={inspector,storage:fileStorage,maxFileBytes:64,uploadDeadlineMs:200}
+    const options = { pool, authConfig: config, testRateLimit, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyEnableMetadata: true, unsafeTestOnlyMockS3: s3, unsafeTestOnlyPrivateFiles }
     const unsafePool = new pg.Pool({ connectionString: 'postgresql://synthetic@192.0.2.1:5432/secure_v2_test_fake' })
     try { assert.throws(() => createSecureV2SyntheticTestApp({ ...options, pool: unsafePool }), /loopback/) } finally { await unsafePool.end() }
     const savedEnv = process.env.NODE_ENV
@@ -263,6 +290,101 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
     }
     assert.equal((await fetch(regBase + '/api/v2/certificates/' + created.body.id, { headers: { authorization: `Bearer ${registeredTokens.get('sub')}` } })).status, 404)
     assert.equal(s3Calls, 0)
+    // The separate raw file surface: no profile/metadata consent implicitly grants files.
+    const fp='/api/v2/self-reported-private-files'
+    const fileCall=async(path:string,role?:string,method='GET',body?:any,headers:Record<string,string>={}) => {
+      const r=await fetch(regBase+fp+path,{method,redirect:'manual',headers:{...(role?{authorization:`Bearer ${registeredTokens.get(role)}`}:{ }),...headers},...(body===undefined?{}:{body})})
+      assert.match(r.headers.get('cache-control')||'',/no-store/); assert.equal(r.headers.get('x-content-type-options'),'nosniff'); assert.equal(r.headers.get('location'),null)
+      return r
+    }
+    const jf=(v:unknown)=>JSON.stringify(v), jh={'content-type':'application/json'}
+    const ownPath='/own/'+created.body.id
+    const sample=Buffer.from('%PDF-synthetic-only')
+    const noFiles=await fileCall('/own/list','sub'); assert.deepEqual(await noFiles.json(),{files:[],nextCursor:null})
+    const consent=await fileCall('/consent','sub'); assert.deepEqual(await consent.json(),{version:FILE_CONSENT_V1,text:FILE_CONSENT_V1_TEXT})
+    const up=await fileCall(ownPath,'sub','PUT',sample,{'content-type':'application/pdf','x-user-id':'gc2','x-forwarded-for':'203.0.113.1','x-forwarded-host':'attacker.invalid','x-forwarded-proto':'https'})
+    assert.equal(up.status,201); const fid=(await up.json()).id as string; assert.match(fid,/^[0-9a-f-]{36}$/)
+    const uploadReplay=await fileCall(ownPath,'sub','PUT',sample,{'content-type':'application/pdf'}); assert.equal(uploadReplay.status,201); const replayId=(await uploadReplay.json()).id; assert.notEqual(replayId,fid)
+    const ownList=await fileCall('/own/list','sub'); const listed=await ownList.json(); assert.equal(listed.files.length,2); assert.ok(listed.files.some((x:any)=>x.id===fid)); assert.deepEqual(Object.keys(listed.files[0]).sort(),['id','coiId','mime','sizeBytes','createdAt','reportingStatus'].sort()); assert.equal(listed.files[0].reportingStatus,'self_reported_unverified')
+    const ownerRead=await fileCall('/own/'+fid,'sub'); assert.equal(ownerRead.status,200); assert.equal(ownerRead.headers.get('content-disposition'),'attachment; filename="self-reported-file"'); assert.equal(ownerRead.headers.get('content-type'),'application/pdf'); assert.deepEqual(Buffer.from(await ownerRead.arrayBuffer()),sample)
+    assert.equal((await fileCall('/own/'+fid)).status,401)
+    const forged=jwt.sign({role:'sub'},keys.privateKey,{algorithm:'RS256',issuer:config.issuer,audience:config.audience,subject:'sub2',jwtid:randomBytes(32).toString('base64url'),expiresIn:900})
+    const forgedResponse=await fetch(regBase+fp+'/own/'+fid,{headers:{authorization:`Bearer ${forged}`,'x-user-id':freshProfile.sub_user_id,'x-role':'sub'}})
+    assert.equal(forgedResponse.status,401)
+    const duplicateAuth=await new Promise<number>((resolve,reject)=>{const req=http.request(regBase+fp+'/own/'+fid,{headers:['Host',new URL(regBase).host,'Authorization',`Bearer ${registeredTokens.get('sub')}`,'Authorization',`Bearer ${registeredTokens.get('gc')}`]},res=>{res.resume();resolve(res.statusCode!)}); req.on('error',reject);req.end()})
+    assert.equal(duplicateAuth,401)
+    const sub2Login=await postReg('/api/v2/auth/login',{email:'sub2@example.test',password}); registeredTokens.set('sub2',JSON.parse(sub2Login.text).token)
+    assert.equal((await fileCall('/own/'+fid,'sub2')).status,404)
+    assert.equal((await fileCall(ownPath,'sub2','PUT',sample,{'content-type':'application/pdf'})).status,404)
+    assert.equal((await fileCall('/own/list','client')).status,401)
+    assert.equal((await fileCall('/granted/'+fid,'client')).status,401)
+    assert.deepEqual(await (await fileCall('/granted/list','gc')).json(),{files:[],nextCursor:null})
+    assert.equal((await fileCall('/granted/'+fid,'gc')).status,404)
+    const grantFile={fileId:fid,gcUserId:freshGcId,consentVersion:FILE_CONSENT_V1,affirmative:true}
+    for (const bad of [{...grantFile,consentVersion:METADATA_CONSENT_V1},{...grantFile,affirmative:false},{...grantFile,owner:'sub'},grantFile]) {
+      const role=bad===grantFile?'sub2':'sub'; assert.equal((await fileCall('/grant',role,'POST',jf(bad),jh)).status,404)
+    }
+    assert.equal((await fileCall('/grant','sub','POST',jf(grantFile),jh)).status,204)
+    assert.equal((await fileCall('/grant','sub','POST',jf(grantFile),jh)).status,204)
+    assert.equal((await pool.query('SELECT count(*)::int n FROM self_reported_private_file_grants WHERE file_id=$1 AND revoked_at IS NULL',[fid])).rows[0].n,1)
+    const gcList=await (await fileCall('/granted/list','gc')).json(); assert.deepEqual(gcList.files.map((x:any)=>x.id),[fid]); assert.equal(gcList.nextCursor,null)
+    assert.deepEqual(await (await fileCall('/granted/list','other-gc')).json(),{files:[],nextCursor:null})
+    const gcRead=await fileCall('/granted/'+fid,'gc'); assert.equal(gcRead.status,200); assert.equal(gcRead.headers.get('content-disposition'),'attachment; filename="self-reported-file"'); assert.deepEqual(Buffer.from(await gcRead.arrayBuffer()),sample)
+    assert.equal((await fileCall('/granted/'+replayId,'gc')).status,404)
+    assert.equal((await fileCall('/granted/'+fid,'other-gc')).status,404)
+    assert.equal((await fileCall('/revoke','sub2','POST',jf({fileId:fid,gcUserId:freshGcId}),jh)).status,404)
+    assert.equal((await fileCall('/granted/'+fid,'gc')).status,200)
+    assert.equal((await fileCall('/revoke','sub','POST',jf({fileId:fid,gcUserId:freshGcId}),jh)).status,204)
+    assert.equal((await fileCall('/granted/'+fid,'gc')).status,404)
+    assert.deepEqual(await (await fileCall('/granted/list','gc')).json(),{files:[],nextCursor:null})
+    assert.equal((await fileCall('/grant','sub','POST',jf(grantFile),jh)).status,204)
+    for(const badMode of ['get-error','tamper','version']) { fileStoreMode=badMode; const badRead=await fileCall('/granted/'+fid,'gc'); assert.equal(badRead.status,404); assert.deepEqual(await badRead.json(),{error:'Unavailable'}) } fileStoreMode='ok'
+    for (const mime of ['image/jpeg','image/png','image/webp']) { const r=await fileCall(ownPath,'sub','PUT',Buffer.from('synthetic'),{'content-type':mime}); assert.equal(r.status,201) }
+    const beforeBad=filePuts
+    scanMode='malware'; const malware=await fileCall(ownPath,'sub','PUT',sample,{'content-type':'application/pdf'}); assert.equal(malware.status,404); assert.deepEqual(await malware.json(),{error:'Unavailable'}); scanMode='slow'; const slowScan=await fileCall(ownPath,'sub','PUT',sample,{'content-type':'application/pdf'}); assert.equal(slowScan.status,404); await new Promise(r=>setTimeout(r,450)); scanMode='ok'; assert.equal(filePuts,beforeBad)
+    for (const [body,headers] of [[Buffer.alloc(65),{'content-type':'application/pdf'}],[sample,{'content-type':'text/html'}],[sample,{'content-type':'application/pdf','content-encoding':'gzip'}]] as const) assert.equal((await fileCall(ownPath,'sub','PUT',body,headers)).status,404)
+    fileStoreMode='put-error'; const storeFailure=await fileCall(ownPath,'sub','PUT',sample,{'content-type':'application/pdf'}); assert.equal(storeFailure.status,404); assert.deepEqual(await storeFailure.json(),{error:'Unavailable'}); fileStoreMode='ok'
+    assert.equal((await fileCall('/own/list?subject=sub','sub')).status,404)
+    assert.equal((await fileCall('/own/list/','sub')).status,404)
+    assert.equal((await fileCall('/own/list','sub','POST',jf({after:fid,extra:'x'}),jh)).status,404)
+    assert.equal((await fileCall('/own/list','sub','POST',jf({after:'invalid'}),jh)).status,404)
+    assert.equal((await fileCall('/own/list','sub','POST',jf({after:fid}),jh)).status,200)
+    assert.equal((await fetch(regBase+'/api/v2/auth/logout',{method:'POST',headers:{authorization:`Bearer ${registeredTokens.get('sub2')}`}})).status,204)
+    assert.equal((await fileCall('/own/list','sub2')).status,401)
+    assert.ok(fileGets>0)
+    // Two instances share the same PostgreSQL atomic buckets; no process-local counter.
+    const sharedOptions={...options,testRateLimit:async (x:Parameters<typeof testRateLimit>[0])=>x.scope==='files-router' ? atomicLimit(x as Parameters<typeof atomicLimit>[0]) : true}
+    const sharedA=await start(createSecureV2SyntheticTestApp(sharedOptions)), sharedB=await start(createSecureV2SyntheticTestApp(sharedOptions))
+    const sharedResults=await Promise.all(Array.from({length:12},(_,i)=>fetch((i%2?sharedA:sharedB)+fp+'/own/list',{headers:{authorization:`Bearer ${registeredTokens.get('sub')}`}})))
+    assert.equal(sharedResults.filter(r=>r.status===200).length,3)
+    assert.equal(sharedResults.filter(r=>r.status===429).length,9)
+    await Promise.all(sharedResults.map(r=>r.arrayBuffer()))
+    const deniedFiles=await start(createSecureV2SyntheticTestApp({...options,testRateLimit:async x=>x.scope!=='files-router'}))
+    assert.equal((await fetch(deniedFiles+fp+'/own/list',{headers:{authorization:`Bearer ${registeredTokens.get('sub')}`}})).status,429)
+    const errorFiles=await start(createSecureV2SyntheticTestApp({...options,testRateLimit:async x=>{if(x.scope==='files-router') throw Error('secret limiter'); return true}}))
+    const limitFailure=await fetch(errorFiles+fp+'/own/list',{headers:{authorization:`Bearer ${registeredTokens.get('sub')}`}}); assert.equal(limitFailure.status,503); assert.deepEqual(await limitFailure.json(),{error:'Unavailable'})
+    const disabledFiles=await start(createSecureV2SyntheticTestApp({...options,unsafeTestOnlyPrivateFiles:undefined}))
+    assert.equal((await fetch(disabledFiles+fp+'/own/list',{headers:{authorization:`Bearer ${registeredTokens.get('sub')}`}})).status,503)
+    // Slow client cannot hold the binary reader past its absolute deadline.
+    const slowStatus=await new Promise<number>((resolve,reject)=>{const req=http.request(regBase+fp+ownPath,{method:'PUT',headers:{authorization:`Bearer ${registeredTokens.get('sub')}`,'content-type':'application/pdf','transfer-encoding':'chunked'}},res=>{res.resume();resolve(res.statusCode!)}); req.on('error',reject); req.write('x')})
+    assert.equal(slowStatus,404)
+    const chunkedStatus=await new Promise<number>((resolve,reject)=>{const req=http.request(regBase+fp+ownPath,{method:'PUT',headers:{authorization:`Bearer ${registeredTokens.get('sub')}`,'content-type':'application/pdf','transfer-encoding':'chunked'}},res=>{res.resume();resolve(res.statusCode!)}); req.on('error',reject); req.write(Buffer.alloc(32)); req.end(Buffer.alloc(33))})
+    assert.equal(chunkedStatus,404)
+    // Synthetic DB-only rows exercise pagination without pretending fake bytes were scanned.
+    // These fixtures are never downloaded and the schema is discarded after this test.
+    const pageIds=Array.from({length:101},()=>randomUUID())
+    for(const fixtureId of pageIds) {
+      await pool.query(`INSERT INTO self_reported_private_files(id,coi_id,profile_id,storage_key,mime,size_bytes,sha256,state,storage_version) VALUES($1,$2,$3,$4,'application/pdf',1,$5,'ready','synthetic-version')`,[fixtureId,created.body.id,freshProfile.profile_id,'private-coi/'+randomBytes(32).toString('hex'),'0'.repeat(64)])
+      await pool.query(`INSERT INTO self_reported_private_file_grants(id,file_id,profile_id,gc_user_id,consent_version) VALUES($1,$2,$3,$4,$5)`,[randomUUID(),fixtureId,freshProfile.profile_id,freshGcId,FILE_CONSENT_V1])
+    }
+    for(const [kind,role] of [['own','sub'],['granted','gc']] as const) {
+      const first=await (await fileCall('/'+kind+'/list',role)).json(); assert.equal(first.files.length,100); assert.ok(first.nextCursor)
+      const second=await (await fileCall('/'+kind+'/list',role,'POST',jf({after:first.nextCursor}),jh)).json()
+      assert.equal(second.nextCursor,null); assert.ok(second.files.length>0 && second.files.length<=100)
+      const all=[...first.files,...second.files].map((x:any)=>x.id)
+      assert.equal(new Set(all).size,all.length); assert.ok(pageIds.every(id=>all.includes(id)))
+      assert.ok(!JSON.stringify([first,second]).match(/storage_key|storageVersion|sha256|synthetic-version/))
+    }
     assert.equal((await metadata('/revoke', 'sub', { coiId: created.body.id, gcUserId: freshGcId })).status, 204)
     assert.deepEqual((await metadata('/granted', 'gc')).body.records, [])
     assert.equal((await pool.query('SELECT count(*)::int n FROM self_reported_coi_grants WHERE coi_id=$1 AND revoked_at IS NULL', [created.body.id])).rows[0].n, 0)
@@ -270,6 +392,8 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
     assert.equal(afterRevokeFile.status, 503); assert.deepEqual(await afterRevokeFile.json(), { error: 'Unavailable' }); assert.equal(s3Calls, 0)
     assert.equal((await connection('/revoke', 'sub', { profileId: freshProfile.profile_id, gcUserId: freshGcId })).status, 204)
     assert.deepEqual((await connection('/subcontractors', 'gc')).body.subcontractors, [])
+    assert.equal((await fileCall('/granted/'+fid,'gc')).status,404)
+    assert.deepEqual(await (await fileCall('/granted/list','gc')).json(),{files:[],nextCursor:null})
     assert.ok(actions.includes('request') && actions.includes('confirm'))
     const placeholder = await postReg('/api/v2/auth/register', { role: 'gc' })
     assert.ok(placeholder.status === 503 && placeholder.text === '{"error":"Registration unavailable"}')

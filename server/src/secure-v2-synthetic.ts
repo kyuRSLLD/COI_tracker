@@ -13,12 +13,15 @@ import { createGcOwnerV2Router } from './routes/gcOwnerV2.ts'
 import { createGcSubConnectionsV2Router } from './routes/gcSubConnectionsV2.ts'
 import { privateCertificatesRouter } from './routes/privateCertificates.ts'
 import { createSelfReportedCoiMetadataV2Router } from './routes/selfReportedCoiMetadataV2.ts'
+import { createSelfReportedPrivateFilesV2Router } from './routes/selfReportedPrivateFilesV2.ts'
 import { gcSubConsentService } from './services/gcSubConsent.ts'
 import { selfReportedCoiMetadataService } from './services/selfReportedCoiMetadata.ts'
+import { selfReportedPrivateFileService } from './services/selfReportedPrivateFiles.ts'
+import type { PrivateFileInspector, ImmutablePrivateStorage } from './services/selfReportedPrivateFiles.ts'
 import { PrivateCertificateStorage } from './services/privateCertificateStorage.ts'
 import type { PrivateS3Transport } from './services/privateCertificateStorage.ts'
 
-type LimitInput = { scope: 'auth' | 'protected' | 'connections-router' | 'metadata-router'; phase: 'preauth' | 'principal'; remoteAddress: string; subject?: string }
+type LimitInput = { scope: 'auth' | 'protected' | 'connections-router' | 'metadata-router' | 'files-router'; phase: 'preauth' | 'principal'; remoteAddress: string; subject?: string }
 type Options = {
   pool: pg.Pool
   authConfig: V2AuthConfig
@@ -32,6 +35,7 @@ type Options = {
   unsafeTestOnlyEnableMetadata?: boolean
   testAuthorizeInviteRecipient?: (input: { gcSubject: string; profileId: string }) => Promise<boolean>
   unsafeTestOnlyMockS3?: PrivateS3Transport
+  unsafeTestOnlyPrivateFiles?: { inspector: PrivateFileInspector; storage: ImmutablePrivateStorage; maxFileBytes: number; uploadDeadlineMs: number }
 }
 type PrincipalRequest = Request & { securePrincipal?: Readonly<V2AuthContext> }
 const reject: RequestHandler = (_req, res) => { res.status(401).json({ error: 'Authentication required' }) }
@@ -137,6 +141,14 @@ export function createSecureV2SyntheticTestApp(options: Options) {
       authenticate: auth.requireAuth,
       checkRateLimit: input => limit({ scope: 'metadata-router', ...input }),
     }) : undefined
+  const fileOptions = options.unsafeTestOnlyPrivateFiles
+  const selfReportedPrivateFilesRouter = fileOptions ? createSelfReportedPrivateFilesV2Router({
+    service: selfReportedPrivateFileService(options.pool, { publicKey: options.authConfig.publicKey, issuer: options.authConfig.issuer, audience: options.authConfig.audience, maxFileBytes: fileOptions.maxFileBytes }, fileOptions.inspector, fileOptions.storage),
+    authenticate: auth.requireAuth,
+    checkRateLimit: input => limit({scope:'files-router',...input}),
+    maxFileBytes: fileOptions.maxFileBytes,
+    uploadDeadlineMs: fileOptions.uploadDeadlineMs,
+  }) : undefined
   // The outer gate never creates a principal, so the certificate router can
   // safely clear a prior principal before the adapter's fresh verification.
   const outerAuthentication: RequestHandler = (req, res, next) => {
@@ -146,6 +158,6 @@ export function createSecureV2SyntheticTestApp(options: Options) {
       middlewareLimit('protected', 'principal')(req, res, next)
     })
   }
-  return createSecureV2App({ authRouter, gcRouter, connectionsRouter, certificatesRouter, selfReportedCoiMetadataRouter,
+  return createSecureV2App({ authRouter, gcRouter, connectionsRouter, certificatesRouter, selfReportedCoiMetadataRouter, selfReportedPrivateFilesRouter,
     authenticate: outerAuthentication, beforeProtected: middlewareLimit('protected', 'preauth'), routersOwnBodyParsing: true })
 }

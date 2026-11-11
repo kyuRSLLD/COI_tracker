@@ -11,6 +11,7 @@ export interface SecureV2Dependencies {
   connectionsRouter?: Router
   certificatesRouter?: Router
   selfReportedCoiMetadataRouter?: Router
+  selfReportedPrivateFilesRouter?: Router
   authenticate?: RequestHandler
   // Only when trusted routers own bounded parsing; binary streams stay raw.
   routersOwnBodyParsing?: boolean
@@ -60,7 +61,7 @@ export function createSecureV2App(deps: SecureV2Dependencies = {}) {
         path.includes('//') || path.split('/').some(segment => segment === '.' || segment === '..')) {
       return notFound(req, res, next)
     }
-    const allowed = ['/api/v2/auth', '/api/v2/gc', '/api/v2/connections', '/api/v2/certificates', '/api/v2/self-reported-coi-metadata']
+    const allowed = ['/api/v2/auth', '/api/v2/gc', '/api/v2/connections', '/api/v2/certificates', '/api/v2/self-reported-coi-metadata', '/api/v2/self-reported-private-files']
     if (!allowed.some(base => path === base || path.startsWith(`${base}/`))) {
       return notFound(req, res, next)
     }
@@ -117,6 +118,7 @@ export function createSecureV2App(deps: SecureV2Dependencies = {}) {
   app.use('/api/v2/connections', beforeProtected, authenticate, json, deps.connectionsRouter ?? unavailable)
   app.use('/api/v2/certificates', beforeProtected, authenticate, json, deps.certificatesRouter ?? unavailable)
   app.use('/api/v2/self-reported-coi-metadata', beforeProtected, authenticate, json, deps.selfReportedCoiMetadataRouter ?? unavailable)
+  app.use('/api/v2/self-reported-private-files', beforeProtected, authenticate, json, deps.selfReportedPrivateFilesRouter ?? unavailable)
 
   app.use(notFound)
   const errors: ErrorRequestHandler = (err, _req, res, _next) => {
