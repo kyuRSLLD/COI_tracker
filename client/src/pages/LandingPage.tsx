@@ -91,9 +91,9 @@ export function LandingPage({ onLogin }: Props) {
 
           <div className="text-center max-w-4xl mx-auto mt-6">
             <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-[1.08]">
-              Collect subcontractor COIs in seconds.{' '}
+              Let's protect your business.{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-300 via-sky-300 to-emerald-300">
-                Share verified compliance with clients.
+                Organize subcontractor COIs. Stay ahead of coverage gaps.
               </span>
             </h1>
             <p className="mt-5 text-base sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
