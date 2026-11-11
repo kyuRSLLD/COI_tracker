@@ -7,11 +7,13 @@ import {
 import { apiSub, apiLogout, apiSendCOIEmail, apiSubSentEmails } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
 import { QRCodeSVG } from 'qrcode.react'
+import { CertificateViewer } from '../components/CertificateViewer'
 
 export function SubcontractorDashboardPage() {
   const [data, setData] = useState<SubcontractorDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewingCertificate, setViewingCertificate] = useState<COI | null>(null)
 
   // quick upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -307,14 +309,13 @@ export function SubcontractorDashboardPage() {
 
                     {coi.certificate_url && !coi.simulated_carrier_connect && (
                       <div className="mt-3 text-[11px]">
-                        <a
-                          href={coi.certificate_url}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setViewingCertificate(coi)}
                           className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
                         >
-                          View uploaded paper ({coi.certificate_name || 'document'}) <ExternalLink className="w-3 h-3" />
-                        </a>
+                          View uploaded paper ({coi.certificate_name || 'document'}) <FileText className="w-3 h-3" />
+                        </button>
                       </div>
                     )}
                   </div>
@@ -608,6 +609,7 @@ export function SubcontractorDashboardPage() {
           Subcontractor portal · need help? Contact your requesting general contractor or sign in with another account.
         </div>
       </main>
+      {viewingCertificate && <CertificateViewer certificate={viewingCertificate} onClose={() => setViewingCertificate(null)} returnLabel="Back to dashboard" />}
     </div>
   )
 }

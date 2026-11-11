@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, FileText, Edit2, Trash2, Shield, ExternalLink, ChevronDown, ChevronRight, Check } from 'lucide-react'
-import type { Subcontractor, GCSettings } from '../types'
+import { Plus, Search, FileText, Edit2, Trash2, Shield, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import type { Subcontractor, GCSettings, COI } from '../types'
 import { apiSubcontractors, apiSettings, apiCOIs } from '../api'
 import { ExpirationBadge } from '../components/ExpirationBadge'
 import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { AddCOIModal } from '../components/AddCOIModal'
 import { COIReviewModal } from '../components/COIReviewModal'
+import { CertificateViewer } from '../components/CertificateViewer'
 
 export function SubcontractorsPage() {
   const [subs, setSubs] = useState<Subcontractor[]>([])
@@ -22,6 +23,7 @@ export function SubcontractorsPage() {
   const [requestSubId, setRequestSubId] = useState<string | undefined>()
   const [addCoiSub, setAddCoiSub] = useState<Subcontractor | null>(null)
   const [reviewCoi, setReviewCoi] = useState<any>(null)
+  const [viewingCertificate, setViewingCertificate] = useState<COI | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (m: string) => {
@@ -313,14 +315,13 @@ export function SubcontractorsPage() {
 
                     {c.certificate_url && !c.simulated_carrier_connect && (
                       <div className="mt-2 text-[11px]">
-                        <a
-                          href={c.certificate_url}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setViewingCertificate(c)}
                           className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline"
                         >
-                          View certificate file <ExternalLink className="w-3 h-3" />
-                        </a>
+                          View certificate file <FileText className="w-3 h-3" />
+                        </button>
                       </div>
                     )}
 
@@ -391,6 +392,7 @@ export function SubcontractorsPage() {
         onUpdated={() => { showToast('Status updated'); load(); setReviewCoi(null) }}
         gcSettings={gcSettings}
       />
+      {viewingCertificate && <CertificateViewer certificate={viewingCertificate} onClose={() => setViewingCertificate(null)} returnLabel="Back to subcontractors" />}
     </div>
   )
 }
