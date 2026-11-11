@@ -1,8 +1,8 @@
 import express from 'express'; const Router = express.Router
+import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { computeSubcontractorStatus, projectComplianceScore } from '../services/compliance.ts'
 import { redactSubcontractorForClient } from '../middleware/redaction.ts'
-import { getFileViewUrl } from '../services/storage.ts'
 
 export const clientViewRouter = Router()
 
@@ -46,11 +46,11 @@ clientViewRouter.get('/:token', async (req, res) => {
         )
         const computed = computeSubcontractorStatus(sub, cois, 30)
 
-        // Enrich approved COIs with coverages (redacted document links only)
+        // The original document may contain subcontractor contact information.
+        // Client reports expose summaries only, never the file or its name.
         const enrichedCois = await Promise.all(
           cois.map(async (c) => {
             const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [c.id])
-            const viewUrl = c.certificate_key ? await getFileViewUrl(c.certificate_key, c.certificate_url) : null
             return {
               id: c.id,
               carrier: c.carrier,
@@ -60,8 +60,8 @@ clientViewRouter.get('/:token', async (req, res) => {
               expiration_date: c.expiration_date,
               status: c.status,
               review_date: c.review_date,
-              certificate_name: c.certificate_name,
-              certificate_url: viewUrl || c.certificate_url,
+              certificate_name: null,
+              certificate_url: null,
               coverages,
             }
           })
@@ -69,6 +69,8 @@ clientViewRouter.get('/:token', async (req, res) => {
 
         return {
           ...redactSubcontractorForClient(sub),
+          // Opaque per-share alias avoids exposing the stable ID used by other APIs.
+          id: crypto.createHmac('sha256', share.token).update(sub.id).digest('hex'),
           computed_status: computed.status,
           best_coi: computed.bestCOI ? {
             carrier: computed.bestCOI.carrier,
