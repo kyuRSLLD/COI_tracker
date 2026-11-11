@@ -1,7 +1,7 @@
 import express from 'express'; const Router = express.Router
 import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
-import { computeSubcontractorStatus, projectComplianceScore } from '../services/compliance.ts'
+import { computeSubcontractorStatus, projectComplianceScore, isSimulatedCarrierCOI } from '../services/compliance.ts'
 import { redactSubcontractorForClient } from '../middleware/redaction.ts'
 
 export const clientViewRouter = Router()
@@ -58,11 +58,12 @@ clientViewRouter.get('/:token', async (req, res) => {
               policy_number: c.policy_number,
               effective_date: c.effective_date,
               expiration_date: c.expiration_date,
-              status: c.status,
+              status: isSimulatedCarrierCOI(c) ? 'pending_review' : c.status,
+              simulated_carrier_connect: isSimulatedCarrierCOI(c),
               review_date: c.review_date,
               certificate_name: null,
               certificate_url: null,
-              coverages,
+              coverages: isSimulatedCarrierCOI(c) ? [] : coverages,
             }
           })
         )
@@ -78,7 +79,8 @@ clientViewRouter.get('/:token', async (req, res) => {
             policy_number: computed.bestCOI.policy_number,
             effective_date: computed.bestCOI.effective_date,
             expiration_date: computed.bestCOI.expiration_date,
-            status: computed.bestCOI.status,
+            status: isSimulatedCarrierCOI(computed.bestCOI) ? 'pending_review' : computed.bestCOI.status,
+            simulated_carrier_connect: isSimulatedCarrierCOI(computed.bestCOI),
           } : null,
           days_left: computed.daysLeft,
           cois: enrichedCois,

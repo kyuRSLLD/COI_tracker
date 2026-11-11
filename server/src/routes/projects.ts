@@ -2,7 +2,7 @@ import express from 'express'; const Router = express.Router
 import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
-import { computeSubcontractorStatus, projectComplianceScore } from '../services/compliance.ts'
+import { computeSubcontractorStatus, projectComplianceScore, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 import { requireAuth } from '../middleware/auth.ts'
 
 export const projectsRouter = Router()
@@ -51,9 +51,9 @@ projectsRouter.get('/:id', requireAuth, async (req, res) => {
         return {
           ...sub,
           computed_status: computed.status,
-          best_coi: computed.bestCOI,
+          best_coi: computed.bestCOI ? labelSimulatedCarrierCOI(computed.bestCOI) : null,
           days_left: computed.daysLeft,
-          cois,
+          cois: cois.map(labelSimulatedCarrierCOI),
         }
       })
     )

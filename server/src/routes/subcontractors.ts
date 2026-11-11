@@ -1,7 +1,7 @@
 import express from 'express'; const Router = express.Router
 import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
-import { computeSubcontractorStatus } from '../services/compliance.ts'
+import { computeSubcontractorStatus, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 import { requireAuth } from '../middleware/auth.ts'
 
 export const subcontractorsRouter = Router()
@@ -42,7 +42,7 @@ subcontractorsRouter.get('/', requireAuth, async (req, res) => {
         return {
           ...sub,
           computed_status: computed.status,
-          best_coi: computed.bestCOI,
+          best_coi: computed.bestCOI ? labelSimulatedCarrierCOI(computed.bestCOI) : null,
           days_left: computed.daysLeft,
           coi_count: cois.length,
         }
@@ -70,7 +70,7 @@ subcontractorsRouter.get('/:id', requireAuth, async (req, res) => {
     const enrichedCois = await Promise.all(
       cois.map(async (c) => {
         const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [c.id])
-        return { ...c, coverages }
+        return { ...labelSimulatedCarrierCOI(c), coverages }
       })
     )
     const computed = computeSubcontractorStatus(sub, cois, 30)
@@ -82,7 +82,7 @@ subcontractorsRouter.get('/:id', requireAuth, async (req, res) => {
       subcontractor: {
         ...sub,
         computed_status: computed.status,
-        best_coi: computed.bestCOI,
+        best_coi: computed.bestCOI ? labelSimulatedCarrierCOI(computed.bestCOI) : null,
         days_left: computed.daysLeft,
         cois: enrichedCois,
         upload_requests: uploadReqs,

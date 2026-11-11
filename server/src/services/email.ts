@@ -92,7 +92,7 @@ export function buildCOIShareEmail(params: {
   const lines: string[] = []
   lines.push(`${greeting}`)
   lines.push('')
-  lines.push(`${params.subName}${params.trade ? ` (${params.trade})` : ''} has shared their verified Certificate of Insurance with you.`)
+  lines.push(`${params.subName}${params.trade ? ` (${params.trade})` : ''} has shared their Certificate of Insurance with you.`)
   if (params.personalMessage) {
     lines.push('')
     lines.push(`Note from ${params.subName}:`)
@@ -125,7 +125,7 @@ export function buildCOIShareEmail(params: {
   lines.push('')
   lines.push(`This message was sent by ${params.subName} via COI Shield · safecoi.com`)
   return {
-    subject: `Certificate of Insurance from ${params.subName} — verified via COI Shield`,
+    subject: `Certificate of Insurance from ${params.subName}`,
     body: lines.join('\n'),
   }
 }

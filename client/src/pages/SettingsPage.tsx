@@ -110,8 +110,8 @@ export function SettingsPage() {
         <ol>
           <li>Open the camera on your phone and scan the QR code (or type the link)</li>
           <li>Create a free subcontractor account — <strong>free for your first month</strong></li>
-          <li>Upload your ACORD certificate or connect your insurance carrier</li>
-          <li>Your certificate is verified and linked to ${qrInvite.company_name} automatically</li>
+          <li>Upload your ACORD certificate for review</li>
+          <li>Your submission can be reviewed by ${qrInvite.company_name}</li>
         </ol>
       </div>
       <p style="font-size:11px;color:#94a3b8;margin-top:18px;text-align:center">Powered by COI Shield · safecoi.com</p>
@@ -356,7 +356,7 @@ export function SettingsPage() {
                     <li>Print the flyer and post it in your job-site trailer or text the link.</li>
                     <li>Subcontractors scan, create a free account (first month free), and are linked instantly.</li>
                     <li>Subs who already have a COI Shield account can connect it with one tap.</li>
-                    <li>Their COI lands in your review queue — verified in minutes.</li>
+                    <li>Their COI can be submitted for review.</li>
                   </ol>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">

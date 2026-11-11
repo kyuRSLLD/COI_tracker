@@ -81,9 +81,9 @@ export function ClientSharePage() {
         <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-xs text-emerald-950 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
           <div>
-            <div className="font-bold">Compliance report — verified insurance</div>
+            <div className="font-bold">Compliance report</div>
             <div className="text-[11px] text-emerald-900/80 mt-0.5 leading-relaxed">
-              This report verifies that subcontractors on <strong>{project.name}</strong> carry active insurance meeting project requirements. For any subcontractor-related question, please contact <strong>{contractor.company_name}</strong> directly — subcontractor direct-contact information is omitted by design.
+              This report summarizes records on <strong>{project.name}</strong>; pending or simulated records are not verification of insurance. For any subcontractor-related question, please contact <strong>{contractor.company_name}</strong> directly — subcontractor direct-contact information is omitted by design.
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@ export function ClientSharePage() {
             <ComplianceScore
               scorecard={scorecard}
               title="Overall project compliance"
-              subtitle={`Verified across ${scorecard.total} subcontractors assigned to this job`}
+              subtitle={`Based on records for ${scorecard.total} subcontractors assigned to this job`}
             />
           </div>
         </div>
@@ -124,8 +124,8 @@ export function ClientSharePage() {
         <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Verified subcontractors on this project</h2>
-              <p className="text-xs text-slate-500">Coverage types, limits, carriers, and expiration dates — as verified by the general contractor.</p>
+              <h2 className="text-lg font-bold text-slate-900">Subcontractors on this project</h2>
+              <p className="text-xs text-slate-500">Coverage types, limits, carriers, and expiration dates on file.</p>
             </div>
           </div>
 
@@ -158,6 +158,7 @@ export function ClientSharePage() {
                       <td className="py-3.5 pr-3 text-slate-600">{s.trade}</td>
                       <td className="py-3.5 pr-3 text-slate-700">
                         <div className="font-semibold">{coi?.carrier || '—'}</div>
+                        {coi?.simulated_carrier_connect && <div className="text-amber-800 font-semibold">Simulated — not verified</div>}
                         <div className="text-[11px] text-slate-400">{coi?.am_best_rating ? `AM Best: ${coi.am_best_rating}` : ''}</div>
                       </td>
                       <td className="py-3.5 pr-3 font-['JetBrains_Mono'] text-slate-600">{coi?.policy_number || '—'}</td>

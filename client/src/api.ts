@@ -210,16 +210,11 @@ export const apiAdmin = {
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
 }
 
-// Subcontractor portal (upload insurance paper / carrier connect)
+// Subcontractor portal
 export const apiSub = {
   my: () => request<import('./types').SubcontractorDashboardData>('/api/sub/my'),
   quickUpload: (form: FormData) =>
     request<import('./types').COI>('/api/sub/quick-upload', { method: 'POST', body: form }),
-  carrierConnect: (carrier: string, policy_number?: string) =>
-    request<{ success: boolean; verified: boolean; carrier: string; policy_number: string; coi: import('./types').COI }>('/api/sub/carrier-connect', {
-      method: 'POST',
-      body: JSON.stringify({ carrier, policy_number }),
-    }),
   updateProfile: (body: Partial<import('./types').Subcontractor>) =>
     request<import('./types').Subcontractor>('/api/sub/profile', { method: 'POST', body: JSON.stringify(body) }),
   publicView: (subId: string) =>

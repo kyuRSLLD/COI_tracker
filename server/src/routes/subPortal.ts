@@ -8,6 +8,7 @@ import { requireAuth, signToken } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { storeFile } from '../services/storage.ts'
 import { sendEmail, buildCOIShareEmail } from '../services/email.ts'
+import { isSimulatedCarrierCOI, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -66,7 +67,7 @@ subPortalRouter.get('/my', requireAuth, async (req: AuthRequest, res) => {
     )
     res.json({
       subcontractor: sub,
-      cois,
+      cois: cois.map(labelSimulatedCarrierCOI),
       requests,
       connected_gcs: gcs,
       public_share_url: `/sub/share/${sub.id}`,
@@ -116,52 +117,9 @@ subPortalRouter.post('/quick-upload', requireAuth, upload.single('certificate'),
   }
 })
 
-// Simulated carrier connect (choose carrier, enter policy # or login, instant verified COI)
-const CARRIER_PROFILES: Record<string, { am_best: string; gl: string; glAgg: string; auto: string; wc: string; umbrella: string }> = {
-  'Travelers': { am_best: 'A++ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$10,000,000' },
-  'The Hartford': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Liberty Mutual': { am_best: 'A (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Nationwide': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'CNA Financial': { am_best: 'A (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Progressive': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$3,000,000' },
-  'Zurich': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-}
-
-subPortalRouter.post('/carrier-connect', requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const { carrier, policy_number } = req.body || {}
-    if (!carrier) return res.status(400).json({ error: 'Carrier is required' })
-    const sub = await resolveSubProfile(req.user!)
-    const profile = CARRIER_PROFILES[carrier] || { am_best: 'A- (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' }
-    const coiId = uuidv4()
-    const now = new Date()
-    const eff = now.toISOString().slice(0, 10)
-    const exp = new Date(now.getTime() + 365 * 86400000).toISOString().slice(0, 10)
-    const polNum = policy_number && policy_number.trim() ? policy_number.trim() : `${carrier.slice(0, 3).toUpperCase()}-PKG-LIVE-${String(Math.floor(100000 + Math.random() * 900000))}`
-    await dbRun(
-      `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, reviewer_notes, review_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'compliant', 'carrier-connect://verified', ?, ?, ?, ?)`,
-      [coiId, sub.id, carrier, profile.am_best, polNum, eff, exp, 'Instant verification via simulated carrier connect', now.toISOString(), now.toISOString(), now.toISOString()]
-    )
-    const coverages = [
-      ['General Liability', profile.gl, profile.glAgg, 1, 1],
-      ['Automobile Liability', profile.auto, profile.auto, 1, 1],
-      ["Workers' Compensation", profile.wc, profile.wc, 0, 1],
-      ['Umbrella Liability', profile.umbrella, profile.umbrella, 1, 0],
-    ]
-    for (const [t, per, agg, ai, wos] of coverages) {
-      await dbRun(
-        `INSERT INTO coi_coverages (id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [uuidv4(), coiId, t, per, agg, ai, wos]
-      )
-    }
-    const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
-    coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coiId])
-    res.json({ success: true, verified: true, carrier, policy_number: polNum, coi })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
-  }
+// Disabled for every caller: no carrier integration exists and no policy is verified.
+subPortalRouter.post('/carrier-connect', (_req, res) => {
+  res.status(503).json({ error: 'Insurance carrier connections are unavailable. Please upload your certificate instead.' })
 })
 
 // Update sub profile details
@@ -191,13 +149,20 @@ subPortalRouter.get('/public/:subId', async (req, res) => {
     )
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
     const coi = await dbGet(
-      `SELECT id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at
+      `SELECT id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at, certificate_url, reviewer_notes
        FROM cois WHERE subcontractor_id = ? ORDER BY created_at DESC LIMIT 1`,
       [sub.id]
     )
     if (coi) {
       coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     }
+    if (coi && isSimulatedCarrierCOI(coi)) {
+      coi.status = 'pending_review'
+      coi.simulated_carrier_connect = true
+      coi.coverages = []
+    }
+    // These fields are only used to identify the former simulation.
+    if (coi) { delete coi.certificate_url; delete coi.reviewer_notes }
     res.json({ subcontractor: sub, coi })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -318,6 +283,9 @@ subPortalRouter.post('/send-coi-email', requireAuth, async (req: AuthRequest, re
     }
     if (!coi) {
       return res.status(400).json({ error: 'You don\'t have any insurance certificates on file yet. Upload one first.' })
+    }
+    if (isSimulatedCarrierCOI(coi)) {
+      return res.status(409).json({ error: 'This record was created by a simulation and is not verified. Upload a real certificate before sharing.' })
     }
     const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     const baseUrl = (process.env.CLIENT_URL || 'https://safecoi.com').replace(/\/$/, '')

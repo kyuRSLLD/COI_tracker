@@ -185,6 +185,7 @@ export function SubcontractorsPage() {
                       {s.best_coi ? (
                         <>
                           <div className="font-semibold text-slate-800">{s.best_coi.carrier}</div>
+                          {s.best_coi.simulated_carrier_connect && <div className="text-amber-800">Simulated — not verified</div>}
                           <div className="text-[11px] text-slate-400 font-['JetBrains_Mono']">{s.best_coi.policy_number || '—'}</div>
                         </>
                       ) : (
@@ -300,7 +301,7 @@ export function SubcontractorsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 self-start sm:self-center">
-                        <ExpirationBadge status={c.status} showCountdown={false} size="sm" />
+                        {c.simulated_carrier_connect ? <span className="text-amber-800 font-semibold">Simulated — not verified</span> : <ExpirationBadge status={c.status} showCountdown={false} size="sm" />}
                         <button
                           onClick={() => { setReviewCoi({ ...c, company_name: selectedSub.company_name, trade: selectedSub.trade }); }}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
@@ -310,7 +311,7 @@ export function SubcontractorsPage() {
                       </div>
                     </div>
 
-                    {c.certificate_url && (
+                    {c.certificate_url && !c.simulated_carrier_connect && (
                       <div className="mt-2 text-[11px]">
                         <a
                           href={c.certificate_url}

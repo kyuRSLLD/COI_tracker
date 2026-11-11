@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ShieldCheck, Upload, LogIn, CheckCircle2, Clock, FileText, AlertTriangle,
-  Copy, Check, ExternalLink, RefreshCw, Sparkles, Building2, Phone, Mail, Award, Send,
+  ShieldCheck, Upload, CheckCircle2, Clock, FileText, AlertTriangle,
+  Copy, Check, ExternalLink, Sparkles, Building2, Phone, Mail, Award, Send,
 } from 'lucide-react'
 import { apiSub, apiLogout, apiSendCOIEmail, apiSubSentEmails } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
 import { QRCodeSVG } from 'qrcode.react'
-
-const CARRIERS = ['Travelers', 'The Hartford', 'Liberty Mutual', 'Nationwide', 'CNA Financial', 'Progressive', 'Zurich']
 
 export function SubcontractorDashboardPage() {
   const [data, setData] = useState<SubcontractorDashboardData | null>(null)
@@ -23,12 +21,6 @@ export function SubcontractorDashboardPage() {
   const [expDate, setExpDate] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState(false)
-
-  // carrier connect state
-  const [selectedCarrier, setSelectedCarrier] = useState(CARRIERS[0])
-  const [carrierPolicy, setCarrierPolicy] = useState('')
-  const [connecting, setConnecting] = useState(false)
-  const [connectSuccess, setConnectSuccess] = useState<string | null>(null)
 
   // share
   const [copied, setCopied] = useState(false)
@@ -69,7 +61,7 @@ export function SubcontractorDashboardPage() {
         gc_company_name: emailGcName.trim() || undefined,
         message: emailMsg.trim() || undefined,
       })
-      setSentOk(`COI emailed to ${emailTo.trim()} — they'll receive your verified coverage summary and a link to view the full document, plus an invite to join COI Shield free.`)
+      setSentOk(`COI emailed to ${emailTo.trim()} — a coverage summary and link will be included.`)
       setEmailTo('')
       setEmailGcName('')
       setEmailMsg('')
@@ -103,20 +95,6 @@ export function SubcontractorDashboardPage() {
       setError(err.message)
     } finally {
       setUploading(false)
-    }
-  }
-
-  const handleCarrierConnect = async () => {
-    setConnecting(true)
-    try {
-      const res = await apiSub.carrierConnect(selectedCarrier, carrierPolicy || undefined)
-      setConnectSuccess(`Connected to ${res.carrier} · policy ${res.policy_number} verified`)
-      setTimeout(() => setConnectSuccess(null), 6000)
-      await load()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setConnecting(false)
     }
   }
 
@@ -154,7 +132,7 @@ export function SubcontractorDashboardPage() {
         <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-900">
           <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
           <p>
-            <span className="font-semibold">Free for your first month.</span> Submit or connect your insurance paper once — after 30 days it's just a $2 one-time fee to keep your certificate hosted for every contractor who asks.
+            <span className="font-semibold">Free for your first month.</span> Submit your insurance paper once — after 30 days it's just a $2 one-time fee to keep your certificate hosted for every contractor who asks.
           </p>
         </div>
 
@@ -245,61 +223,16 @@ export function SubcontractorDashboardPage() {
             )}
           </div>
 
-          {/* Action 2: Carrier connect */}
-          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <LogIn className="w-4 h-4 text-indigo-600" />
-                <h2 className="text-sm font-semibold text-slate-900">Or log into your insurance company</h2>
-              </div>
-              <p className="text-xs text-slate-500 mb-4">
-                Pick your carrier and we pull your active policy automatically — instant, verified coverage.
-              </p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Insurance company</label>
-                  <select
-                    value={selectedCarrier}
-                    onChange={(e) => setSelectedCarrier(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white"
-                  >
-                    {CARRIERS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Policy number (optional)</label>
-                  <input
-                    value={carrierPolicy}
-                    onChange={(e) => setCarrierPolicy(e.target.value)}
-                    placeholder="Leave blank for an auto-generated verified demo policy"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
-                  />
-                </div>
-              </div>
+          {/* Carrier connections are intentionally unavailable. */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <h2 className="text-sm font-semibold text-slate-900">Insurance carrier connections unavailable</h2>
             </div>
-
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={handleCarrierConnect}
-                disabled={connecting}
-                className="w-full text-xs font-semibold py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
-              >
-                {connecting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                {connecting ? 'Connecting to ' + selectedCarrier + '…' : 'Sign in with ' + selectedCarrier}
-              </button>
-              <p className="text-[11px] text-slate-400 mt-2 text-center">
-                Simulated carrier login — creates a real verified COI in your account for the demo.
-              </p>
-              {connectSuccess && (
-                <div className="mt-3 text-xs text-emerald-700 flex items-center gap-1.5 justify-center">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {connectSuccess}
-                </div>
-              )}
-            </div>
+            <p className="text-xs text-slate-600 mt-2">
+              Carrier connections are not available. Please upload your certificate for review instead.
+              No insurance coverage is verified by a carrier connection.
+            </p>
           </div>
         </div>
 
@@ -308,14 +241,14 @@ export function SubcontractorDashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">My certificates on file</h3>
-              <p className="text-xs text-slate-500">Every COI you've uploaded or connected, newest first.</p>
+              <p className="text-xs text-slate-500">Every COI on file, newest first.</p>
             </div>
             <span className="text-xs text-slate-400">{cois.length} on file</span>
           </div>
 
           {cois.length === 0 ? (
             <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center text-xs text-slate-400">
-              No certificates on file yet — use the cards above to upload or connect one in a minute.
+              No certificates on file yet — upload one above.
             </div>
           ) : (
             <div className="space-y-3">
@@ -337,9 +270,9 @@ export function SubcontractorDashboardPage() {
                         {coi.am_best_rating && (
                           <span className="text-[11px] text-slate-400">AM Best: {coi.am_best_rating}</span>
                         )}
-                        <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${badge.cls}`}>
+                        {!coi.simulated_carrier_connect && <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${badge.cls}`}>
                           {badge.label}
-                        </span>
+                        </span>}
                         <span className="px-2 py-0.5 rounded-full border text-[11px] font-medium capitalize text-slate-600 bg-slate-50 border-slate-200">
                           {coi.status.replace('_', ' ')}
                         </span>
@@ -351,7 +284,10 @@ export function SubcontractorDashboardPage() {
                       </div>
                     </div>
 
-                    {coi.reviewer_notes && (
+                    {coi.simulated_carrier_connect && (
+                      <p className="mt-2 text-amber-800 font-semibold">Simulated carrier connection — not verified. Upload a real certificate for review.</p>
+                    )}
+                    {coi.reviewer_notes && !coi.simulated_carrier_connect && (
                       <p className="text-[11px] text-slate-500 mt-2 italic">{coi.reviewer_notes}</p>
                     )}
 
@@ -369,7 +305,7 @@ export function SubcontractorDashboardPage() {
                       </div>
                     )}
 
-                    {coi.certificate_url && (
+                    {coi.certificate_url && !coi.simulated_carrier_connect && (
                       <div className="mt-3 text-[11px]">
                         <a
                           href={coi.certificate_url}
@@ -429,7 +365,7 @@ export function SubcontractorDashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Share your COI with any contractor</h3>
-              <p className="text-slate-500">A public verification page showing your company, trade, and latest verified COI.</p>
+              <p className="text-slate-500">A public page showing your company, trade, and latest COI on file.</p>
             </div>
             <button
               type="button"
@@ -498,7 +434,7 @@ export function SubcontractorDashboardPage() {
                     <Mail className="w-4 h-4 text-emerald-600" /> Email your COI to a contractor
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Great when the GC doesn't have a COI Shield account yet — they'll receive your verified COI summary, a link to view/download the full document, and an invite to create a free contractor account.
+                    Great when the GC doesn't have a COI Shield account yet — a COI summary and a link will be included.
                   </p>
                 </div>
                 <button
@@ -515,11 +451,13 @@ export function SubcontractorDashboardPage() {
                 )}
                 {cois.length === 0 ? (
                   <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900">
-                    Upload or connect a certificate first before emailing it to a contractor.
+                    Upload a certificate first before emailing it to a contractor.
                   </div>
+                ) : cois[0].simulated_carrier_connect ? (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900">The latest record was simulated and is not verified. Upload a real certificate before sharing.</div>
                 ) : (
                   <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
-                    <span className="font-semibold text-slate-800">Sending your latest verified COI:</span>{' '}
+                    <span className="font-semibold text-slate-800">Sending your latest COI on file:</span>{' '}
                     {cois[0].carrier || 'Carrier on file'} · {cois[0].policy_number ? `Pol. ${cois[0].policy_number} · ` : ''}expires {cois[0].expiration_date}
                   </div>
                 )}
@@ -574,20 +512,20 @@ export function SubcontractorDashboardPage() {
                         <span><strong>TO:</strong> {emailTo || '(enter email above)'}</span>
                       </div>
                       <div className="font-bold text-slate-900 text-xs">
-                        Subject: Certificate of Insurance from {sub?.company_name || 'your subcontractor'} — verified via COI Shield
+                        Subject: Certificate of Insurance from {sub?.company_name || 'your subcontractor'}
                       </div>
                       <p className="text-slate-600">
                         Hi {emailGcName ? `${emailGcName} team` : 'team'},
                       </p>
                       <p className="text-slate-600">
-                        <strong>{sub?.company_name || 'Your company'}</strong>{sub?.trade ? ` (${sub.trade})` : ''} has shared their verified Certificate of Insurance with you.
+                        <strong>{sub?.company_name || 'Your company'}</strong>{sub?.trade ? ` (${sub.trade})` : ''} has shared their Certificate of Insurance with you.
                       </p>
                       {emailMsg && (
                         <blockquote className="border-l-2 border-emerald-500 pl-2.5 text-slate-700 italic">
                           "{emailMsg}"
                         </blockquote>
                       )}
-                      {cois.length > 0 && (
+                      {cois.length > 0 && !cois[0].simulated_carrier_connect && (
                         <div className="rounded-md bg-slate-50 border border-slate-200 p-2 text-[10px] space-y-1">
                           <div className="font-semibold text-slate-800">POLICY SUMMARY</div>
                           <div>Carrier: <span className="font-mono">{cois[0].carrier || 'on file'}</span></div>
@@ -627,7 +565,7 @@ export function SubcontractorDashboardPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={sendingEmail || cois.length === 0}
+                    disabled={sendingEmail || cois.length === 0 || Boolean(cois[0]?.simulated_carrier_connect)}
                     className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
                   >
                     <Send className="w-3.5 h-3.5" />
