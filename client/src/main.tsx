@@ -61,7 +61,7 @@ function App() {
       {!hideNavbar && (
         <Navbar
           user={user}
-          onLogout={() => { apiLogout(); setUser(null) }}
+          onLogout={() => { void apiLogout().then(() => setUser(null)).catch(() => window.alert('Could not sign out securely. Please try again.')) }}
           onOpenAddSub={() => setAddSubOpen(true)}
           onOpenRequestCOI={() => setRequestOpen(true)}
         />

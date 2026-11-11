@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createHmac } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
@@ -14,8 +15,8 @@ delete process.env.DATABASE_URL
 process.env.JWT_SECRET = 'test-jwt-signing-secret-never-use-in-production-13579'
 process.env.MFA_ENCRYPTION_KEY = '1234567890abcdef0123456789abcdefabcdef0123456789fedcba9876543210'
 process.env.NODE_ENV = 'test'
-const { initDatabase, dbGet, dbRun } = await import('../src/db/db.ts')
-const { initAdminMfa, totpForCounter } = await import('../src/services/adminMfa.ts')
+const { initDatabase, dbGet, dbRun, dbTransaction } = await import('../src/db/db.ts')
+const { initAdminMfa, totpForCounter, getPendingChallenge, startEnrollment, verifyAdminCode } = await import('../src/services/adminMfa.ts')
 const { authRouter } = await import('../src/routes/auth.ts')
 const { requireAdmin, requireAuth } = await import('../src/middleware/auth.ts')
 await initDatabase()
@@ -184,6 +185,129 @@ test('MFA key is mandatory and old challenge expires', async () => {
   assert.equal((await call('/admin', 'GET', undefined, adminToken)).status, 503)
   process.env.MFA_ENCRYPTION_KEY = key
   process.env.NODE_ENV = 'test'
+})
+
+async function addAdmin(id: string, passwordHash = hash) {
+  await dbRun('INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)', [id, `${id}@example.test`, passwordHash, id, 'admin', new Date().toISOString()])
+}
+
+test('published seed password cannot create or complete a first enrollment', async () => {
+  await addAdmin('seed-default', await bcrypt.hash('password123', 4))
+  assert.equal((await login('seed-default', 'password123')).status, 503)
+  assert.equal(await dbGet('SELECT * FROM admin_mfa_challenges WHERE user_id = ?', ['seed-default']), undefined)
+  assert.equal(await dbGet('SELECT * FROM admin_mfa_credentials WHERE user_id = ?', ['seed-default']), undefined)
+})
+
+test('stale password/role snapshots cannot claim an authenticator', async () => {
+  for (const change of ['password', 'role']) {
+    const id = `stale-${change}`
+    await addAdmin(id)
+    const start = await login(id)
+    const pending = await getPendingChallenge(start.json.challenge_token)
+    assert.ok(pending)
+    const enrollment = await startEnrollment(pending.challenge, pending.user)
+    assert.ok(enrollment)
+    if (change === 'password') await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [await bcrypt.hash('replacement-test-password', 4), id])
+    else await dbRun("UPDATE users SET role = 'gc' WHERE id = ?", [id])
+    assert.equal(await startEnrollment(pending.challenge, pending.user), null)
+    assert.equal((await verifyAdminCode(pending.challenge, pending.user, independentTotp(enrollment.secret, Math.floor(fakeNow / 1000)))).ok, false)
+    assert.equal(await dbGet('SELECT * FROM admin_mfa_credentials WHERE user_id = ?', [id]), undefined)
+    assert.equal(await dbGet('SELECT * FROM admin_mfa_sessions WHERE user_id = ?', [id]), undefined)
+  }
+})
+
+test('an overlapping role change cannot leave a factor or session behind', async () => {
+  await addAdmin('overlap')
+  const start = await login('overlap')
+  const pending = await getPendingChallenge(start.json.challenge_token)
+  assert.ok(pending)
+  const enrollment = await startEnrollment(pending.challenge, pending.user)
+  assert.ok(enrollment)
+  let verification!: Promise<any>
+  await dbTransaction(async tx => {
+    await tx.run("UPDATE users SET role = 'gc' WHERE id = ?", ['overlap'])
+    verification = verifyAdminCode(pending.challenge, pending.user, independentTotp(enrollment.secret, Math.floor(fakeNow / 1000)))
+    await new Promise(resolve => setTimeout(resolve, 30))
+  })
+  assert.equal((await verification).ok, false)
+  assert.equal(await dbGet('SELECT * FROM admin_mfa_credentials WHERE user_id = ?', ['overlap']), undefined)
+  assert.equal(await dbGet('SELECT * FROM admin_mfa_sessions WHERE user_id = ?', ['overlap']), undefined)
+})
+
+test('factor creation rolls back when session insertion fails', async () => {
+  await addAdmin('rollback')
+  const start = await login('rollback')
+  const enrollment = await call('/auth/admin-mfa/enroll', 'POST', {}, start.json.challenge_token)
+  await dbRun("CREATE TRIGGER test_reject_session BEFORE INSERT ON admin_mfa_sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+  try {
+    assert.equal((await verify(start.json.challenge_token, independentTotp(enrollment.json.secret, Math.floor(fakeNow / 1000)))).status, 503)
+    assert.equal(await dbGet('SELECT * FROM admin_mfa_credentials WHERE user_id = ?', ['rollback']), undefined)
+    const challenge = await dbGet<any>('SELECT consumed FROM admin_mfa_challenges WHERE user_id = ?', ['rollback'])
+    assert.equal(challenge.consumed, 0)
+  } finally { await dbRun('DROP TRIGGER test_reject_session') }
+  assert.equal((await verify(start.json.challenge_token, independentTotp(enrollment.json.secret, Math.floor(fakeNow / 1000)))).status, 200)
+})
+
+test('transaction rollback leaves unrelated writes intact', async () => {
+  await assert.rejects(dbTransaction(async tx => {
+    await tx.run("UPDATE users SET name = 'transient' WHERE id = ?", ['gc1'])
+    throw new Error('expected rollback')
+  }))
+  assert.equal((await dbGet<any>('SELECT name FROM users WHERE id = ?', ['gc1'])).name, 'gc1')
+})
+
+test('logout revokes only the presented token, and role changes revoke admin sessions permanently', async () => {
+  const gcA = (await login('gc1')).json.token
+  const gcB = (await login('gc1')).json.token
+  assert.notEqual(gcA, gcB)
+  assert.equal((await call('/auth/logout', 'POST', {}, gcA)).status, 200)
+  assert.equal((await call('/protected', 'GET', undefined, gcA)).status, 401)
+  assert.equal((await call('/protected', 'GET', undefined, gcB)).status, 200)
+  await addAdmin('revocation')
+  const start = await login('revocation')
+  const enrollment = await call('/auth/admin-mfa/enroll', 'POST', {}, start.json.challenge_token)
+  const first = await verify(start.json.challenge_token, independentTotp(enrollment.json.secret, Math.floor(fakeNow / 1000)))
+  assert.equal(first.status, 200)
+  await dbRun("UPDATE users SET role = 'gc' WHERE id = ?", ['revocation'])
+  await dbRun("UPDATE users SET role = 'admin' WHERE id = ?", ['revocation'])
+  assert.equal((await call('/admin', 'GET', undefined, first.json.token)).status, 401)
+  fakeNow += 30000
+  const again = await login('revocation')
+  const second = await verify(again.json.challenge_token, independentTotp(enrollment.json.secret, Math.floor(fakeNow / 1000)))
+  assert.equal(second.status, 200)
+  assert.equal((await call('/auth/logout', 'POST', {}, second.json.token)).status, 200)
+  assert.equal((await call('/admin', 'GET', undefined, second.json.token)).status, 401)
+  assert.equal(await dbGet('SELECT * FROM admin_mfa_sessions WHERE user_id = ?', ['revocation']), undefined)
+})
+
+test('account and peer password limits are atomic, cannot be bypassed with forwarded headers, and expire', async () => {
+  await dbRun('DELETE FROM auth_password_limits')
+  const attempts = await Promise.all(Array.from({ length: 24 }, () => login('not-existing', 'incorrect')))
+  assert.equal(attempts.filter(x => x.status === 401).length, 20)
+  assert.equal(attempts.filter(x => x.status === 429).length, 4)
+  assert.equal((await call('/auth/login', 'POST', { email: 'NOT-EXISTING@example.test', password: 'incorrect' })).status, 429)
+  await dbRun('DELETE FROM auth_password_limits')
+  for (let i = 0; i < 100; i++) {
+    const result = await fetch(base + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `192.0.2.${i}` }, body: JSON.stringify({ email: `unknown${i}@example.test`, password: 'incorrect' }) })
+    assert.equal(result.status, 401)
+  }
+  assert.equal((await login('gc1')).status, 429)
+  fakeNow += 901000
+  assert.equal((await login('gc1')).status, 200)
+})
+
+test('production refuses missing or weak JWT keys globally and accepts a properly shaped key', async () => {
+  const moduleUrl = new URL('../src/middleware/auth.ts', import.meta.url).href
+  const check = (secret?: string) => spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `await import(${JSON.stringify(moduleUrl)})`], {
+    env: { PATH: process.env.PATH!, HOME: '/tmp', NODE_ENV: 'production', ...(secret ? { JWT_SECRET: secret } : {}) }, encoding: 'utf8'
+  })
+  assert.notEqual(check().status, 0)
+  assert.notEqual(check('dev-secret-change-in-production').status, 0)
+  assert.notEqual(check('a'.repeat(64)).status, 0)
+  assert.equal(check('1234567890abcdef0123456789abcdefabcdef0123456789fedcba9876543210').status, 0)
+  const saved = process.env.JWT_SECRET
+  process.env.NODE_ENV = 'production'; delete process.env.JWT_SECRET
+  try { assert.equal((await login('gc1')).status, 503) } finally { process.env.JWT_SECRET = saved; process.env.NODE_ENV = 'test' }
 })
 
 after(async () => { Date.now = realNow; await new Promise<void>(resolve => server.close(() => resolve())); await rm(temp, { recursive: true, force: true }) })

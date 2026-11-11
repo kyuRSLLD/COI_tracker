@@ -12,10 +12,10 @@ This branch is a development build, **not production-ready**. It must not be mer
 
 ## Important gaps
 
-1. Uploaded drafts are visible only to their subcontractor. They are **not yet delivered to a GC review queue**, and OCR proposals are **not yet linked to project requirements for a review-and-approve workflow**.
+1. A GC can issue a project-specific, one-use invitation, and the subcontractor can explicitly consent to share one draft. The GC can view OCR proposals and an unverified, conservative requirements comparison; either party may revoke consent. This workflow has only been tested with synthetic local data. There is no automated approval, carrier verification, or complete project review-and-approve workflow.
 2. Carrier login requires carrier/partner approval and a real, consent-based integration; placeholder cards do not provide it. AWS account, bucket, permissions, and Textract configuration have not been provided or tested.
 3. The existing production application's legacy routes have serious cross-account authorization and document privacy gaps. Restrict and test every tenant-owned resource, share link and file before using with real customer records. Legacy documents and previously issued URLs may remain accessible; hiding original document links in a client report does not fix every access path.
-4. Admin MFA requires secure first-enrollment and account recovery, password throttling, transaction/race fixes, session revocation, and PostgreSQL integration tests. Default or known administrator passwords must be replaced before enrollment. An unclaimed account protected only by a known password could be enrolled by an attacker.
+4. Admin MFA still requires identity-verified first enrollment, account recovery and an operational rollout plan. SQLite tests and limited disposable PostgreSQL tests passed, but a deployment-equivalent PostgreSQL integration test remains needed. Password throttling must also cover every password entry point and be configured correctly behind the trusted proxy. Default or known administrator passwords must be replaced before enrollment. An unclaimed account protected only by a known password could be enrolled by an attacker.
 5. Configure a stable, random `MFA_ENCRYPTION_KEY` and strong `JWT_SECRET` in Railway's secret manager, securely back up the MFA encryption key, and establish an operator-controlled recovery process **before** enabling MFA. Never put secrets in the repository or chat. A missing or changed MFA key prevents administrator sign-in or makes existing factors inaccessible.
 6. Disable destructive/demo bootstrap and seed processes in production and verify Railway deployment configuration. Never run `seed` against a production database; the seed erases data.
 7. The existing legacy integration test invokes destructive `seed()`. Run it only inside a disposable database. Update that suite for administrator MFA and the new upload behavior. Review dependencies, pin the deployment build, and perform production-equivalent tests before release.
@@ -25,7 +25,7 @@ This branch is a development build, **not production-ready**. It must not be mer
 Run the focused tests with no production environment variables; each creates disposable local data:
 
 ```sh
-for f in server/test/phone.test.ts server/test/admin-mfa.test.ts server/test/ocr-extract.test.ts server/test/verification.test.ts server/test/sub-documents.test.ts; do
+for f in server/test/phone.test.ts server/test/admin-mfa.test.ts server/test/ocr-extract.test.ts server/test/verification.test.ts server/test/sub-documents.test.ts server/test/draft-review.test.ts; do
   env -i PATH="$PATH" HOME=/tmp AWS_EC2_METADATA_DISABLED=true node --experimental-strip-types --test "$f" || exit 1
 done
 npm run build

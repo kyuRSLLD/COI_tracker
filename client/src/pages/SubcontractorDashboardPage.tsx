@@ -5,6 +5,7 @@ import {
 import { apiSub } from '../api'
 import type { SubCarrier, QuickUploadResult } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
+import { DraftReviewPanel } from '../components/DraftReviewPanel'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 
@@ -184,11 +185,11 @@ export function SubcontractorDashboardPage() {
                 className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white disabled:opacity-40 hover:bg-slate-800 transition">
                 {uploading ? 'Uploading…' : 'Upload certificate'}
               </button>
-              <p className="text-[11px] text-slate-500">A file is required. This development version saves a private draft; it does not yet send the document to your contractor. Uploading does not verify coverage.</p>
+              <p className="text-[11px] text-slate-500">A file is required. Uploading saves a private draft; it is not shared with a contractor unless you give permission below. Uploading does not verify coverage.</p>
             </form>
             {uploadResult && (
               <div role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800 space-y-1">
-                <p className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Private draft uploaded; it is not yet shared with your contractor. Review status: {uploadResult.status ? uploadResult.status.replace(/_/g, ' ') : 'not reported'}.</p>
+                <p className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Private draft uploaded. Share it with a contractor only if you choose to below. Review status: {uploadResult.status ? uploadResult.status.replace(/_/g, ' ') : 'not reported'}.</p>
                 <p>{uploadResult.ocrStatus === 'not_configured'
                   ? 'Automatic text extraction is not configured.'
                   : uploadResult.ocrStatus ? `Text extraction status: ${uploadResult.ocrStatus.replace(/_/g, ' ')}.` : 'Text extraction status was not reported.'} Extraction is separate from review and approval.</p>
@@ -225,6 +226,8 @@ export function SubcontractorDashboardPage() {
             <p className="text-xs text-slate-500 mt-4">Can't connect? Upload a certificate above, or ask your broker to provide a copy for upload.</p>
           </section>
         </div>
+
+        <DraftReviewPanel key={uploadResult?.id || 'no-upload'} role="sub" />
 
         {/* My certificates */}
         <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">

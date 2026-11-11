@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Plus, Share2, Users, ExternalLink, Trash2, Check, FolderKanban } from 'lucide-react'
 import type { Project, Subcontractor } from '../types'
-import { apiProjects, apiSubcontractors } from '../api'
+import { apiProjects, apiSubcontractors, getStoredUser } from '../api'
 import { ProjectModal } from '../components/ProjectModal'
 import { ShareModal } from '../components/ShareModal'
 import { ComplianceScore } from '../components/ComplianceScore'
 import { ProjectRequirementsPanel } from '../components/ProjectRequirementsPanel'
+import { DraftReviewPanel } from '../components/DraftReviewPanel'
 
 export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -147,6 +148,7 @@ export function ProjectsPage() {
                   {requirementsProjectId === p.id ? 'Hide requirements & evidence' : 'Manage requirements & evidence'}
                 </button>
                 {requirementsProjectId === p.id && <ProjectRequirementsPanel key={p.id} projectId={p.id} />}
+                {requirementsProjectId === p.id && getStoredUser()?.role === 'gc' && <DraftReviewPanel role="gc" projectId={p.id} />}
 
                 {/* Subcontractor assignment section */}
                 <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">

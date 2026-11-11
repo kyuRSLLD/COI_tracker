@@ -1,13 +1,38 @@
 import express from 'express'
 const Router = express.Router
 import bcrypt from 'bcryptjs'
+import { createHash } from 'node:crypto'
 import { v4 as uuidv4 } from 'uuid'
-import { dbGet, dbRun, dbAll } from '../db/db.ts'
+import { dbGet, dbRun, dbAll, dbTransaction } from '../db/db.ts'
 import { signToken, signAdminToken, ensureAdminJwtKey, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
-import { beginAdminChallenge, getPendingChallenge, getMfaStatus, startEnrollment, verifyAdminCode } from '../services/adminMfa.ts'
+import { initAdminMfa, beginAdminChallenge, getPendingChallenge, getMfaStatus, startEnrollment, verifyAdminCode } from '../services/adminMfa.ts'
 
 export const authRouter = Router()
+
+// Count successes and failures in global account and socket-peer buckets. Never
+// trust forwarding headers; reverse proxies require an authenticated IP strategy.
+async function passwordAttemptAllowed(email: string, peer: string): Promise<boolean> {
+  await initAdminMfa()
+  const now = Math.floor(Date.now() / 1000), until = now + 15 * 60
+  const hash = (s: string) => createHash('sha256').update(s).digest('hex')
+  const buckets = [[`account:${hash(email)}`, 20], [`ip:${hash(peer)}`, 100]] as const
+  if (Math.random() < 0.01) {
+    await dbRun('DELETE FROM auth_password_limits WHERE window_until <= ?', [now])
+    await dbRun('DELETE FROM auth_revoked_tokens WHERE expires_at <= ?', [now])
+  }
+  return dbTransaction(async tx => {
+    let allowed = true
+    for (const [bucket, max] of buckets) {
+      await tx.run('INSERT INTO auth_password_limits (bucket, attempts, window_until) VALUES (?, 0, ?) ON CONFLICT (bucket) DO NOTHING', [bucket, until])
+      const result = await tx.run(`UPDATE auth_password_limits SET attempts = CASE WHEN window_until <= ? THEN 1 ELSE attempts + 1 END,
+        window_until = CASE WHEN window_until <= ? THEN ? ELSE window_until END
+        WHERE bucket = ? AND (window_until <= ? OR attempts < ?)`, [now, now, until, bucket, now, max])
+      if (!result.changes) allowed = false
+    }
+    return allowed
+  })
+}
 
 // Return a normalized US number, or null for missing or invalid input.
 export function normalizePhone(raw: string | undefined | null): string | null {
@@ -21,6 +46,7 @@ export function normalizePhone(raw: string | undefined | null): string | null {
 
 authRouter.post('/register', async (req, res) => {
   try {
+    ensureAdminJwtKey()
     const { email, password, name, first_name, last_name, phone, company_name, role } = req.body || {}
     if (role !== undefined && role !== 'gc' && role !== 'sub') {
       return res.status(400).json({ error: 'Public registration is only available for general contractors and subcontractors. Existing administrators should sign in.' })
@@ -83,8 +109,12 @@ authRouter.post('/register', async (req, res) => {
 authRouter.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {}
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password || email.length > 320 || password.length > 1024) {
       return res.status(400).json({ error: 'Email and password are required' })
+    }
+    ensureAdminJwtKey()
+    if (!await passwordAttemptAllowed(email.toLowerCase(), req.socket.remoteAddress || 'unknown')) {
+      return res.status(429).json({ error: 'Too many attempts; try again later' })
     }
     const user = await dbGet('SELECT * FROM users WHERE email = ?', [email.toLowerCase()])
     if (!user) {
@@ -104,6 +134,23 @@ authRouter.post('/login', async (req, res) => {
     const token = signToken(payload)
     res.json({ token, user: { ...payload, first_name: user.first_name || null, last_name: user.last_name || null, phone: user.phone || null, company_name: user.company_name } })
   } catch (err: any) {
+    res.status(503).json({ error: 'Authentication temporarily unavailable' })
+  }
+})
+
+// Clients must call this before discarding the bearer token. Only the presented
+// session/token is revoked, not every session belonging to the account.
+authRouter.post('/logout', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const tokenHash = createHash('sha256').update(req.authToken!).digest('hex')
+    // A legacy signed token without exp is revoked indefinitely.
+    const expires = Number.isSafeInteger(req.authExpiresAt) && req.authExpiresAt! > 0 ? req.authExpiresAt! : 253402300799
+    await dbTransaction(async tx => {
+      await tx.run('INSERT INTO auth_revoked_tokens (token_hash, expires_at) VALUES (?, ?) ON CONFLICT (token_hash) DO NOTHING', [tokenHash, expires])
+      if (req.adminSessionId) await tx.run('DELETE FROM admin_mfa_sessions WHERE id = ? AND user_id = ?', [req.adminSessionId, req.user!.id])
+    })
+    res.set('Cache-Control', 'no-store').json({ success: true })
+  } catch {
     res.status(503).json({ error: 'Authentication temporarily unavailable' })
   }
 })

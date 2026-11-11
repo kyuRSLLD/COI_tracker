@@ -20,6 +20,16 @@ export const isPostgres = Boolean(DATABASE_URL && !DATABASE_URL.includes('your_'
 
 let pgPool: pg.Pool | null = null
 let sqliteDb: sqlite3.Database | null = null
+let sqliteOpening: Promise<sqlite3.Database> | null = null
+let sqliteTransactionTail: Promise<void> = Promise.resolve()
+
+async function serializeSqlite<T>(work: () => Promise<T>): Promise<T> {
+  const previous = sqliteTransactionTail
+  let release!: () => void
+  sqliteTransactionTail = new Promise<void>(resolve => { release = resolve })
+  await previous
+  try { return await work() } finally { release() }
+}
 
 export const PLAN_PRICES: Record<string, number> = {
   'Free Demo': 0,
@@ -45,15 +55,20 @@ function getPgPool(): pg.Pool {
 }
 
 async function getSqlite(): Promise<sqlite3.Database> {
+  if (sqliteDb) return sqliteDb
+  if (sqliteOpening) return sqliteOpening
+  sqliteOpening = openSqlite().then(db => { sqliteDb = db; return db }).catch(err => { sqliteOpening = null; throw err })
+  return sqliteOpening
+}
+
+async function openSqlite(): Promise<sqlite3.Database> {
   const sqlite3 = (await import('sqlite3')).default
   return new Promise((resolve, reject) => {
-    if (sqliteDb) return resolve(sqliteDb)
     fs.mkdirSync(path.dirname(DB_FILE), { recursive: true })
     const db = new (sqlite3.verbose().Database)(DB_FILE, (err) => {
       if (err) return reject(err)
-      sqliteDb = db
-      sqliteDb.run('PRAGMA foreign_keys = ON;')
-      resolve(sqliteDb)
+      db.configure('busyTimeout', 10000)
+      db.run('PRAGMA foreign_keys = ON;', err => err ? reject(err) : resolve(db))
     })
   })
 }
@@ -63,18 +78,68 @@ function toPgSql(sql: string): string {
   return sql.replace(/\?/g, () => `$${i++}`)
 }
 
+export type DbTransaction = {
+  run: (sql: string, params?: any[]) => Promise<{ changes: number }>
+  get: <T = any>(sql: string, params?: any[]) => Promise<T | undefined>
+}
+
+// Never use dbRun/dbGet inside this callback: they are not pinned to this connection.
+// File-backed SQLite uses a dedicated connection; :memory: uses the serialized
+// singleton. PostgreSQL callers must lock shared rows explicitly.
+export async function dbTransaction<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T> {
+  if (isPostgres) {
+    const client = await getPgPool().connect()
+    try {
+      await client.query('BEGIN')
+      const tx: DbTransaction = {
+        run: async (sql, params = []) => ({ changes: (await client.query(toPgSql(sql), params)).rowCount ?? 0 }),
+        get: async <R = any>(sql: string, params: any[] = []) => (await client.query(toPgSql(sql), params)).rows[0] as R | undefined,
+      }
+      const result = await work(tx)
+      await client.query('COMMIT')
+      return result
+    } catch (err) {
+      try { await client.query('ROLLBACK') } catch { /* preserve original error */ }
+      throw err
+    } finally { client.release() }
+  }
+  // sqlite3 busy waits occupy libuv worker threads. Queue SQLite operations in
+  // this process so blocked writers cannot starve the COMMIT worker.
+  return serializeSqlite(async () => {
+    const db = DB_FILE === ':memory:' ? await getSqlite() : await openSqlite()
+    const exec = (sql: string) => new Promise<void>((resolve, reject) => db.exec(sql, err => err ? reject(err) : resolve()))
+    const tx: DbTransaction = {
+      run: (sql, params = []) => new Promise((resolve, reject) => db.run(sql, params, function (err) {
+        if (err) reject(err); else resolve({ changes: this.changes })
+      })),
+      get: <R = any>(sql: string, params: any[] = []) => new Promise<R | undefined>((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row as R | undefined))),
+    }
+    try {
+      await exec('BEGIN IMMEDIATE')
+      const result = await work(tx)
+      await exec('COMMIT')
+      return result
+    } catch (err) {
+      try { await exec('ROLLBACK') } catch { /* preserve original error */ }
+      throw err
+    } finally {
+      if (DB_FILE !== ':memory:') await new Promise<void>(resolve => db.close(() => resolve()))
+    }
+  })
+}
+
 export async function dbRun(sql: string, params: any[] = []): Promise<{ lastID?: number; changes?: number }> {
   if (isPostgres) {
     const res = await getPgPool().query(toPgSql(sql), params)
     return { changes: res.rowCount ?? 0 }
   }
   const db = await getSqlite()
-  return new Promise((resolve, reject) => {
+  return serializeSqlite(() => new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) return reject(err)
       resolve({ lastID: this.lastID, changes: this.changes })
     })
-  })
+  }))
 }
 
 export async function dbGet<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
@@ -83,12 +148,12 @@ export async function dbGet<T = any>(sql: string, params: any[] = []): Promise<T
     return res.rows[0] as T | undefined
   }
   const db = await getSqlite()
-  return new Promise((resolve, reject) => {
+  return serializeSqlite(() => new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) return reject(err)
       resolve(row as T | undefined)
     })
-  })
+  }))
 }
 
 export async function dbAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
@@ -97,12 +162,12 @@ export async function dbAll<T = any>(sql: string, params: any[] = []): Promise<T
     return res.rows as T[]
   }
   const db = await getSqlite()
-  return new Promise((resolve, reject) => {
+  return serializeSqlite(() => new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) return reject(err)
       resolve((rows || []) as T[])
     })
-  })
+  }))
 }
 
 export async function dbExec(sql: string): Promise<void> {
@@ -111,9 +176,9 @@ export async function dbExec(sql: string): Promise<void> {
     return
   }
   const db = await getSqlite()
-  return new Promise((resolve, reject) => {
+  return serializeSqlite(() => new Promise((resolve, reject) => {
     db.exec(sql, (err) => (err ? reject(err) : resolve()))
-  })
+  }))
 }
 
 export async function initDatabase(): Promise<void> {

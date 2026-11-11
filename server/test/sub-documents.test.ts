@@ -40,7 +40,7 @@ for (const key of Object.keys(process.env)) delete process.env[key]
 Object.assign(process.env, {
   PATH: oldPath || '/usr/bin:/bin', HOME: temp, TMPDIR: temp,
   NODE_ENV: 'test', SQLITE_PATH: path.join(temp, 'isolated.sqlite'),
-  JWT_SECRET: 'isolated-test-secret-never-used-outside-this-test',
+  JWT_SECRET: randomBytes(32).toString('hex'),
   MFA_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
   AWS_EC2_METADATA_DISABLED: 'true',
 })

@@ -84,7 +84,14 @@ export async function apiMe(): Promise<{ user: User }> {
   return data
 }
 
-export function apiLogout(): void {
+export async function apiLogout(): Promise<void> {
+  const token = getToken()
+  if (token) {
+    const response = await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+    // An expired or revoked session no longer needs revocation. Other failures
+    // are surfaced instead of pretending a live server session was closed.
+    if (!response.ok && response.status !== 401) throw new Error('Could not revoke session')
+  }
   setToken(null)
   setStoredUser(null)
 }

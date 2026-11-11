@@ -17,6 +17,7 @@ import { settingsRouter } from './routes/settings.ts'
 import { adminRouter } from './routes/admin.ts'
 import { subPortalRouter } from './routes/subPortal.ts'
 import { verificationRouter } from './routes/verification.ts'
+import { draftReviewRouter } from './routes/draftReview.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -52,6 +53,7 @@ export async function createApp() {
   app.use('/api/staff', adminRouter)
   app.use('/api/sub', subPortalRouter)
   app.use('/api/verification', verificationRouter)
+  app.use('/api/draft-review', draftReviewRouter)
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {
