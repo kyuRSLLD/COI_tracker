@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { generateKeyPairSync, randomUUID, createHash } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, randomBytes, createHash } from 'node:crypto'
 import pg from 'pg'
 import jwt from 'jsonwebtoken'
+import { migrateAuthV2V1 } from '../src/db/migrations/003_auth_v2.ts'
 import { migrateGcSubConsentV1 } from '../src/db/migrations/002_gc_sub_consent.ts'
 import { migrateOwnerFoundationV1 } from '../src/db/migrations/001_owner_foundation.ts'
 import { postgresOwnerConnection } from '../src/db/ownerConnection.ts'
@@ -17,7 +18,7 @@ if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !['127.0.0.1', 'l
 }
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const pub = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-const auth = (sub: string, options: jwt.SignOptions = {}) => jwt.sign({ sub }, privateKey, { algorithm: 'RS256', issuer: 'test-issuer', audience: 'test-audience', expiresIn: '5m', ...options })
+const auth = (sub: string, options: jwt.SignOptions = {}) => jwt.sign({ sub }, privateKey, { algorithm: 'RS256', issuer: 'test-issuer', audience: 'test-audience', expiresIn: '5m', jwtid: randomBytes(32).toString('base64url'), ...options })
 const bad = (p: Promise<unknown>) => assert.rejects(p, UnavailableError)
 const hash = (token: string) => createHash('sha256').update(token).digest()
 
@@ -30,7 +31,7 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
     assert.ok(ver.rows[0].version >= 160000 && ver.rows[0].version < 170000, 'test on PostgreSQL 16')
     await admin.query(`CREATE SCHEMA ${schema}`)
     pool = new pg.Pool({ connectionString: url, options: `-c search_path=${schema}`, max: 12 })
-    await pool.query(`CREATE TABLE users(id TEXT PRIMARY KEY,role TEXT NOT NULL,email TEXT,name TEXT);
+    await pool.query(`CREATE TABLE users(id TEXT PRIMARY KEY,role TEXT NOT NULL,email TEXT,name TEXT,password_hash TEXT);
       CREATE TABLE subcontractors(id TEXT PRIMARY KEY,company_name TEXT NOT NULL,trade TEXT NOT NULL,status TEXT, contact_person TEXT, phone TEXT, email TEXT);
       CREATE TABLE cois(id TEXT PRIMARY KEY,subcontractor_id TEXT NOT NULL,carrier TEXT NOT NULL,effective_date TEXT NOT NULL,expiration_date TEXT NOT NULL,status TEXT,certificate_key TEXT,certificate_url TEXT)`)
     await pool.query(`INSERT INTO users(id,role,email,name) VALUES
@@ -53,6 +54,7 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
       await client.query('DROP TABLE gc_sub_grants')
       assert.equal(await migrateGcSubConsentV1(client), 'applied')
       assert.equal(await migrateGcSubConsentV1(client), 'already-applied')
+      assert.equal(await migrateAuthV2V1(client), 'applied')
     } finally { client.release() }
     await pool.query("INSERT INTO owner_subcontractor_connections VALUES('s1','gc1','now')")
     await pool.query("INSERT INTO owner_coi_records VALUES('other-owner','s1','gc1','now')")
@@ -63,10 +65,18 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
     await assert.rejects(pool.query("UPDATE gc_sub_profiles SET sub_user_id='sub2' WHERE id=$1", [p1]), /immutable/)
     await assert.rejects(pool.query("INSERT INTO gc_sub_coi_ownership VALUES('c2',$1,'s1',clock_timestamp(),'fake')", [p1]))
     const service = gcSubConsentService(pool, { publicKey: pub, issuer: 'test-issuer', audience: 'test-audience' })
-    const gc1 = auth('gc1'), gc2 = auth('gc2'), sub1 = auth('sub1'), sub2 = auth('sub2')
+    await pool.query(`INSERT INTO auth_v2_accounts(user_id,login_email,password_hash,email_verified_at,verification_reference,enabled)
+      SELECT id,id || '@example.test','not-used',clock_timestamp(),'verified',true FROM users`)
+    const mint = async (id: string) => {
+      const token = auth(id)
+      await pool!.query('INSERT INTO auth_v2_sessions(token_hash,user_id,expires_at) VALUES($1,$2,to_timestamp($3))', [hash(token), id, (jwt.decode(token) as jwt.JwtPayload).exp])
+      return token
+    }
+    let gc1 = await mint('gc1'), gc2 = await mint('gc2'), sub1 = await mint('sub1')
+    const sub2 = await mint('sub2'), adminToken = await mint('admin')
     await bad(service.issueSubQr(sub1, p1, false))
     await bad(service.issueSubQr(sub2, p1, CONSENT_V1))
-    await bad(service.issueSubQr(auth('admin'), p1, CONSENT_V1))
+    await bad(service.issueSubQr(adminToken, p1, CONSENT_V1))
     await bad(service.issueSubQr(auth('sub1', { issuer: 'wrong' }), p1, CONSENT_V1))
     await bad(service.issueSubQr(auth('sub1', { audience: 'wrong' }), p1, CONSENT_V1))
     await bad(service.issueSubQr(auth('sub1', { expiresIn: -1 }), p1, CONSENT_V1))
@@ -99,9 +109,11 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
     // Live roles, not token claims, control reads and writes.
     const gcStaleInvite = await service.createGcInvite(gc1, p1)
     await pool.query("UPDATE users SET role='sub' WHERE id='gc1'")
-    assert.deepEqual(await service.listGrantedSubs(gc1), [])
+    await bad(service.listGrantedSubs(gc1))
     await bad(service.createGcInvite(gc1, p1))
     await pool.query("UPDATE users SET role='gc' WHERE id='gc1'")
+    await bad(service.listGrantedSubs(gc1))
+    gc1 = await mint('gc1')
     assert.deepEqual(await service.listGrantedSubs(gc1), [])
     await bad(service.acceptGcInvite(sub1, gcStaleInvite.token, CONSENT_V1))
     const newGrant = await service.issueSubQr(sub1, p1, CONSENT_V1)
@@ -111,6 +123,8 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
     assert.deepEqual(await service.listGrantedCois(gc1, p1), [])
     await bad(service.issueSubQr(sub1, p1, CONSENT_V1))
     await pool.query("UPDATE users SET role='sub' WHERE id='sub1'")
+    await bad(service.issueSubQr(sub1, p1, CONSENT_V1))
+    sub1 = await mint('sub1')
     assert.deepEqual(await service.listGrantedSubs(gc1), [])
     await bad(service.redeemSubQr(gc1, subStaleQr.token))
     const newGrant2 = await service.issueSubQr(sub1, p1, CONSENT_V1)
@@ -126,6 +140,8 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
     await bad(service.acceptGcInvite(sub1, invite.token, CONSENT_V1))
     await pool.query("UPDATE users SET role='gc' WHERE id='gc2'")
     await bad(service.acceptGcInvite(sub1, invite.token, CONSENT_V1))
+    await bad(service.createGcInvite(gc2, p1))
+    gc2 = await mint('gc2')
     const invite2 = await service.createGcInvite(gc2, p1)
     await service.acceptGcInvite(sub1, invite2.token, CONSENT_V1)
     await bad(service.acceptGcInvite(sub1, invite2.token, CONSENT_V1))
@@ -234,6 +250,8 @@ test('PostgreSQL 16: consented relationships are isolated, live, revocable and r
       assert.equal(result.ok, false); if ('error' in result) assert.ok(result.error instanceof UnavailableError)
     } finally { await roleBlocker.query('ROLLBACK'); roleBlocker.release() }
     await pool.query("UPDATE users SET role='gc' WHERE id='gc1'")
+    await bad(service.listGrantedSubs(gc1))
+    gc1 = await mint('gc1')
     // Suspension is checked on every read and blocks redemption.
     const suspendedQr = await service.issueSubQr(sub1, p1, CONSENT_V1)
     await pool.query('UPDATE gc_sub_profiles SET revoked_at=clock_timestamp() WHERE id=$1', [p1])

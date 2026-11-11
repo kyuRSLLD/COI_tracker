@@ -1,0 +1,46 @@
+# Consented connections v2 router — disconnected prototype
+
+This is an unmounted, test-only integration artifact. No legacy application, startup, schema migration, UI, delivery system, or deployment is changed. It does **not** remediate legacy routes or establish production readiness. The existing [service security model](./GC_SUB_CONSENT.md) still applies. Never mount it alongside unsafe routes as a substitute for fixing the rest of the application.
+
+## Required trusted dependencies
+
+`createGcSubConnectionsV2Router` takes the existing `gcSubConsentService`, an Express `authenticate` middleware, an async `checkRateLimit`, and an async `authorizeInviteRecipient`. All are mandatory. The application must mount it at `/api/v2/connections`; only the synthetic tests do so here. No router creates a pool, reads secrets, or runs migrations.
+
+* **Authentication:** Middleware must verify credentials and set `req.securePrincipal = { subject, role, credential }`, where role is `gc` or `sub`, subject exactly equals the verified credential's immutable `sub`, and credential is the same raw verified access token. Never populate this from an untrusted decoded token or request fields. Middleware must use generic failures, avoid logging secrets, protect credential transport, and enforce account/session lifecycle as required. Router role checks are defense in depth. The service separately verifies the strict auth-v2 JWT and transactionally checks the live DB role, enabled verified account and unrevoked, unexpired matching session on every service operation. Auth-v2 tables and matching issuer/audience/key are required; there is no stateless fallback. The consent-disclosure endpoint does not call the service and therefore relies on the supplied verified middleware. The router cannot independently prove the middleware bound subject and credential together; that is a release prerequisite. Existing legacy `requireAuth` is not suitable.
+* **Rate limit:** `checkRateLimit({phase, remoteAddress, subject?})` is invoked before authentication and again after authentication, and must return exactly `true` to allow. `false` or any non-true result is 429; failure or a two-second timeout is 503. It receives no body, token, or URL. Implement an atomic, bounded, abuse-resistant shared limiter with separate IP and principal budgets, suitable expiry and operational monitoring; no such limiter is supplied. `remoteAddress` is the TCP peer, not an untrusted forwarded header. If a proxy terminates connections all clients may share the address; trusted gateway-level limits and identity-aware proxy configuration are required. The policy must continue to work across instances. No trustworthy source IP is derived from client headers here.
+* **Invitation recipient authorization:** `authorizeInviteRecipient({gcSubject, profileId})` must return exactly `true` only when that GC is independently entitled to target that *specific known recipient*. Denial is the same generic 404 as an unavailable profile; error or a two-second timeout is 503. This is not implemented by the service. Do not implement this as “the UUID exists,” matching names/emails, unrestricted recipient search, or a profile-existence lookup. Policy approval does not itself create consent. The policy check and service transaction are separate: if authorization revocation must be atomic with invitation creation, a redesigned transactional policy/service is required. No callback can prevent an authorized recipient holder from sharing the token through an unsafe channel.
+
+Callbacks should cancel their own work on timeout if possible; the router's deadline rejects the request but does not cancel a pending external operation. They must not perform side effects that continue after timeout. Rate limiting and authorization need independent security review. An upstream application/proxy must avoid token/body/credential logging and never put capabilities into URLs, referrers, analytics, or browser history; rejection inside the router happens too late to prevent prior proxy logging. Mount before any application-wide body parser if the router's 4 KB JSON parser limit is to apply. Configure TLS, trusted proxies, secure error handling, storage, and gateway limits. If cookie-based authentication is used, add appropriate CSRF defenses; none is included here.
+
+## HTTP contract
+
+All paths below are relative to `/api/v2/connections`. Tokens are opaque bearer capabilities in JSON bodies or one-time JSON responses, **never path/query parameters**. Query strings are rejected, no dynamic token paths exist, responses have `Cache-Control: no-store, private`, and errors do not include profile IDs or internals. Instruct clients and proxies not to cache or log these responses or request bodies. All bodies are JSON objects with exactly the fields shown. The example consent version must be obtained from disclosure, not invented or silently defaulted.
+
+| Method and path | Role | JSON input | Result |
+| --- | --- | --- | --- |
+| `GET /consent` | either | — | `version`, `qrText`, `invitationText` from the service's exported v1 constants. |
+| `POST /qr` | sub | `{profileId, consentVersion, affirmative: true}` | One-time `{token, expiresAt}`. Only verified profile owner; consent permits whichever eligible GC scans. |
+| `POST /qr/redeem` | GC | `{token}` | 204; one-time atomic consumption/grant. |
+| `POST /invitations` | GC | `{profileId}` | One-time `{token, expiresAt}`, after independent recipient authorization; **not** consent. |
+| `POST /invitations/preview` | sub | `{token}` | `{invitation, consent: {version, text}}`; preview reveals the actual inviting GC identity and profile only to that profile's verified sub. |
+| `POST /invitations/accept` | sub | `{token, consentVersion, affirmative: true}` | 204; only verified owner of the profile can consent. |
+| `POST /revoke` | sub | `{profileId, gcUserId}` | 204 even if there was no active grant; invalidates all unspent profile QRs and that GC's pending invites. |
+| `GET /subcontractors` | GC | — | `{subcontractors: [...]}`; service's currently granted minimal projection only. |
+| `POST /cois` | GC | `{profileId}` | `{cois: [...]}`; service's explicitly mapped, granted COI metadata only; no grant and no matching records both yield an empty list. |
+
+The frontend must actually show the current exact QR disclosure before collecting the affirmative action. For invitations it must first call preview, display the identified inviter and corresponding exact disclosure, and then obtain a separate affirmative action with the version. The service/router cannot prove a human saw the preview; a version string and boolean alone are not proof of informed consent. For QR, consent is untargeted. Identified-GC preapproval requires the invitation flow or a new design. Consent remains current only for explicitly verified sub-owned COI metadata mapped in the service; documents and storage URLs are not provided. UI, accessible presentation, localization, consent capture evidence beyond the service's events, secure token delivery, and QR generation are not implemented.
+
+Wrong role, invalid body or unavailable token/profile/authorization return generic 404. Trusted authentication may return 401; limit denial 429; parser, database, policy and other internal failures 503, with generic bodies and no error details. JSON-only malformed input is not a validation oracle for profile existence. No log is emitted by the router. Already-started reads follow PostgreSQL statement snapshots, so revocation cannot retract previously seen data or guarantee cancellation of in-flight reads. See the service documentation for all lifecycle, role, mapping, concurrency and provisioning constraints.
+
+The service has no endpoint to list the sub's own grants, obtain a verified profile or invite recipient discovery, create/verify profiles, map COIs, deliver invitations, serve documents, or revoke bearer sessions. This router does not fabricate those capabilities. GC list results include profile IDs only for live grants, and invitation preview discloses its profile ID only to the verified owner.
+
+## Test
+
+The HTTP integration test builds a synthetic schema, explicitly invokes the existing migration in a random throwaway schema, and tears the schema down. It refuses non-loopback URLs, URL host overrides and databases outside `gc_sub_test_*`, and asserts PostgreSQL 16. The URL safeguard is not proof a database is disposable; use an isolated local cluster, never real data. Example:
+
+```sh
+GC_SUB_TEST_PG_URL=postgresql://ubuntu@127.0.0.1:55489/gc_sub_test_disposable \
+  node --experimental-strip-types --test server/test/gc-sub-connections-v2.test.ts
+```
+
+Coverage includes both flows, explicit consent/version, independent same-name tenant isolation, recipient-policy denial, no private COI fields, replay and revoked access, pending capability invalidation, live-role changes, invalid RS256/HS256 credentials (including when synthetic authentication is intentionally broken), generic DB/policy errors, 429/503 fail-closed limiting, and no-store responses. The original service integration test provides deeper race, expiry, rollback and migration coverage. Neither suite substitutes for production schema rehearsal, recipient authorization review, or a live deployment assessment.

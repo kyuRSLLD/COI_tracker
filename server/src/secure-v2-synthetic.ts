@@ -1,0 +1,119 @@
+// Synthetic integration harness ONLY. Never import from app.ts/index.ts or deploy.
+// A test environment marker and URL checks are guardrails, not proof of isolation.
+import express from 'express'
+import type { Request, RequestHandler } from 'express'
+import pg from 'pg'
+import { createSecureV2App } from './secure-v2-app.ts'
+import { createV2Auth } from './v2/auth.ts'
+import type { V2AuthConfig, V2AuthContext } from './v2/auth.ts'
+import { createGcOwnerV2Router } from './routes/gcOwnerV2.ts'
+import { createGcSubConnectionsV2Router } from './routes/gcSubConnectionsV2.ts'
+import { privateCertificatesRouter } from './routes/privateCertificates.ts'
+import { gcSubConsentService } from './services/gcSubConsent.ts'
+import { PrivateCertificateStorage } from './services/privateCertificateStorage.ts'
+import type { PrivateS3Transport } from './services/privateCertificateStorage.ts'
+
+type LimitInput = { scope: 'auth' | 'protected' | 'connections-router'; phase: 'preauth' | 'principal'; remoteAddress: string; subject?: string }
+type Options = {
+  pool: pg.Pool
+  authConfig: V2AuthConfig
+  // Test callback only; NOT an implementation of production rate limiting.
+  testRateLimit?: (input: LimitInput) => Promise<boolean>
+  // Unsafe opt-in is for controlled synthetic HTTP tests, never production.
+  unsafeTestOnlyEnableConsent?: boolean
+  testAuthorizeInviteRecipient?: (input: { gcSubject: string; profileId: string }) => Promise<boolean>
+  unsafeTestOnlyMockS3?: PrivateS3Transport
+}
+type PrincipalRequest = Request & { securePrincipal?: Readonly<V2AuthContext> }
+const reject: RequestHandler = (_req, res) => { res.status(401).json({ error: 'Authentication required' }) }
+
+/**
+ * Adapts only freshly verified res.locals.authV2, never client fields. The
+ * private WeakMap distinguishes our own pinned principal from any preexisting
+ * property. Re-authentication is mandatory; a changed identity fails closed.
+ */
+export function createVerifiedPrincipalAdapter(requireAuth: RequestHandler): RequestHandler {
+  const pinned = new WeakMap<Request, Readonly<V2AuthContext>>()
+  return (req, res, next) => {
+    let advanced = false
+    const done = (err?: unknown) => {
+      if (advanced) return
+      advanced = true
+      if (res.headersSent || res.writableEnded || res.destroyed) return
+      if (err === 'route' || err === 'router') return reject(req, res, next)
+      if (err || res.statusCode >= 400) { if (err) return next(err); return reject(req, res, next) }
+      const a = res.locals.authV2 as V2AuthContext | undefined
+      if (!a || typeof a.subject !== 'string' || !a.subject || !['gc', 'sub', 'admin'].includes(a.role) || typeof a.credential !== 'string' || !a.credential) return reject(req, res, next)
+      const old = pinned.get(req)
+      const desc = Object.getOwnPropertyDescriptor(req, 'securePrincipal')
+      if (old) {
+        if (!desc || desc.value !== old || desc.configurable || desc.writable || old.subject !== a.subject || old.role !== a.role || old.credential !== a.credential) return reject(req, res, next)
+      } else {
+        // Refuse inherited, accessor, configurable, or frozen foreign values.
+        if ('securePrincipal' in req) return reject(req, res, next)
+        const value = Object.freeze({ subject: a.subject, role: a.role, credential: a.credential })
+        Object.defineProperty(req, 'securePrincipal', { value, writable: false, configurable: false, enumerable: false })
+        pinned.set(req, value)
+      }
+      next()
+    }
+    try { Promise.resolve(requireAuth(req, res, done)).catch(done) } catch (e) { done(e) }
+  }
+}
+
+function validatePool(pool: pg.Pool) {
+  if (!(pool instanceof pg.Pool) || typeof pool.options.connectionString !== 'string') throw new Error('Synthetic loopback pool required')
+  const u = new URL(pool.options.connectionString)
+  if (!['postgres:', 'postgresql:'].includes(u.protocol) || u.hostname !== '127.0.0.1' || !u.port || !/^\/secure_v2_test_[a-z0-9_]+$/.test(u.pathname) || u.search || u.hash) throw new Error('Explicit disposable loopback secure_v2_test_* database required')
+  // pg options can override the URL; reject alternate host/database or TLS routing.
+  const p = pool.options as pg.PoolConfig
+  if ((p.host && p.host !== '127.0.0.1') || (p.database && p.database !== u.pathname.slice(1)) || (p.port && Number(p.port) !== Number(u.port)) || p.ssl) throw new Error('Conflicting pool options')
+}
+function withDeadline<T>(fn: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  return Promise.race([Promise.resolve().then(fn), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 2000) })]).finally(() => clearTimeout(timer))
+}
+
+/** Constructs but never listens, initializes a database, reads production config or contacts S3. */
+export function createSecureV2SyntheticTestApp(options: Options) {
+  if (process.env.NODE_ENV !== 'test') throw new Error('Synthetic test harness requires NODE_ENV=test')
+  validatePool(options.pool)
+  const auth = createV2Auth(options.pool, options.authConfig)
+  const adapter = createVerifiedPrincipalAdapter(auth.requireAuth)
+  const limit = async (input: LimitInput) => options.testRateLimit ? await withDeadline(() => options.testRateLimit!(input)) : false
+  const middlewareLimit = (scope: LimitInput['scope'], phase: LimitInput['phase']): RequestHandler => (req, res, next) => {
+    const remoteAddress = req.socket.remoteAddress
+    const subject = phase === 'principal' ? (res.locals.authV2 as V2AuthContext | undefined)?.subject : undefined
+    if (!remoteAddress || (phase === 'principal' && !subject) || !options.testRateLimit) { res.status(503).json({ error: 'Unavailable' }); return }
+    limit({ scope, phase, remoteAddress, ...(subject ? { subject } : {}) }).then(allowed => {
+      if (allowed === true) next(); else res.status(429).json({ error: 'Unavailable' })
+    }, () => { res.status(503).json({ error: 'Unavailable' }) })
+  }
+  const authRouter = express.Router()
+  authRouter.use(middlewareLimit('auth', 'preauth'), auth.router)
+  const gcRouter = createGcOwnerV2Router({ pool: options.pool, authenticate: adapter })
+  // Default off, synthetic-only: transactional consent session enforcement does
+  // not resolve the remaining owner/file and production-readiness blockers.
+  const connectionsRouter = options.unsafeTestOnlyEnableConsent === true
+    ? createGcSubConnectionsV2Router({
+      service: gcSubConsentService(options.pool, { publicKey: options.authConfig.publicKey, issuer: options.authConfig.issuer, audience: options.authConfig.audience }),
+      authenticate: adapter,
+      checkRateLimit: input => limit({ scope: 'connections-router', ...input }),
+      authorizeInviteRecipient: options.testAuthorizeInviteRecipient ?? (async () => false),
+    }) : undefined
+  const certificatesRouter = options.unsafeTestOnlyMockS3
+    ? privateCertificatesRouter({ enabled: true, pool: options.pool, verifiedMiddleware: adapter,
+      makeStorage: ({ records, authorize }) => new PrivateCertificateStorage({ enabled: true, bucket: 'synthetic-private-test', records, authorize, s3: options.unsafeTestOnlyMockS3! }) })
+    : privateCertificatesRouter()
+  // The outer gate never creates a principal, so the certificate router can
+  // safely clear a prior principal before the adapter's fresh verification.
+  const outerAuthentication: RequestHandler = (req, res, next) => {
+    if ('securePrincipal' in (req as PrincipalRequest)) return reject(req, res, next)
+    return auth.requireAuth(req, res, err => {
+      if (err) return next(err)
+      middlewareLimit('protected', 'principal')(req, res, next)
+    })
+  }
+  return createSecureV2App({ authRouter, gcRouter, connectionsRouter, certificatesRouter,
+    authenticate: outerAuthentication, beforeProtected: middlewareLimit('protected', 'preauth'), routersOwnBodyParsing: true })
+}

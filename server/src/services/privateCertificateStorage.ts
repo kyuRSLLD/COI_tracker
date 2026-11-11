@@ -27,8 +27,8 @@ export interface CertificateRecordRepository {
 // A narrow injection seam for isolated tests. Production callers should use the
 // factory below, which constructs an AWS SDK client and has no local fallback.
 export interface PrivateS3Transport {
-  put(command: PutObjectCommand): Promise<unknown>
-  get(command: GetObjectCommand): Promise<{ Body?: unknown; ContentLength?: number; ContentType?: string }>
+  put(command: PutObjectCommand, signal?: AbortSignal): Promise<unknown>
+  get(command: GetObjectCommand, signal?: AbortSignal): Promise<{ Body?: unknown; ContentLength?: number; ContentType?: string }>
 }
 
 export class CertificateStorageDisabledError extends Error {
@@ -105,30 +105,39 @@ export class PrivateCertificateStorage {
       if (await this.config.authorize({ principal, certificateId, action }) !== true) throw new CertificateAccessDeniedError()
     } catch { throw new CertificateAccessDeniedError() }
   }
-  async upload(request: { principal: MemberPrincipal; certificateId: string; stream: Readable; declaredMime: string }): Promise<{ mime: CertificateMime; size: number }> {
+  async upload(request: { principal: MemberPrincipal; certificateId: string; stream: Readable; declaredMime: string; signal?: AbortSignal }): Promise<{ mime: CertificateMime; size: number }> {
     await this.check(request.principal, request.certificateId, 'upload')
+    if (request.signal?.aborted) throw new CertificateStorageError()
     const { data, mime } = await collectFile(request.stream, request.declaredMime)
+    if (request.signal?.aborted) throw new CertificateStorageError()
     const record: PrivateCertificateRecord = { key: `private-certificates/${randomBytes(32).toString('hex')}`, mime, size: data.length }
     try {
       await this.config.s3.put(new PutObjectCommand({
         Bucket: this.config.bucket, Key: record.key, Body: data, ContentLength: record.size,
         ContentType: record.mime, ContentDisposition: 'attachment', ServerSideEncryption: 'AES256',
         // No ACL: bucket-owner-enforced S3 ownership and Block Public Access are required.
-      }))
+      }), request.signal)
+      if (request.signal?.aborted) throw new CertificateStorageError()
       await this.config.records.create(request.certificateId, record)
     } catch { throw new CertificateStorageError() }
     return { mime, size: record.size }
   }
-  async download(request: { principal: MemberPrincipal; certificateId: string }): Promise<{
+  async download(request: { principal: MemberPrincipal; certificateId: string; signal?: AbortSignal }): Promise<{
     stream: Readable; headers: Record<string, string>
   }> {
     await this.check(request.principal, request.certificateId, 'download')
+    if (request.signal?.aborted) throw new CertificateStorageError()
     let record: PrivateCertificateRecord | null
     try { record = await this.config.records.get(request.certificateId) } catch { throw new CertificateStorageError() }
     if (!isRecord(record)) throw new CertificateStorageError()
     let result: Awaited<ReturnType<PrivateS3Transport['get']>>
-    try { result = await this.config.s3.get(new GetObjectCommand({ Bucket: this.config.bucket, Key: record.key })) }
+    if (request.signal?.aborted) throw new CertificateStorageError()
+    try { result = await this.config.s3.get(new GetObjectCommand({ Bucket: this.config.bucket, Key: record.key }), request.signal) }
     catch { throw new CertificateStorageError() }
+    if (request.signal?.aborted) {
+      if (result.Body instanceof Readable) result.Body.destroy()
+      throw new CertificateStorageError()
+    }
     if (!(result.Body instanceof Readable) || result.ContentLength !== record.size || result.ContentType !== record.mime) {
       if (result.Body instanceof Readable) result.Body.destroy()
       throw new CertificateStorageError()
@@ -150,6 +159,11 @@ export class PrivateCertificateStorage {
       } catch { throw new CertificateStorageError() }
       finally { source.destroy() }
     })())
+    // Readable.from(asyncGenerator).destroy() can wait for a pending upstream
+    // read before emitting 'close'. Destroy the source first so cancellation
+    // also releases a stalled network socket, not only a completed iterator.
+    const destroy = stream.destroy.bind(stream)
+    stream.destroy = (error?: Error) => { source.destroy(); return destroy(error) }
     // Attach immediately: an upstream socket may fail before the caller pipes.
     // Consumers still observe the sanitized error on the returned stream.
     stream.on('error', () => {})
@@ -186,6 +200,6 @@ export function createPrivateCertificateStorage(config: {
   const s3 = new S3Client({ region, endpoint: `https://s3.${region}.amazonaws.com` })
   return new PrivateCertificateStorage({
     enabled: true, bucket: config.bucket, authorize: config.authorize, records: config.records,
-    s3: { put: (command) => s3.send(command), get: (command) => s3.send(command) },
+    s3: { put: (command, signal) => s3.send(command, { abortSignal: signal }), get: (command, signal) => s3.send(command, { abortSignal: signal }) },
   })
 }
