@@ -6,7 +6,13 @@ import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { requireAuth, signToken } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
-import { storeFile } from '../services/storage.ts'
+import { storePrivateFile, deletePrivateFile, privateLocalPath, signedPrivateFileUrl } from '../services/storage.ts'
+import { ensureDraftTable, startDraftOcr, refreshDraftOcr } from '../services/coiOcr.ts'
+import { listCarriers } from '../services/carriers.ts'
+import { PDFDocument } from 'pdf-lib'
+import sharp from 'sharp'
+import jwt from 'jsonwebtoken'
+import type { NextFunction, Response } from 'express'
 import { sendEmail, buildCOIShareEmail } from '../services/email.ts'
 
 const upload = multer({
@@ -16,30 +22,76 @@ const upload = multer({
 
 export const subPortalRouter = Router()
 
-// Helper: resolve subcontractor profile for the current user (auto-create if missing)
+// Resolve only a profile actually bound to the authenticated database user, never by email
+// or by a stale JWT subcontractor_id. No cross-account implicit claiming.
 async function resolveSubProfile(user: { id: string; email: string; name: string; subcontractor_id?: string | null }) {
-  if (user.subcontractor_id) {
-    const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [user.subcontractor_id])
-    if (sub) return sub
-  }
-  const byUser = await dbGet('SELECT * FROM subcontractors WHERE user_id = ? LIMIT 1', [user.id])
+  const actual = await dbGet('SELECT id, role, name, email, subcontractor_id FROM users WHERE id = ?', [user.id])
+  if (!actual || actual.role !== 'sub') throw new Error('Subcontractor account required')
+  const byUser = await dbGet('SELECT * FROM subcontractors WHERE user_id = ? LIMIT 1', [actual.id])
   if (byUser) return byUser
-  const byEmail = await dbGet('SELECT * FROM subcontractors WHERE LOWER(email) = ? LIMIT 1', [user.email.toLowerCase()])
-  if (byEmail) return byEmail
-  // auto-create a minimal profile
+  if (actual.subcontractor_id) {
+    const linked = await dbGet('SELECT * FROM subcontractors WHERE id = ? AND user_id IS NULL', [actual.subcontractor_id])
+    if (linked) return linked
+    throw new Error('Subcontractor profile ownership mismatch')
+  }
   const subId = uuidv4()
   const now = new Date().toISOString()
-  await dbRun(
-    `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, email, created_at, updated_at)
-     VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?)`,
-    [subId, user.id, user.name || 'My Company', user.name, user.email.toLowerCase(), now, now]
-  )
-  await dbRun('UPDATE users SET subcontractor_id = ? WHERE id = ?', [subId, user.id])
-  return dbGet('SELECT * FROM subcontractors WHERE id = ?', [subId])
+  await dbRun(`INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, email, created_at, updated_at)
+    VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?)`, [subId, actual.id, actual.name, actual.name, actual.email.toLowerCase(), now, now])
+  await dbRun('UPDATE users SET subcontractor_id = ? WHERE id = ?', [subId, actual.id])
+  return dbGet('SELECT * FROM subcontractors WHERE id = ? AND user_id = ?', [subId, actual.id])
+}
+async function requireSub(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-secret-change-in-production')) {
+      return res.status(503).json({ error: 'Subcontractor access is not configured' })
+    }
+    const user = await dbGet('SELECT id, role FROM users WHERE id = ?', [req.user!.id])
+    if (!user || user.role !== 'sub') return res.status(403).json({ error: 'Subcontractor access required' })
+    next()
+  } catch { res.status(503).json({ error: 'Unable to authorize request' }) }
+}
+function safeFilename(name: string): string {
+  return name.split(/[\\/]/).pop()!.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 160) || 'certificate'
+}
+async function validateCertificate(file: Express.Multer.File): Promise<string> {
+  const b = file.buffer
+  if (!b || !b.length) throw new Error('Invalid file')
+  if (b.subarray(0, 5).toString('ascii') === '%PDF-') {
+    const pdf = await PDFDocument.load(b, { throwOnInvalidObject: true, updateMetadata: false })
+    if (pdf.isEncrypted || pdf.getPageCount() < 1 || pdf.getPageCount() > 500) throw new Error('Invalid PDF')
+    return 'application/pdf'
+  }
+  const png = b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+  const jpeg = b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff && b[b.length - 2] === 0xff && b[b.length - 1] === 0xd9
+  if (!png && !jpeg) throw new Error('Unsupported file')
+  // Decode the actual image, not just the header. Restrict decompressed dimensions.
+  const image = sharp(b, { failOn: 'error', limitInputPixels: 30000000 })
+  const metadata = await image.metadata()
+  if (metadata.format !== (png ? 'png' : 'jpeg') || !metadata.width || !metadata.height || (metadata.pages || 1) !== 1) throw new Error('Invalid image')
+  await image.resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).raw().toBuffer()
+  return png ? 'image/png' : 'image/jpeg'
+}
+async function draftResponse(row: any, withUrl = true) {
+  let certificateUrl: string | null = null
+  if (withUrl) {
+    try {
+      if (row.storage_backend === 's3') certificateUrl = await signedPrivateFileUrl(row.storage_key)
+      else if (row.storage_backend === 'local' && process.env.NODE_ENV !== 'production') {
+        const token = jwt.sign({ purpose: 'coi-draft-view', draft: row.id, owner: row.owner_user_id }, process.env.JWT_SECRET || 'dev-secret-change-in-production', { expiresIn: '5m' })
+        certificateUrl = `/api/sub/quick-upload/${encodeURIComponent(row.id)}/document?token=${encodeURIComponent(token)}`
+      }
+    } catch { /* fail closed: no URL */ }
+  }
+  return { id: row.id, subcontractor_id: row.subcontractor_id, carrier: null, policy_number: null,
+    effective_date: null, expiration_date: null, status: 'pending_review', coverages: [],
+    certificate_url: certificateUrl, certificate_name: row.certificate_name, certificate_size: row.certificate_size,
+    certificate_mime: row.certificate_mime, created_at: row.created_at, updated_at: row.updated_at,
+    ocr_status: row.ocr_status }
 }
 
 // Subcontractor dashboard: my profile, my COIs, requests, connected GCs
-subPortalRouter.get('/my', requireAuth, async (req: AuthRequest, res) => {
+subPortalRouter.get('/my', requireAuth, requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const cois = await dbAll(
@@ -49,6 +101,10 @@ subPortalRouter.get('/my', requireAuth, async (req: AuthRequest, res) => {
     for (const coi of cois) {
       coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     }
+    await ensureDraftTable()
+    const drafts = await dbAll('SELECT * FROM sub_coi_drafts WHERE owner_user_id = ? AND subcontractor_id = ? ORDER BY created_at DESC', [req.user!.id, sub.id])
+    cois.push(...await Promise.all(drafts.map(d => draftResponse(d))))
+    cois.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
     const requests = await dbAll(
       `SELECT ur.*, gcs.company_name AS gc_company_name, gcs.phone AS gc_phone
        FROM upload_requests ur
@@ -71,101 +127,82 @@ subPortalRouter.get('/my', requireAuth, async (req: AuthRequest, res) => {
       connected_gcs: gcs,
       public_share_url: `/sub/share/${sub.id}`,
     })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+  } catch {
+    res.status(500).json({ error: 'Unable to load subcontractor dashboard' })
   }
 })
 
-// Quick upload of the insurance paper (one step)
-subPortalRouter.post('/quick-upload', requireAuth, upload.single('certificate'), async (req: AuthRequest, res) => {
-  try {
-    const sub = await resolveSubProfile(req.user!)
-    let stored
-    if (req.file) {
-      stored = await storeFile(req.file)
-    }
-    const coiId = uuidv4()
-    const now = new Date().toISOString()
-    const eff = req.body?.effective_date || now.slice(0, 10)
-    const exp = req.body?.expiration_date || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)
-    await dbRun(
-      `INSERT INTO cois (id, subcontractor_id, carrier, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        coiId,
-        sub.id,
-        req.body?.carrier || 'Carrier verification pending',
-        req.body?.policy_number || 'Pending broker confirmation',
-        eff,
-        exp,
-        'Uploaded via subcontractor quick-upload portal',
-        stored?.url || null,
-        stored?.key || null,
-        req.file?.originalname || null,
-        req.file?.size || null,
-        req.file?.mimetype || null,
-        now,
-        now,
-      ]
-    )
-    const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
-    coi.coverages = []
-    res.json(coi)
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// Simulated carrier connect (choose carrier, enter policy # or login, instant verified COI)
-const CARRIER_PROFILES: Record<string, { am_best: string; gl: string; glAgg: string; auto: string; wc: string; umbrella: string }> = {
-  'Travelers': { am_best: 'A++ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$10,000,000' },
-  'The Hartford': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Liberty Mutual': { am_best: 'A (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Nationwide': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'CNA Financial': { am_best: 'A (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
-  'Progressive': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$3,000,000' },
-  'Zurich': { am_best: 'A+ (Superior)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' },
+// One required document. Client-provided dates, coverages and policy details are never
+// accepted as OCR or persisted here; a human must review the original document.
+const singleCertificate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  upload.single('certificate')(req, res, (err: any) => {
+    if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: 'Invalid upload. Submit one PDF, JPEG or PNG under 25 MB.' })
+    next()
+  })
 }
-
-subPortalRouter.post('/carrier-connect', requireAuth, async (req: AuthRequest, res) => {
+subPortalRouter.post('/quick-upload', requireAuth, requireSub, singleCertificate, async (req: AuthRequest, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A certificate file is required' })
+  let mime: string
+  try { mime = await validateCertificate(req.file) }
+  catch { return res.status(400).json({ error: 'File must contain a valid, readable PDF, JPEG or PNG' }) }
+  let stored: Awaited<ReturnType<typeof storePrivateFile>> | undefined
   try {
-    const { carrier, policy_number } = req.body || {}
-    if (!carrier) return res.status(400).json({ error: 'Carrier is required' })
     const sub = await resolveSubProfile(req.user!)
-    const profile = CARRIER_PROFILES[carrier] || { am_best: 'A- (Excellent)', gl: '$1,000,000', glAgg: '$2,000,000', auto: '$1,000,000', wc: 'Statutory', umbrella: '$5,000,000' }
-    const coiId = uuidv4()
-    const now = new Date()
-    const eff = now.toISOString().slice(0, 10)
-    const exp = new Date(now.getTime() + 365 * 86400000).toISOString().slice(0, 10)
-    const polNum = policy_number && policy_number.trim() ? policy_number.trim() : `${carrier.slice(0, 3).toUpperCase()}-PKG-LIVE-${String(Math.floor(100000 + Math.random() * 900000))}`
-    await dbRun(
-      `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, reviewer_notes, review_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'compliant', 'carrier-connect://verified', ?, ?, ?, ?)`,
-      [coiId, sub.id, carrier, profile.am_best, polNum, eff, exp, 'Instant verification via simulated carrier connect', now.toISOString(), now.toISOString(), now.toISOString()]
-    )
-    const coverages = [
-      ['General Liability', profile.gl, profile.glAgg, 1, 1],
-      ['Automobile Liability', profile.auto, profile.auto, 1, 1],
-      ["Workers' Compensation", profile.wc, profile.wc, 0, 1],
-      ['Umbrella Liability', profile.umbrella, profile.umbrella, 1, 0],
-    ]
-    for (const [t, per, agg, ai, wos] of coverages) {
-      await dbRun(
-        `INSERT INTO coi_coverages (id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [uuidv4(), coiId, t, per, agg, ai, wos]
-      )
-    }
-    const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
-    coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coiId])
-    res.json({ success: true, verified: true, carrier, policy_number: polNum, coi })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+    if (!sub) throw new Error('Missing profile')
+    await ensureDraftTable()
+    stored = await storePrivateFile(req.file, mime)
+    const id = uuidv4(), now = new Date().toISOString()
+    try {
+      await dbRun(`INSERT INTO sub_coi_drafts (id, owner_user_id, subcontractor_id, storage_backend, storage_key, certificate_name, certificate_size, certificate_mime, status, ocr_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', 'not_configured', ?, ?)`,
+        [id, req.user!.id, sub.id, stored.backend, stored.key, safeFilename(req.file.originalname), req.file.size, mime, now, now])
+    } catch (e) { try { await deletePrivateFile(stored) } catch {} throw e }
+    const ocr = await startDraftOcr(id, stored.key, stored.backend)
+    const row = await dbGet('SELECT * FROM sub_coi_drafts WHERE id = ? AND owner_user_id = ?', [id, req.user!.id])
+    return res.status(201).json({ ...await draftResponse(row), ocr_status: ocr,
+      message: 'Uploaded for human review. OCR, when available, is unverified and does not approve this certificate.' })
+  } catch {
+    return res.status(503).json({ error: 'Upload could not be completed. Check your dashboard before retrying.' })
   }
+})
+
+// GET performs one bounded poll; persisted Textract job IDs survive restarts. Nothing
+// polls automatically: clients must call this endpoint until terminal status.
+subPortalRouter.get('/quick-upload/:id/ocr', requireAuth, requireSub, async (req: AuthRequest, res) => {
+  try {
+    await ensureDraftTable()
+    const row = await refreshDraftOcr(req.params.id, req.user!.id)
+    if (!row) return res.status(404).json({ error: 'Certificate not found' })
+    return res.json({ id: row.id, status: 'pending_review', ocr_status: row.ocr_status,
+      ocr_draft: row.ocr_result ? JSON.parse(row.ocr_result) : null,
+      message: 'OCR output is unverified and requires human review. Poll this endpoint to refresh processing jobs.' })
+  } catch { return res.status(503).json({ error: 'OCR status is unavailable' }) }
+})
+
+// The local development link is itself a short-lived owner-scoped signed bearer
+// capability. Production uses only short-lived S3 signed URLs, never local files.
+subPortalRouter.get('/quick-upload/:id/document', async (req: AuthRequest, res) => {
+  try {
+    if (process.env.NODE_ENV === 'production' || typeof req.query.token !== 'string') return res.status(404).json({ error: 'Certificate not found' })
+    const token = jwt.verify(req.query.token, process.env.JWT_SECRET || 'dev-secret-change-in-production', { algorithms: ['HS256'] }) as any
+    if (token.purpose !== 'coi-draft-view' || token.draft !== req.params.id || typeof token.owner !== 'string') return res.status(404).json({ error: 'Certificate not found' })
+    await ensureDraftTable()
+    const row = await dbGet(`SELECT d.* FROM sub_coi_drafts d JOIN users u ON u.id = d.owner_user_id
+      WHERE d.id = ? AND d.owner_user_id = ? AND d.storage_backend = 'local' AND u.role = 'sub'`, [req.params.id, token.owner])
+    if (!row) return res.status(404).json({ error: 'Certificate not found' })
+    res.set({ 'Content-Type': row.certificate_mime, 'Content-Disposition': 'attachment', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' })
+    return res.sendFile(privateLocalPath(row.storage_key), (err) => { if (err && !res.headersSent) res.status(404).end() })
+  } catch { return res.status(404).json({ error: 'Certificate not found' }) }
+})
+
+subPortalRouter.get('/carriers', requireAuth, requireSub, (_req, res) => res.json({ carriers: listCarriers() }))
+subPortalRouter.post('/carrier-connect', requireAuth, requireSub, (_req, res) => {
+  // Do not read or log submitted credentials or invent carrier policy records.
+  res.status(503).json({ error: 'Carrier connections are not configured. No policy has been verified.' })
 })
 
 // Update sub profile details
-subPortalRouter.post('/profile', requireAuth, async (req: AuthRequest, res) => {
+subPortalRouter.post('/profile', requireAuth, requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const { company_name, trade, contact_person, email, phone, address, website } = req.body || {}
@@ -248,17 +285,16 @@ subPortalRouter.post('/join/:inviteCode', async (req: AuthRequest, res) => {
     // Branch A: already authenticated user (Bearer token)
     const header = req.headers.authorization
     if (header && header.startsWith('Bearer ')) {
-      const tokenStr = header.slice(7)
-      try {
-        const payload = (await import('jsonwebtoken')).default.verify(tokenStr, process.env.JWT_SECRET || 'dev-secret-change-in-production') as any
-        const user = await dbGet('SELECT * FROM users WHERE id = ?', [payload.id])
-        if (!user) return res.status(404).json({ error: 'User not found' })
-        const sub = await resolveSubProfile(user)
-        await linkSubToGc(sub, gc.email)
-        return res.json({ linked: true, mode: 'authenticated', subcontractor: sub, gc_company_name: gc.company_name })
-      } catch {
-        return res.status(401).json({ error: 'Invalid or expired token' })
-      }
+      return requireAuth(req, res, async () => {
+        if (req.user?.role !== 'sub') return res.status(403).json({ error: 'Subcontractor account required' })
+        try {
+          const sub = await resolveSubProfile(req.user)
+          await linkSubToGc(sub, gc.email)
+          return res.json({ linked: true, mode: 'authenticated', subcontractor: sub, gc_company_name: gc.company_name })
+        } catch {
+          return res.status(500).json({ error: 'Unable to connect to contractor' })
+        }
+      })
     }
 
     const { email, password, name, company_name, trade, contact_person, phone } = req.body || {}
@@ -271,10 +307,12 @@ subPortalRouter.post('/join/:inviteCode', async (req: AuthRequest, res) => {
     if (existingUser) {
       const ok = await bcrypt.compare(password, existingUser.password_hash)
       if (!ok) return res.status(401).json({ error: 'Invalid credentials for existing account' })
+      if (existingUser.role !== 'sub') return res.status(403).json({ error: 'Subcontractor account required' })
       const sub = await resolveSubProfile(existingUser)
       await linkSubToGc(sub, gc.email)
-      const token = signToken({ id: existingUser.id, email: existingUser.email, role: existingUser.role, name: existingUser.name, subcontractor_id: existingUser.subcontractor_id || null })
-      return res.json({ token, user: existingUser, linked: true, mode: 'existing', subcontractor: sub, gc_company_name: gc.company_name })
+      const payload = { id: existingUser.id, email: existingUser.email, role: existingUser.role, name: existingUser.name, subcontractor_id: existingUser.subcontractor_id || null }
+      const token = signToken(payload)
+      return res.json({ token, user: payload, linked: true, mode: 'existing', subcontractor: sub, gc_company_name: gc.company_name })
     }
 
     // Branch C: new subcontractor sign-up - "Upon signing up, they will be linked"
@@ -294,7 +332,8 @@ subPortalRouter.post('/join/:inviteCode', async (req: AuthRequest, res) => {
     )
     const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [subId])
     await linkSubToGc(sub, gc.email)
-    const token = signToken({ id: userId, email: email.toLowerCase(), role: 'sub', name, subcontractor_id: subId })
+    const payload = { id: userId, email: email.toLowerCase(), role: 'sub', name, subcontractor_id: subId }
+    const token = signToken(payload)
     return res.json({ token, user: { id: userId, email: email.toLowerCase(), name, role: 'sub', subcontractor_id: subId }, linked: true, mode: 'new', subcontractor: sub, gc_company_name: gc.company_name })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -302,7 +341,7 @@ subPortalRouter.post('/join/:inviteCode', async (req: AuthRequest, res) => {
 })
 
 // Email the sub's verified COI to any contractor (even one without an account)
-subPortalRouter.post('/send-coi-email', requireAuth, async (req: AuthRequest, res) => {
+subPortalRouter.post('/send-coi-email', requireAuth, requireSub, async (req: AuthRequest, res) => {
   try {
     const { to_email, gc_company_name, message, coi_id } = req.body || {}
     if (!to_email || !to_email.includes('@')) {
@@ -359,7 +398,7 @@ subPortalRouter.post('/send-coi-email', requireAuth, async (req: AuthRequest, re
 })
 
 // List emails this subcontractor has sent to contractors
-subPortalRouter.get('/sent-emails', requireAuth, async (req: AuthRequest, res) => {
+subPortalRouter.get('/sent-emails', requireAuth, requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const pattern = `Certificate of Insurance from ${sub.company_name}%`

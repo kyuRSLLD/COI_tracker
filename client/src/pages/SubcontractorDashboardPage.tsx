@@ -1,55 +1,39 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
 import {
-  ShieldCheck, Upload, LogIn, CheckCircle2, Clock, FileText, AlertTriangle,
-  Copy, Check, ExternalLink, RefreshCw, Sparkles, Building2, Phone, Mail, Award, Send,
+  Upload, LogIn, CheckCircle2, FileText, ExternalLink, RefreshCw, Building2, Award, Camera,
 } from 'lucide-react'
-import { apiSub, apiLogout, apiSendCOIEmail, apiSubSentEmails } from '../api'
+import { apiSub } from '../api'
+import type { SubCarrier, QuickUploadResult } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
-import { QRCodeSVG } from 'qrcode.react'
 
-const CARRIERS = ['Travelers', 'The Hartford', 'Liberty Mutual', 'Nationwide', 'CNA Financial', 'Progressive', 'Zurich']
+const MAX_FILE_SIZE = 25 * 1024 * 1024
 
 export function SubcontractorDashboardPage() {
   const [data, setData] = useState<SubcontractorDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // quick upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [carrier, setCarrier] = useState('')
-  const [policyNum, setPolicyNum] = useState('')
-  const [expDate, setExpDate] = useState('')
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [uploadSuccess, setUploadSuccess] = useState(false)
+  const [uploadResult, setUploadResult] = useState<{ id: string; status: string; ocrStatus?: string | null } | null>(null)
+  const [refreshingOcr, setRefreshingOcr] = useState<string | null>(null)
+  const [ocrError, setOcrError] = useState<string | null>(null)
 
-  // carrier connect state
-  const [selectedCarrier, setSelectedCarrier] = useState(CARRIERS[0])
-  const [carrierPolicy, setCarrierPolicy] = useState('')
-  const [connecting, setConnecting] = useState(false)
-  const [connectSuccess, setConnectSuccess] = useState<string | null>(null)
-
-  // share
-  const [copied, setCopied] = useState(false)
-  const [showQr, setShowQr] = useState(false)
-  // email-a-contractor
-  const [emailOpen, setEmailOpen] = useState(false)
-  const [emailTo, setEmailTo] = useState('')
-  const [emailGcName, setEmailGcName] = useState('')
-  const [emailMsg, setEmailMsg] = useState('')
-  const [sendingEmail, setSendingEmail] = useState(false)
-  const [sentOk, setSentOk] = useState<string | null>(null)
-  const [sentError, setSentError] = useState<string | null>(null)
-  const [sentList, setSentList] = useState<{ id: string; to_email: string; subject: string; status: string; sent_at: string }[]>([])
-  const [emailPreviewOpen, setEmailPreviewOpen] = useState(true)
+  const [carriers, setCarriers] = useState<SubCarrier[]>([])
+  const [carriersLoading, setCarriersLoading] = useState(true)
+  const [carriersError, setCarriersError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState<string | null>(null)
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
 
   const load = async () => {
     try {
       setError(null)
       const res = await apiSub.my()
       setData(res)
-      apiSubSentEmails().then((r) => setSentList(r.emails || [])).catch(() => {})
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -57,75 +41,79 @@ export function SubcontractorDashboardPage() {
     }
   }
   useEffect(() => { load() }, [])
-  const handleSendEmail = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!emailTo) return
-    setSendingEmail(true)
-    setSentOk(null)
-    setSentError(null)
-    try {
-      await apiSendCOIEmail({
-        to_email: emailTo.trim(),
-        gc_company_name: emailGcName.trim() || undefined,
-        message: emailMsg.trim() || undefined,
-      })
-      setSentOk(`COI emailed to ${emailTo.trim()} — they'll receive your verified coverage summary and a link to view the full document, plus an invite to join COI Shield free.`)
-      setEmailTo('')
-      setEmailGcName('')
-      setEmailMsg('')
-      apiSubSentEmails().then((r) => setSentList(r.emails || [])).catch(() => {})
-    } catch (err: any) {
-      setSentError(err.message || 'Failed to send email')
-    } finally {
-      setSendingEmail(false)
+  useEffect(() => {
+    let active = true
+    apiSub.carriers()
+      .then((result) => { if (active) setCarriers(result.carriers) })
+      .catch(() => { if (active) setCarriersError('Could not load the carrier directory. Please upload a certificate or ask your broker for one.') })
+      .finally(() => { if (active) setCarriersLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  const selectFile = (selected: File | null) => {
+    setUploadResult(null)
+    setFileError(null)
+    if (!selected) return
+    const supportedType = ['application/pdf', 'image/png', 'image/jpeg'].includes(selected.type)
+      || (!selected.type && /\.(pdf|png|jpe?g)$/i.test(selected.name))
+    if (!supportedType) {
+      setFile(null)
+      setFileError('Choose a PDF, PNG, or JPG file.')
+    } else if (selected.size > MAX_FILE_SIZE) {
+      setFile(null)
+      setFileError('The file must be 25 MB or smaller.')
+    } else {
+      setFile(selected)
     }
   }
 
   const handleQuickUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!file) return
+    if (!file || uploading) return
     setUploading(true)
+    setFileError(null)
+    setUploadResult(null)
     try {
       const form = new FormData()
       form.append('certificate', file)
-      if (carrier) form.append('carrier', carrier)
-      if (policyNum) form.append('policy_number', policyNum)
-      if (expDate) form.append('expiration_date', expDate)
-      await apiSub.quickUpload(form)
+      const result = await apiSub.quickUpload(form)
       setFile(null)
-      setCarrier('')
-      setPolicyNum('')
-      setExpDate('')
-      setUploadSuccess(true)
-      setTimeout(() => setUploadSuccess(false), 5000)
+      setUploadResult({ id: result.id, status: result.status, ocrStatus: result.ocr_status })
       await load()
     } catch (err: any) {
-      setError(err.message)
+      setFileError(err.message || 'Upload failed. Please try again.')
     } finally {
       setUploading(false)
     }
   }
 
-  const handleCarrierConnect = async () => {
-    setConnecting(true)
+  const refreshOcr = async (id: string) => {
+    if (refreshingOcr) return
+    setRefreshingOcr(id)
+    setOcrError(null)
     try {
-      const res = await apiSub.carrierConnect(selectedCarrier, carrierPolicy || undefined)
-      setConnectSuccess(`Connected to ${res.carrier} · policy ${res.policy_number} verified`)
-      setTimeout(() => setConnectSuccess(null), 6000)
+      const result = await apiSub.ocrStatus(id)
+      setUploadResult((current) => current?.id === id ? { ...current, status: result.status, ocrStatus: result.ocr_status } : current)
       await load()
     } catch (err: any) {
-      setError(err.message)
+      setOcrError(err.message || 'Could not refresh text extraction status.')
     } finally {
-      setConnecting(false)
+      setRefreshingOcr(null)
     }
   }
 
-  const publicUrl = data ? `${window.location.origin}${data.public_share_url}` : ''
-  const copyLink = () => {
-    if (!publicUrl) return
-    navigator.clipboard?.writeText(publicUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const handleCarrierConnect = async (carrier: SubCarrier) => {
+    if (carrier.status !== 'available' || connecting) return
+    setConnecting(carrier.id)
+    setConnectionMessage(null)
+    try {
+      await apiSub.carrierConnect(carrier.id)
+      setConnectionMessage('The connection request returned. A connection or coverage verification has not been confirmed here.')
+    } catch (err: any) {
+      setConnectionMessage(err.message || 'The connection request could not be started. Please upload a certificate instead.')
+    } finally {
+      setConnecting(null)
+    }
   }
 
   const daysUntil = (d: string) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)
@@ -150,157 +138,92 @@ export function SubcontractorDashboardPage() {
           </span>
         </div>
 
-        {/* Free first month banner */}
-        <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-900">
-          <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-          <p>
-            <span className="font-semibold">Free for your first month.</span> Submit or connect your insurance paper once — after 30 days it's just a $2 one-time fee to keep your certificate hosted for every contractor who asks.
-          </p>
-        </div>
-
         {error && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
         )}
 
         {/* Two main actions */}
         <div className="grid md:grid-cols-2 gap-5">
-          {/* Action 1: Upload insurance paper */}
-          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
+          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm" aria-labelledby="upload-heading">
             <div className="flex items-center gap-2 mb-1">
               <Upload className="w-4 h-4 text-slate-700" />
-              <h2 className="text-sm font-semibold text-slate-900">Upload your insurance paper</h2>
+              <h2 id="upload-heading" className="text-sm font-semibold text-slate-900">Upload your insurance certificate</h2>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Drop your ACORD certificate (PDF or photo) — you can fill the rest later or let your broker handle it.
+              Upload your certificate as a PDF or photo. If you don't have it, ask your broker for a copy first.
             </p>
-
             <form onSubmit={handleQuickUpload} className="space-y-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,image/png,image/jpeg"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="hidden"
-              />
+              <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                className="hidden" onChange={(e) => { selectFile(e.target.files?.[0] || null); e.target.value = '' }} />
+              <input ref={cameraInputRef} type="file" accept="image/png,image/jpeg" capture="environment"
+                className="hidden" onChange={(e) => { selectFile(e.target.files?.[0] || null); e.target.value = '' }} />
               <div
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition ${
-                  file ? 'border-emerald-400 bg-emerald-50/40' : 'border-slate-300 hover:border-slate-400 bg-slate-50'
-                }`}
+                onDragEnter={(e) => { e.preventDefault(); setDragging(true) }}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragging(true) }}
+                onDragLeave={(e) => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false) }}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); if (!uploading) selectFile(e.dataTransfer.files?.[0] || null) }}
+                className={`border-2 border-dashed rounded-xl p-5 text-center transition ${dragging || file ? 'border-emerald-400 bg-emerald-50/40' : 'border-slate-300 bg-slate-50'}`}
               >
                 <FileText className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                {file ? (
-                  <p className="text-xs font-semibold text-slate-800">{file.name} ({(file.size / 1024).toFixed(0)} KB)</p>
-                ) : (
-                  <>
-                    <p className="text-xs font-semibold text-slate-700">Click to choose a file, or drag it here</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">ACORD 25 certificate · PDF, PNG, JPG up to 25 MB</p>
-                  </>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Carrier (optional)</label>
-                  <input
-                    value={carrier}
-                    onChange={(e) => setCarrier(e.target.value)}
-                    placeholder="e.g. Liberty Mutual"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
-                  />
+                <p className="text-xs font-semibold text-slate-700 break-all">{file ? `${file.name} (${(file.size / 1024).toFixed(0)} KB)` : 'Drag and drop a file here'}</p>
+                <p className="text-[11px] text-slate-500 mt-1">PDF, PNG or JPG · maximum 25 MB</p>
+                <div className="flex flex-wrap justify-center gap-2 mt-3">
+                  <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-50">
+                    {file ? 'Choose a different file' : 'Choose a file'}
+                  </button>
+                  <button type="button" disabled={uploading} onClick={() => cameraInputRef.current?.click()}
+                    className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5" /> Take a photo
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Policy # (optional)</label>
-                  <input
-                    value={policyNum}
-                    onChange={(e) => setPolicyNum(e.target.value)}
-                    placeholder="e.g. LM-GL-2026-00123"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
-                  />
-                </div>
+                <p className="text-[11px] text-slate-400 mt-2">Camera availability depends on your device and browser.</p>
               </div>
-              <div>
-                <label className="block text-[11px] text-slate-500 mb-1">Expiration date (optional)</label>
-                <input
-                  type="date"
-                  value={expDate}
-                  onChange={(e) => setExpDate(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={!file || uploading}
-                className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white disabled:opacity-40 hover:bg-slate-800 transition"
-              >
-                {uploading ? 'Uploading…' : file ? 'Upload certificate' : 'Choose a file first'}
+              {fileError && <p role="alert" className="text-xs text-rose-700">{fileError}</p>}
+              <button type="submit" disabled={!file || uploading}
+                className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white disabled:opacity-40 hover:bg-slate-800 transition">
+                {uploading ? 'Uploading…' : 'Upload certificate'}
               </button>
+              <p className="text-[11px] text-slate-500">A file is required. This development version saves a private draft; it does not yet send the document to your contractor. Uploading does not verify coverage.</p>
             </form>
-
-            {uploadSuccess && (
-              <div className="mt-3 text-xs text-emerald-700 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Certificate submitted — it will appear below under review.
+            {uploadResult && (
+              <div role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800 space-y-1">
+                <p className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Private draft uploaded; it is not yet shared with your contractor. Review status: {uploadResult.status ? uploadResult.status.replace(/_/g, ' ') : 'not reported'}.</p>
+                <p>{uploadResult.ocrStatus === 'not_configured'
+                  ? 'Automatic text extraction is not configured.'
+                  : uploadResult.ocrStatus ? `Text extraction status: ${uploadResult.ocrStatus.replace(/_/g, ' ')}.` : 'Text extraction status was not reported.'} Extraction is separate from review and approval.</p>
               </div>
             )}
-          </div>
+          </section>
 
-          {/* Action 2: Carrier connect */}
-          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <LogIn className="w-4 h-4 text-indigo-600" />
-                <h2 className="text-sm font-semibold text-slate-900">Or log into your insurance company</h2>
-              </div>
-              <p className="text-xs text-slate-500 mb-4">
-                Pick your carrier and we pull your active policy automatically — instant, verified coverage.
-              </p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Insurance company</label>
-                  <select
-                    value={selectedCarrier}
-                    onChange={(e) => setSelectedCarrier(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white"
-                  >
-                    {CARRIERS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Policy number (optional)</label>
-                  <input
-                    value={carrierPolicy}
-                    onChange={(e) => setCarrierPolicy(e.target.value)}
-                    placeholder="Leave blank for an auto-generated verified demo policy"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
-                  />
-                </div>
-              </div>
+          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm" aria-labelledby="carriers-heading">
+            <div className="flex items-center gap-2 mb-1">
+              <LogIn className="w-4 h-4 text-indigo-600" />
+              <h2 id="carriers-heading" className="text-sm font-semibold text-slate-900">Connect an insurance company</h2>
             </div>
-
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={handleCarrierConnect}
-                disabled={connecting}
-                className="w-full text-xs font-semibold py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
-              >
-                {connecting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                {connecting ? 'Connecting to ' + selectedCarrier + '…' : 'Sign in with ' + selectedCarrier}
-              </button>
-              <p className="text-[11px] text-slate-400 mt-2 text-center">
-                Simulated carrier login — creates a real verified COI in your account for the demo.
-              </p>
-              {connectSuccess && (
-                <div className="mt-3 text-xs text-emerald-700 flex items-center gap-1.5 justify-center">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {connectSuccess}
-                </div>
-              )}
-            </div>
-          </div>
+            <p className="text-xs text-slate-500 mb-4">Connection options are shown only when provided by the carrier directory. We do not ask for your insurance password here.</p>
+            {carriersLoading ? <p className="text-xs text-slate-500">Loading carriers…</p> : carriersError ? (
+              <p role="alert" className="text-xs text-rose-700">{carriersError}</p>
+            ) : carriers.length === 0 ? (
+              <p className="text-xs text-slate-500">No carrier connections are currently listed.</p>
+            ) : (
+              <ul className="space-y-2">
+                {carriers.map((carrier) => (
+                  <li key={carrier.id} className="flex flex-wrap items-center justify-between gap-2 border border-slate-200 rounded-xl p-3">
+                    <span className="text-xs font-semibold text-slate-800">{carrier.name}</span>
+                    <button type="button" onClick={() => handleCarrierConnect(carrier)}
+                      disabled={carrier.status !== 'available' || !!connecting}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+                      {connecting === carrier.id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                      {carrier.status !== 'available' ? 'Not connected yet' : connecting === carrier.id ? 'Starting…' : 'Connect'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {connectionMessage && <p role="status" className="text-xs text-slate-700 mt-3">{connectionMessage}</p>}
+            <p className="text-xs text-slate-500 mt-4">Can't connect? Upload a certificate above, or ask your broker to provide a copy for upload.</p>
+          </section>
         </div>
 
         {/* My certificates */}
@@ -313,17 +236,21 @@ export function SubcontractorDashboardPage() {
             <span className="text-xs text-slate-400">{cois.length} on file</span>
           </div>
 
+          {ocrError && <p role="alert" className="text-xs text-rose-700 mb-3">{ocrError}</p>}
           {cois.length === 0 ? (
             <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center text-xs text-slate-400">
-              No certificates on file yet — use the cards above to upload or connect one in a minute.
+              No certificates on file yet — upload a certificate above, or ask your broker for a copy.
             </div>
           ) : (
             <div className="space-y-3">
-              {cois.map((coi: COI) => {
-                const days = daysUntil(coi.expiration_date)
-                const expired = days < 0
-                const expiring = days >= 0 && days <= 30
-                const badge = expired
+              {cois.map((coi: COI & Partial<QuickUploadResult>) => {
+                const parsedExpiry = coi.expiration_date ? Date.parse(coi.expiration_date) : NaN
+                const days = Number.isFinite(parsedExpiry) ? daysUntil(coi.expiration_date) : null
+                const expired = days !== null && days < 0
+                const expiring = days !== null && days >= 0 && days <= 30
+                const badge = days === null
+                  ? { label: 'Expiration not provided', cls: 'bg-slate-50 text-slate-600 border-slate-200' }
+                  : expired
                   ? { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' }
                   : expiring
                   ? { label: `Expires in ${days}d`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
@@ -333,7 +260,7 @@ export function SubcontractorDashboardPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Award className="w-4 h-4 text-slate-500" />
-                        <span className="font-semibold text-slate-900">{coi.carrier}</span>
+                        <span className="font-semibold text-slate-900">{coi.carrier || 'Carrier not provided'}</span>
                         {coi.am_best_rating && (
                           <span className="text-[11px] text-slate-400">AM Best: {coi.am_best_rating}</span>
                         )}
@@ -341,16 +268,27 @@ export function SubcontractorDashboardPage() {
                           {badge.label}
                         </span>
                         <span className="px-2 py-0.5 rounded-full border text-[11px] font-medium capitalize text-slate-600 bg-slate-50 border-slate-200">
-                          {coi.status.replace('_', ' ')}
+                          {coi.status ? coi.status.replace(/_/g, ' ') : 'Status not reported'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-400 text-[11px]">
                         <span>Pol. {coi.policy_number || '—'}</span>
                         <span>·</span>
-                        <span>{coi.effective_date} → {coi.expiration_date}</span>
+                        <span>{coi.effective_date || 'Start date not provided'} → {coi.expiration_date || 'Expiration not provided'}</span>
                       </div>
                     </div>
 
+                    {coi.ocr_status && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                        <span>Text extraction: {coi.ocr_status.replace(/_/g, ' ')} · Review and approval are separate.</span>
+                        {coi.ocr_status === 'processing' && (
+                          <button type="button" onClick={() => refreshOcr(coi.id)} disabled={!!refreshingOcr}
+                            className="font-semibold text-indigo-700 hover:underline disabled:opacity-50">
+                            {refreshingOcr === coi.id ? 'Refreshing…' : 'Refresh extraction status'}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {coi.reviewer_notes && (
                       <p className="text-[11px] text-slate-500 mt-2 italic">{coi.reviewer_notes}</p>
                     )}
@@ -396,7 +334,7 @@ export function SubcontractorDashboardPage() {
               <h3 className="text-sm font-semibold text-slate-900">Requests from contractors</h3>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              GCs who asked for your COI. Upload once and both sides are covered.
+              Contractors who requested a certificate. Upload a copy if you have one.
             </p>
             <div className="space-y-2">
               {data.requests.map((r) => (
@@ -405,260 +343,10 @@ export function SubcontractorDashboardPage() {
                     <span className="font-semibold text-slate-900">{r.gc_company_name || r.requested_by_email || 'General contractor'}</span>
                     <span className="text-slate-400 text-[11px] ml-2">requested {new Date(r.created_at).toLocaleDateString()}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (cois.length > 0) {
-                        alert('Your newest certificate is already on file and visible to this GC.')
-                      } else {
-                        fileInputRef.current?.click()
-                      }
-                    }}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
-                  >
-                    {cois.length > 0 ? 'COI already on file ✓' : 'Upload for this GC'}
+                  <button type="button" onClick={() => document.getElementById('upload-heading')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+                    Go to upload
                   </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Share your COI */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Share your COI with any contractor</h3>
-              <p className="text-slate-500">A public verification page showing your company, trade, and latest verified COI.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowQr((v) => !v)}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50"
-            >
-              {showQr ? 'Hide QR' : 'Show QR'}
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              readOnly
-              value={publicUrl}
-              className="flex-1 min-w-[260px] px-2.5 py-1.5 rounded-lg border border-slate-200 font-mono text-[11px] bg-slate-50 text-slate-700"
-            />
-            <button
-              type="button"
-              onClick={copyLink}
-              className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-semibold flex items-center gap-1 hover:bg-slate-800"
-            >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copied ? 'Copied' : 'Copy link'}
-            </button>
-            <a
-              href={data?.public_share_url}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-lg border border-slate-200 font-semibold hover:bg-slate-50 flex items-center gap-1"
-            >
-              Open <ExternalLink className="w-3 h-3" />
-            </a>
-            <button
-              type="button"
-              onClick={() => { setEmailOpen(true); setSentOk(null); setSentError(null) }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 flex items-center gap-1.5 shadow-sm"
-              title="Email your COI directly to a GC — even if they don't have an account"
-            >
-              <Mail className="w-3.5 h-3.5" /> Email a contractor
-            </button>
-          </div>
-
-          {showQr && publicUrl && (
-            <div className="pt-2 flex flex-col items-center text-center">
-              <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
-                <QRCodeSVG value={publicUrl} size={180} level="M" />
-              </div>
-              <p className="text-[11px] text-slate-400 mt-2">
-                Scan to open your public COI verification card on a phone.
-              </p>
-            </div>
-          )}
-          {sentOk && (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-900 text-xs">
-              {sentOk}
-            </div>
-          )}
-        </section>
-        {/* Email a contractor modal */}
-        {emailOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 overflow-hidden">
-              <div className="p-5 border-b border-slate-200 flex items-start justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-emerald-600" /> Email your COI to a contractor
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Great when the GC doesn't have a COI Shield account yet — they'll receive your verified COI summary, a link to view/download the full document, and an invite to create a free contractor account.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEmailOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 text-lg leading-none px-1"
-                >
-                  ×
-                </button>
-              </div>
-              <form onSubmit={handleSendEmail} className="p-5 space-y-3.5 text-xs">
-                {sentError && (
-                  <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-rose-800">{sentError}</div>
-                )}
-                {cois.length === 0 ? (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900">
-                    Upload or connect a certificate first before emailing it to a contractor.
-                  </div>
-                ) : (
-                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
-                    <span className="font-semibold text-slate-800">Sending your latest verified COI:</span>{' '}
-                    {cois[0].carrier || 'Carrier on file'} · {cois[0].policy_number ? `Pol. ${cois[0].policy_number} · ` : ''}expires {cois[0].expiration_date}
-                  </div>
-                )}
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Contractor email *</label>
-                  <input
-                    type="email"
-                    required
-                    value={emailTo}
-                    onChange={(e) => setEmailTo(e.target.value)}
-                    placeholder="pm@acmecontracting.com"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Contractor company name (optional)</label>
-                  <input
-                    type="text"
-                    value={emailGcName}
-                    onChange={(e) => setEmailGcName(e.target.value)}
-                    placeholder="Acme Contracting"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Personal note (optional)</label>
-                  <textarea
-                    rows={3}
-                    value={emailMsg}
-                    onChange={(e) => setEmailMsg(e.target.value)}
-                    placeholder="e.g. Here is our updated insurance certificate for the Meridian job site."
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-2">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-emerald-600" /> Email preview (what the contractor will receive)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setEmailPreviewOpen((v) => !v)}
-                      className="text-emerald-700 hover:underline font-semibold"
-                    >
-                      {emailPreviewOpen ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                  {emailPreviewOpen && (
-                    <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2 text-slate-700">
-                      <div className="text-[10px] text-slate-400 font-mono pb-2 border-b border-slate-100 flex flex-wrap gap-x-3 gap-y-0.5">
-                        <span><strong>FROM:</strong> {sub?.company_name || 'Your company'} &lt;noreply@safecoi.com&gt;</span>
-                        <span><strong>TO:</strong> {emailTo || '(enter email above)'}</span>
-                      </div>
-                      <div className="font-bold text-slate-900 text-xs">
-                        Subject: Certificate of Insurance from {sub?.company_name || 'your subcontractor'} — verified via COI Shield
-                      </div>
-                      <p className="text-slate-600">
-                        Hi {emailGcName ? `${emailGcName} team` : 'team'},
-                      </p>
-                      <p className="text-slate-600">
-                        <strong>{sub?.company_name || 'Your company'}</strong>{sub?.trade ? ` (${sub.trade})` : ''} has shared their verified Certificate of Insurance with you.
-                      </p>
-                      {emailMsg && (
-                        <blockquote className="border-l-2 border-emerald-500 pl-2.5 text-slate-700 italic">
-                          "{emailMsg}"
-                        </blockquote>
-                      )}
-                      {cois.length > 0 && (
-                        <div className="rounded-md bg-slate-50 border border-slate-200 p-2 text-[10px] space-y-1">
-                          <div className="font-semibold text-slate-800">POLICY SUMMARY</div>
-                          <div>Carrier: <span className="font-mono">{cois[0].carrier || 'on file'}</span></div>
-                          {cois[0].policy_number && <div>Policy #: <span className="font-mono">{cois[0].policy_number}</span></div>}
-                          <div>Expires: <span className="font-mono font-semibold text-slate-900">{cois[0].expiration_date}</span></div>
-                          {cois[0].coverages && cois[0].coverages.length > 0 && (
-                            <div>
-                              Coverages: {cois[0].coverages.map((cv: any) => `${cv.type}${cv.per_occurrence_limit ? ` · ${cv.per_occurrence_limit}` : ''}`).join(', ')}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className="pt-1 flex flex-wrap gap-2 text-[10px]">
-                        <span className="px-2.5 py-1 rounded-md bg-emerald-600 text-white font-semibold inline-flex items-center gap-1">
-                          View &amp; download full COI ↗
-                        </span>
-                        <span className="px-2.5 py-1 rounded-md border border-slate-300 font-semibold text-slate-700">
-                          Create free contractor account
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 pt-1">
-                        Manage all your subcontractors' insurance in one place — expiration reminders, client-safe compliance reports, and one-click COI requests.
-                      </p>
-                      <div className="text-[9px] text-slate-400 pt-1 border-t border-slate-100">
-                        This message was sent by {sub?.company_name || 'your subcontractor'} via COI Shield · safecoi.com
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setEmailOpen(false)}
-                    className="px-3.5 py-1.5 rounded-lg border border-slate-200 font-semibold hover:bg-slate-50 text-slate-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={sendingEmail || cois.length === 0}
-                    className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    {sendingEmail ? 'Sending…' : 'Send COI via email'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-        {/* Emails sent log */}
-        {sentList.length > 0 && (
-          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Emails you've sent to contractors</h3>
-                <p className="text-slate-500">Every COI you emailed is logged for your records.</p>
-              </div>
-              <span className="text-[11px] font-semibold text-slate-400">{sentList.length} sent</span>
-            </div>
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-              {sentList.map((em) => (
-                <div key={em.id} className="p-3 flex flex-wrap items-center justify-between gap-2 hover:bg-slate-50/60">
-                  <div>
-                    <span className="font-semibold text-slate-900">{em.to_email}</span>
-                    <p className="text-slate-500 text-[11px] mt-0.5">{em.subject}</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{em.status}</span>
-                    <span className="text-slate-400">{new Date(em.sent_at).toLocaleString()}</span>
-                  </div>
                 </div>
               ))}
             </div>

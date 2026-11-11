@@ -3,8 +3,9 @@ const Router = express.Router
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import { dbGet, dbRun, dbAll } from '../db/db.ts'
-import { signToken, requireAuth } from '../middleware/auth.ts'
+import { signToken, signAdminToken, ensureAdminJwtKey, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
+import { beginAdminChallenge, getPendingChallenge, getMfaStatus, startEnrollment, verifyAdminCode } from '../services/adminMfa.ts'
 
 export const authRouter = Router()
 
@@ -93,11 +94,68 @@ authRouter.post('/login', async (req, res) => {
     if (!ok) {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
+    if (user.role === 'admin') {
+      // A password proves only the primary factor; it must not yield an access token.
+      ensureAdminJwtKey()
+      res.set('Cache-Control', 'no-store')
+      return res.json(await beginAdminChallenge(user))
+    }
     const payload = { id: user.id, email: user.email, role: user.role, name: user.name, subcontractor_id: user.subcontractor_id || null }
     const token = signToken(payload)
     res.json({ token, user: { ...payload, first_name: user.first_name || null, last_name: user.last_name || null, phone: user.phone || null, company_name: user.company_name } })
   } catch (err: any) {
-    res.status(500).json({ error: err.message })
+    res.status(503).json({ error: 'Authentication temporarily unavailable' })
+  }
+})
+
+// These endpoints accept only the restricted, five-minute password-authenticated
+// challenge, not a normal bearer token. Secrets are never returned to ordinary APIs.
+authRouter.use('/admin-mfa', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store')
+  next()
+})
+
+async function pendingFromRequest(req: express.Request) {
+  const header = req.headers.authorization
+  if (!header || !header.startsWith('Bearer ')) return null
+  return getPendingChallenge(header.slice(7))
+}
+
+authRouter.get('/admin-mfa/status', async (req, res) => {
+  try {
+    const pending = await pendingFromRequest(req)
+    if (!pending) return res.status(401).json({ error: 'Invalid or expired challenge' })
+    res.json(await getMfaStatus(pending.user.id))
+  } catch {
+    res.status(503).json({ error: 'Authentication temporarily unavailable' })
+  }
+})
+
+authRouter.post('/admin-mfa/enroll', async (req, res) => {
+  try {
+    const pending = await pendingFromRequest(req)
+    if (!pending) return res.status(401).json({ error: 'Invalid or expired challenge' })
+    const enrollment = await startEnrollment(pending.challenge, pending.user)
+    if (!enrollment) return res.status(409).json({ error: 'Enrollment unavailable' })
+    res.json({ ...enrollment, otpauth_uri: enrollment.otpauth_url })
+  } catch {
+    res.status(503).json({ error: 'Authentication temporarily unavailable' })
+  }
+})
+
+authRouter.post('/admin-mfa/verify', async (req, res) => {
+  try {
+    const pending = await pendingFromRequest(req)
+    if (!pending) return res.status(401).json({ error: 'Invalid or expired challenge' })
+    const result = await verifyAdminCode(pending.challenge, pending.user, req.body?.code)
+    if (!result.ok) return res.status(result.limited ? 429 : 401).json({ error: result.limited ? 'Too many attempts; try again later' : 'Invalid or expired verification' })
+    const user = await dbGet<any>('SELECT id, email, name, role, subcontractor_id, first_name, last_name, phone, company_name FROM users WHERE id = ?', [pending.user.id])
+    if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid or expired verification' })
+    const payload = { id: user.id, email: user.email, role: user.role, name: user.name, subcontractor_id: user.subcontractor_id || null }
+    const token = signAdminToken(payload, result.sessionId, result.sessionExpiresIn)
+    res.json({ token, user: { ...payload, first_name: user.first_name || null, last_name: user.last_name || null, phone: user.phone || null, company_name: user.company_name } })
+  } catch {
+    res.status(503).json({ error: 'Authentication temporarily unavailable' })
   }
 })
 

@@ -211,14 +211,26 @@ export const apiAdmin = {
 }
 
 // Subcontractor portal (upload insurance paper / carrier connect)
+export type SubCarrier = { id: string; name: string; status: 'not_configured' | 'available' }
+export type QuickUploadResult = Omit<COI, 'carrier' | 'effective_date' | 'expiration_date'> & {
+  carrier: string | null
+  effective_date: string | null
+  expiration_date: string | null
+  ocr_status?: string | null
+}
+
 export const apiSub = {
   my: () => request<import('./types').SubcontractorDashboardData>('/api/sub/my'),
   quickUpload: (form: FormData) =>
-    request<import('./types').COI>('/api/sub/quick-upload', { method: 'POST', body: form }),
-  carrierConnect: (carrier: string, policy_number?: string) =>
-    request<{ success: boolean; verified: boolean; carrier: string; policy_number: string; coi: import('./types').COI }>('/api/sub/carrier-connect', {
+    request<QuickUploadResult>('/api/sub/quick-upload', { method: 'POST', body: form }),
+  ocrStatus: (id: string) =>
+    request<{ id: string; status: string; ocr_status: string }>(`/api/sub/quick-upload/${encodeURIComponent(id)}/ocr`),
+  carriers: () => request<{ carriers: SubCarrier[] }>('/api/sub/carriers'),
+  // Only invoked for a carrier explicitly marked available by the directory.
+  carrierConnect: (carrier: string) =>
+    request<unknown>('/api/sub/carrier-connect', {
       method: 'POST',
-      body: JSON.stringify({ carrier, policy_number }),
+      body: JSON.stringify({ carrier }),
     }),
   updateProfile: (body: Partial<import('./types').Subcontractor>) =>
     request<import('./types').Subcontractor>('/api/sub/profile', { method: 'POST', body: JSON.stringify(body) }),

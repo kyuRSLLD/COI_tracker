@@ -5,6 +5,7 @@ import { apiProjects, apiSubcontractors } from '../api'
 import { ProjectModal } from '../components/ProjectModal'
 import { ShareModal } from '../components/ShareModal'
 import { ComplianceScore } from '../components/ComplianceScore'
+import { ProjectRequirementsPanel } from '../components/ProjectRequirementsPanel'
 
 export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -16,6 +17,7 @@ export function ProjectsPage() {
   const [assignProject, setAssignProject] = useState<Project | null>(null)
   const [selectedSubId, setSelectedSubId] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [requirementsProjectId, setRequirementsProjectId] = useState<string | null>(null)
 
   const showToast = (m: string) => {
     setToast(m)
@@ -140,6 +142,11 @@ export function ProjectsPage() {
                 </div>
 
                 {p.notes && <p className="text-xs text-slate-600 italic">{p.notes}</p>}
+
+                <button type="button" aria-expanded={requirementsProjectId === p.id} onClick={() => setRequirementsProjectId(requirementsProjectId === p.id ? null : p.id)} className="text-xs font-bold text-brand-700 hover:underline">
+                  {requirementsProjectId === p.id ? 'Hide requirements & evidence' : 'Manage requirements & evidence'}
+                </button>
+                {requirementsProjectId === p.id && <ProjectRequirementsPanel key={p.id} projectId={p.id} />}
 
                 {/* Subcontractor assignment section */}
                 <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">

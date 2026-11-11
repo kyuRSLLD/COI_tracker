@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { computeSubcontractorStatus, projectComplianceScore } from '../services/compliance.ts'
 import { requireAuth } from '../middleware/auth.ts'
+import type { AuthRequest } from '../middleware/auth.ts'
 
 export const projectsRouter = Router()
 
@@ -70,15 +71,16 @@ projectsRouter.get('/:id', requireAuth, async (req, res) => {
   }
 })
 
-projectsRouter.post('/', requireAuth, async (req, res) => {
+projectsRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   try {
+    if (!req.user || !['gc', 'admin'].includes(req.user.role)) return res.status(403).json({ error: 'General contractor access required' })
     const { name, code, address, client_name, client_email, start_date, end_date, notes } = req.body || {}
     if (!name) return res.status(400).json({ error: 'Project name is required' })
     const id = uuidv4()
     await dbRun(
-      `INSERT INTO projects (id, name, code, address, client_name, client_email, start_date, end_date, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, code || null, address || null, client_name || null, client_email || null, start_date || null, end_date || null, notes || null, new Date().toISOString()]
+      `INSERT INTO projects (id, user_id, name, code, address, client_name, client_email, start_date, end_date, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user.id, name, code || null, address || null, client_name || null, client_email || null, start_date || null, end_date || null, notes || null, new Date().toISOString()]
     )
     const p = await dbGet('SELECT * FROM projects WHERE id = ?', [id])
     res.status(201).json({ project: p })

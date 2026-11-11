@@ -1,8 +1,31 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ShieldCheck, ArrowRight } from 'lucide-react'
-import { apiLogin, apiRegister } from '../api'
+import { apiRegister, setStoredUser, setToken } from '../api'
+import { AdminMfaChallenge } from '../components/AdminMfaChallenge'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
+import type { User } from '../types'
+
+type LoginResult = { token: string; user: User } | { mfa_required: true; challenge_token: string; enrolled: boolean }
+
+async function login(email: string, password: string): Promise<LoginResult> {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+    cache: 'no-store',
+  })
+  if (!response.ok) {
+    let message = `Sign in failed (${response.status}).`
+    try {
+      const data = await response.json()
+      if (typeof data.error === 'string') message = data.error
+      else if (typeof data.message === 'string') message = data.message
+    } catch { /* Keep the fallback message. */ }
+    throw new Error(message)
+  }
+  return response.json()
+}
 
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const navigate = useNavigate()
@@ -16,15 +39,38 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [role, setRole] = useState<'gc' | 'sub'>('gc')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [challenge, setChallenge] = useState<{ token: string; enrolled: boolean } | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
     try {
-      const data = mode === 'login'
-        ? await apiLogin(email, password)
-        : await apiRegister({
+      if (mode === 'login') {
+        const data = await login(email, password)
+        if (!data || typeof data !== 'object') throw new Error('The server did not return a valid sign-in response. Please try again.')
+        if ('mfa_required' in data && data.mfa_required) {
+          if (typeof data.challenge_token !== 'string' || !data.challenge_token || typeof data.enrolled !== 'boolean') {
+            throw new Error('The server returned an invalid verification challenge. Please try again.')
+          }
+          setToken(null)
+          setStoredUser(null)
+          setPassword('')
+          setChallenge({ token: data.challenge_token, enrolled: data.enrolled })
+          return
+        }
+        if (!('token' in data) || typeof data.token !== 'string' || !data.token || !data.user || !data.user.role) {
+          throw new Error('The server did not return a valid session. Please try again.')
+        }
+        if (data.user.role === 'admin') {
+          throw new Error('Administrator verification was not offered. Please try again later.')
+        }
+        setToken(data.token)
+        setStoredUser(data.user)
+        onLogin()
+        navigate(data.user.role === 'sub' ? '/subcontractor' : '/dashboard')
+      } else {
+        const data = await apiRegister({
             email,
             password,
             first_name: firstName.trim(),
@@ -34,11 +80,12 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
             company_name: company.trim() || undefined,
             role,
           })
-      onLogin()
-      const r = data.user.role
-      navigate(r === 'admin' ? '/staff' : r === 'sub' ? '/subcontractor' : '/dashboard')
+        onLogin()
+        const r = data.user.role
+        navigate(r === 'admin' ? '/staff' : r === 'sub' ? '/subcontractor' : '/dashboard')
+      }
     } catch (err: any) {
-      setError(err.message)
+      setError(err instanceof Error ? err.message : 'Unable to sign in. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -54,18 +101,33 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
           <span className="font-extrabold text-2xl text-slate-900 tracking-tight">COI Shield</span>
         </Link>
         <h2 className="mt-4 text-xl font-extrabold text-slate-900">
-          {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
+          {challenge ? 'Administrator verification' : mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          {mode === 'login' ? 'Enter your email and password to continue' : 'Choose your role and get started'}
+          {challenge ? 'Use your authenticator app to continue' : mode === 'login' ? 'Enter your email and password to continue' : 'Choose your role and get started'}
         </p>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-card border border-slate-200 sm:rounded-3xl space-y-4">
+          {challenge ? (
+            <AdminMfaChallenge
+              challengeToken={challenge.token}
+              enrolled={challenge.enrolled}
+              onBack={() => { setChallenge(null); setError(null) }}
+              onVerified={({ token, user }) => {
+                setToken(token)
+                setStoredUser(user)
+                setChallenge(null)
+                onLogin()
+                navigate('/staff')
+              }}
+            />
+          ) : (
+            <>
           <form onSubmit={handleSubmit} className="space-y-3">
             {error && (
-              <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
+              <div role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
             )}
 
             {mode === 'register' && (
@@ -101,8 +163,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">First name</label>
+                    <label htmlFor="register-first-name" className="text-[11px] font-semibold text-slate-600">First name</label>
                     <input
+                      id="register-first-name"
                       required
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
@@ -111,8 +174,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">Last name</label>
+                    <label htmlFor="register-last-name" className="text-[11px] font-semibold text-slate-600">Last name</label>
                     <input
+                      id="register-last-name"
                       required
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
@@ -122,8 +186,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600">Phone number</label>
+                  <label htmlFor="register-phone" className="text-[11px] font-semibold text-slate-600">Phone number</label>
                   <input
+                    id="register-phone"
                     required
                     type="tel"
                     value={phone}
@@ -136,8 +201,9 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                   <p className="text-[10px] text-slate-400">Your email remains your sign-in identifier. You can add more phone numbers anytime in your profile.</p>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600">Company name</label>
+                  <label htmlFor="register-company" className="text-[11px] font-semibold text-slate-600">Company name</label>
                   <input
+                    id="register-company"
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     placeholder="Acme Construction"
@@ -148,20 +214,24 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
             )}
 
             <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-600">Email</label>
+              <label htmlFor="login-email" className="text-[11px] font-semibold text-slate-600">Email</label>
               <input
+                id="login-email"
                 required
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-600">Password</label>
+              <label htmlFor="login-password" className="text-[11px] font-semibold text-slate-600">Password</label>
               <input
+                id="login-password"
                 required
                 type="password"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
@@ -184,6 +254,8 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
               <button onClick={() => setMode('login')} className="hover:underline">Have an account? Sign in</button>
             )}
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
