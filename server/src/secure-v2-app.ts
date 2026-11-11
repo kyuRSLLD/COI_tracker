@@ -16,6 +16,8 @@ export interface SecureV2Dependencies {
   // Only when trusted routers own bounded parsing; binary streams stay raw.
   routersOwnBodyParsing?: boolean
   beforeProtected?: RequestHandler
+  // Opt-in process liveness only, not dependency or deployment readiness.
+  liveness?: boolean
 }
 
 const JSON_LIMIT = '64kb'
@@ -62,11 +64,13 @@ export function createSecureV2App(deps: SecureV2Dependencies = {}) {
       return notFound(req, res, next)
     }
     const allowed = ['/api/v2/auth', '/api/v2/gc', '/api/v2/connections', '/api/v2/certificates', '/api/v2/self-reported-coi-metadata', '/api/v2/self-reported-private-files']
-    if (!allowed.some(base => path === base || path.startsWith(`${base}/`))) {
+    if (!(deps.liveness === true && path === '/healthz') && !allowed.some(base => path === base || path.startsWith(`${base}/`))) {
       return notFound(req, res, next)
     }
     next()
   })
+
+  if (deps.liveness === true) app.get('/healthz', (_req, res) => { res.status(200).json({ status: 'live' }) })
 
   const json: RequestHandler = deps.routersOwnBodyParsing ? (_req, _res, next) => next() : express.json({ limit: JSON_LIMIT, strict: true })
   // The auth router is the only public surface. It must itself implement only

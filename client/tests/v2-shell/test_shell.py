@@ -17,6 +17,7 @@ RECORD = '22222222-2222-4222-8222-222222222222'
 FILE = '33333333-3333-4333-8333-333333333333'
 GC = 'actual-connected-gc-user'
 PASSWORD = 'synthetic password 123'
+PDF_BYTES = b'%PDF-1.4\n% synthetic file\n%%EOF\n'
 with socket.socket() as sock:
     sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
 base = f'http://127.0.0.1:{port}'
@@ -34,7 +35,7 @@ try:
         browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True, args=['--no-sandbox'])
         context = browser.new_context(viewport={'width': 1200, 'height': 900}, service_workers='block')
         calls = []
-        state = {'me': 200, 'logout': 204, 'ttl': 900, 'child_error': False, 'role_override': None}
+        state = {'me': 200, 'logout': 204, 'ttl': 900, 'login_delay': 0, 'child_error': False, 'role_override': None, 'granted': False}
         def intercept(route):
             req = route.request
             if not req.url.startswith(base + '/'):
@@ -57,6 +58,7 @@ try:
                 assert body['password'] == PASSWORD
                 account = body['email'].split('@')[0]
                 assert account in ('gc', 'sub')
+                if state['login_delay']: time.sleep(state['login_delay'])
                 route.fulfill(status=200, json={'token': f'{account}.token.signature', 'token_type': 'Bearer', 'expires_in': state['ttl']}); return
             assert auth in ('Bearer gc.token.signature', 'Bearer sub.token.signature'), (path, auth)
             if path == '/api/v2/auth/me':
@@ -83,11 +85,18 @@ try:
             elif path == P + '/own/list': out = {'files':[{'id':FILE,'coiId':RECORD,'mime':'image/png','sizeBytes':1,'createdAt':'2026-01-01T00:00:00Z','reportingStatus':'self_reported_unverified'}], 'nextCursor':None}
             elif path == P + '/grant':
                 assert body == {'fileId':FILE,'gcUserId':GC,'consentVersion':'files-v1','affirmative':True}
+                state['granted'] = True
                 route.fulfill(status=204, body=''); return
+            elif path == P + '/granted/list':
+                assert auth == 'Bearer gc.token.signature' and req.method == 'GET'
+                out = {'files': [{'id':FILE,'coiId':RECORD,'mime':'application/pdf','sizeBytes':len(PDF_BYTES),'createdAt':'2026-01-01T00:00:00Z','reportingStatus':'self_reported_unverified'}] if state['granted'] else [], 'nextCursor':None}
+            elif path == P + '/granted/' + FILE:
+                assert auth == 'Bearer gc.token.signature' and req.method == 'GET' and state['granted']
+                route.fulfill(status=200, body=PDF_BYTES, headers={'content-type':'application/pdf'}); return
             else: raise AssertionError(f'Unexpected API: {req.method} {path}')
             route.fulfill(status=200, json=out)
         context.route('**/*', intercept)
-        context.add_init_script("""window.__cameraCalls=0; window.BarcodeDetector = class {}; Object.defineProperty(navigator, 'mediaDevices', {value:{getUserMedia:async()=>{window.__cameraCalls++; throw new DOMException('denied','NotAllowedError')}}, configurable:true});""")
+        context.add_init_script("""window.__cameraCalls=0; window.__created=[]; window.__revoked=[]; const create=URL.createObjectURL.bind(URL), revoke=URL.revokeObjectURL.bind(URL); URL.createObjectURL=b=>{const u=create(b); window.__created.push(u); return u}; URL.revokeObjectURL=u=>{window.__revoked.push(u); return revoke(u)}; window.BarcodeDetector = class {}; Object.defineProperty(navigator, 'mediaDevices', {value:{getUserMedia:async()=>{window.__cameraCalls++; throw new DOMException('denied','NotAllowedError')}}, configurable:true});""")
         page = context.new_page()
         page.goto(base + '/tests/v2-shell/index.html')
         def login(role):
@@ -141,6 +150,18 @@ try:
         expect(page.get_by_role('heading', name='Subcontractor connections')).to_be_visible()
         expect(page.get_by_text('Synthetic Sub', exact=True)).to_be_visible()
         expect(page.get_by_text('Synthetic Carrier', exact=True)).to_be_visible()
+        page.get_by_role('button', name='Shared files').click()
+        expect(page.get_by_role('heading', name='Shared certificate files')).to_be_visible()
+        expect(page.get_by_role('button', name='View file ' + FILE)).to_be_visible()
+        assert page.get_by_role('heading', name='Subcontractor connections').count() == 0
+        page.get_by_role('button', name='View file ' + FILE).click()
+        frame = page.get_by_title('Self-reported PDF preview')
+        expect(frame).to_be_visible()
+        assert frame.get_attribute('sandbox') == '' and frame.get_attribute('src').startswith('blob:')
+        page.get_by_role('button', name='Back to files').click()
+        assert page.evaluate('__created.length === 1 && __revoked.length === 1')
+        page.get_by_role('button', name='Connections', exact=True).click()
+        expect(page.get_by_role('heading', name='Subcontractor connections')).to_be_visible()
         for width in (320, 375, 768, 1440):
             page.set_viewport_size({'width':width,'height':850}); fit()
         assert page.get_by_role('button', name='Private files').count() == 0
@@ -149,11 +170,27 @@ try:
         expect(page.get_by_text('Camera permission was denied.', exact=False)).to_be_visible()
         assert page.evaluate('window.__cameraCalls') == 1
         storage_empty()
-        # A revoked session is detected on focus and discarded; logout 401 also discards.
+        # An unavailable identity check hides the GC viewer and releases its preview.
+        page.get_by_role('button', name='Shared files').click()
+        page.get_by_role('button', name='View file ' + FILE).click()
+        expect(page.get_by_title('Self-reported PDF preview')).to_be_visible()
+        state['me'] = 503
+        page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect(page.get_by_text('Session verification is unavailable.', exact=False)).to_be_visible()
+        assert page.get_by_title('Self-reported PDF preview').count() == 0
+        assert page.evaluate('__created.length === 2 && __revoked.length === 2')
+        state['me'] = 200
+        page.get_by_role('button', name='Retry session check').click()
+        expect(page.get_by_role('button', name='View file ' + FILE)).to_be_visible()
+        page.get_by_role('button', name='View file ' + FILE).click()
+        expect(page.get_by_title('Self-reported PDF preview')).to_be_visible()
+        # A revoked session is detected on focus, discards the viewer and token; logout 401 also discards.
         state['me'] = 401
         page.evaluate("window.dispatchEvent(new Event('focus'))")
         expect(page.get_by_text('Your session expired or was revoked. Please sign in again.')).to_be_visible()
         expect(page.get_by_role('heading', name='Sign in to your account')).to_be_visible()
+        assert page.get_by_title('Self-reported PDF preview').count() == 0
+        assert page.evaluate('__created.length === 3 && __revoked.length === 3')
         state['me'] = 200; state['logout'] = 401
         login('gc'); expect(page.get_by_role('heading', name='Subcontractor connections')).to_be_visible(); signout()
         expect(page.get_by_text('Session was already expired or revoked; signed out locally.')).to_be_visible()
@@ -182,13 +219,23 @@ try:
         # A reload intentionally drops the in-memory token rather than restoring a session.
         login('gc'); expect(page.get_by_role('heading', name='Subcontractor connections')).to_be_visible()
         page.reload(); expect(page.get_by_role('heading', name='Sign in to your account')).to_be_visible()
-        # Expiry from login TTL removes token/data even without another request.
-        state['ttl'] = 1
-        login('sub'); expect(page.get_by_role('heading', name='Connections & insurance information')).to_be_visible()
+        # Expiry removes the GC viewer and its blob even without another request.
+        state['ttl'] = 4
+        login('gc'); expect(page.get_by_role('heading', name='Subcontractor connections')).to_be_visible()
+        page.get_by_role('button', name='Shared files').click()
+        page.get_by_role('button', name='View file ' + FILE).click()
+        expect(page.get_by_title('Self-reported PDF preview')).to_be_visible()
         expect(page.get_by_text('Your session expired or was revoked. Please sign in again.')).to_be_visible(timeout=5000)
+        assert page.get_by_title('Self-reported PDF preview').count() == 0
+        assert page.evaluate('__created.length === 1 && __revoked.length === 1')
+        # A slow login cannot reset the TTL from response receipt and revive an expired token.
+        state['ttl'] = 2; state['login_delay'] = 1.3
+        login('gc')
+        expect(page.get_by_text('Sign-in expired before it could be used. Please try again.')).to_be_visible()
+        assert page.get_by_role('heading', name='Shared certificate files').count() == 0
         storage_empty()
         assert all(c[1].startswith('/api/v2/') for c in calls)
-        print('PASS: isolated signup, sub/GC navigation, actual IDs and consent, camera denial, storage, account switch, expiry/revocation, logout and failures, widths 320–1440')
+        print('PASS: isolated signup, sub/GC navigation, granted file preview and session cleanup, consent, camera denial, storage, expiry/revocation, logout and failures, widths 320–1440')
         browser.close()
 finally:
     server.terminate()

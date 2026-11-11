@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ShieldCheck } from 'lucide-react'
 
 type Role = 'gc' | 'sub'
 type Screen = 'login' | 'request' | 'confirm' | 'registration-result' | 'signed-in'
-type LoginResult = { token: string; token_type: 'Bearer'; expires_in: number }
+type LoginResult = { token: string; token_type: 'Bearer'; expires_in: number; expiresAt: number }
 
 /** The host must keep this bearer credential in memory only and handle expiry/logout. */
 export type V2AuthProps = { onAuthenticated?: (session: LoginResult) => void }
@@ -81,6 +81,7 @@ export function V2Auth({ onAuthenticated }: V2AuthProps) {
     let session: LoginResult | undefined
     try {
       if (screen === 'login') {
+        const loginStartedAt = Date.now()
         const res = await post('/api/v2/auth/login', { email: normalizedEmail, password })
         if (res.status === 401) { setError('Email or password could not be verified.'); return }
         if (res.status === 400) { setError('Check your email and password and try again.'); return }
@@ -89,7 +90,11 @@ export function V2Auth({ onAuthenticated }: V2AuthProps) {
         if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(data.token) || data.token.length > 8192 || !('token_type' in data) || data.token_type !== 'Bearer' || !('expires_in' in data) || typeof data.expires_in !== 'number' || !Number.isSafeInteger(data.expires_in) || data.expires_in <= 0) {
           setError('Sign-in is unavailable right now. Please try again later.'); return
         }
-        session = { token: data.token, token_type: 'Bearer', expires_in: data.expires_in }
+        // The server issues the JWT during the request and uses whole-second
+        // timestamps. Do not add transit/processing time to its lifetime.
+        const expiresAt = loginStartedAt + (Math.min(data.expires_in, 900) - 1) * 1000
+        if (Date.now() >= expiresAt) { setError('Sign-in expired before it could be used. Please try again.'); return }
+        session = { token: data.token, token_type: 'Bearer', expires_in: data.expires_in, expiresAt }
         setPassword('')
         setScreen('signed-in')
       } else if (screen === 'request') {

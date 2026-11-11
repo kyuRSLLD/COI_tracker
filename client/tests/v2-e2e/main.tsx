@@ -4,6 +4,7 @@ import { V2Auth } from '../../src/v2-auth/V2Auth'
 import { SubcontractorWorkflow } from '../../src/v2/SubcontractorWorkflow'
 import { GcConnections } from '../../src/v2/GcConnections'
 import { PrivateFiles } from '../../src/v2/PrivateFiles'
+import { GcGrantedFiles } from '../../src/v2/GcGrantedFiles'
 import '../../src/index.css'
 
 // Test-only host: identity comes from the real /me endpoint, not the signup form.
@@ -12,7 +13,7 @@ function Harness() {
   const [error, setError] = useState(false)
   const [showFiles, setShowFiles] = useState(false)
   if (session?.role === 'sub') return <><button type="button" onClick={() => setShowFiles(v => !v)}>{showFiles ? 'Return to connections' : 'Open private files'}</button><div hidden={showFiles}><SubcontractorWorkflow token={session.token} /></div>{showFiles && <PrivateFiles token={session.token} maxFileBytes={1024 * 1024} />}</>
-  if (session?.role === 'gc') return <GcConnections authorizationToken={session.token} />
+  if (session?.role === 'gc') return <><button type="button" onClick={() => setShowFiles(v => !v)}>{showFiles ? 'Return to connections' : 'Open shared files'}</button>{showFiles ? <GcGrantedFiles authorizationToken={session.token} /> : <GcConnections authorizationToken={session.token} />}</>
   return <><V2Auth onAuthenticated={async ({ token }) => {
     try {
       const response = await fetch('/api/v2/auth/me', { headers: { Authorization: `Bearer ${token}` }, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' })

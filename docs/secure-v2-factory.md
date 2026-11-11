@@ -2,6 +2,8 @@
 
 `server/src/secure-v2-app.ts` exports `createSecureV2App(deps)` as a separate Express 4 application. **It is not wired into `server/src/app.ts` or `server/src/index.ts`, is not deployed, and does not disable maintenance.** Constructing it does not listen on a port, initialize or migrate a database, seed data, or configure storage. There are no imports or fallbacks to the legacy app or routers, static uploads, demo/seed code, or client-share routes. This is a production-intended boundary and synthetic harness, **not a production-ready deployment or a security audit**.
 
+An additional, still-unmounted production-intended composition now exists; see [its configuration, liveness semantics, and explicit release blockers](./secure-v2-production-composition.md). It does not establish production readiness or change startup.
+
 ## Boundary and injection contract
 
 The factory accepts an object with optional `authRouter`, `gcRouter`, `connectionsRouter`, `certificatesRouter`, `selfReportedCoiMetadataRouter` (Express routers), and `authenticate` (an Express request middleware). The first three routers and the verifier are required to provide those services; certificates and metadata are optional. They are optional in the type so an incomplete composition fails closed at request time:

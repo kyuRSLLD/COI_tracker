@@ -3,9 +3,10 @@ import { V2Auth } from '../v2-auth/V2Auth'
 import { GcConnections } from './GcConnections'
 import { SubcontractorWorkflow } from './SubcontractorWorkflow'
 import { PrivateFiles } from './PrivateFiles'
+import { GcGrantedFiles } from './GcGrantedFiles'
 import './v2-shell.css'
 
-type Login = { token: string; token_type: 'Bearer'; expires_in: number }
+type Login = { token: string; token_type: 'Bearer'; expires_in: number; expiresAt: number }
 type Session = { token: string; expiresAt: number; generation: number }
 type Identity = { subject: string; role: 'gc' | 'sub' | 'admin' }
 type Verification = { state: 'checking' | 'unavailable' } | { state: 'ready'; identity: Identity }
@@ -43,8 +44,8 @@ export function V2Shell() {
   }, [])
 
   const authenticated = useCallback((login: Login) => {
-    // Server TTL is currently 15 minutes; never extend a longer value supplied by a response.
-    const next = { token: login.token, expiresAt: Date.now() + Math.min(login.expires_in, 900) * 1000, generation: ++generation.current }
+    // V2Auth anchors this conservative deadline to request start, not receipt.
+    const next = { token: login.token, expiresAt: login.expiresAt, generation: ++generation.current }
     current.current = next
     setNotice('')
     setSection('workflow')
@@ -120,8 +121,8 @@ export function V2Shell() {
     {identity?.role === 'admin' && <div className="v2-shell-state" role="alert"><p>This workspace does not support administrator accounts. Sign out to use another account.</p></div>}
     {identity && identity.role !== 'admin' && <>
       <div className="v2-shell-context"><span>{identity.role === 'gc' ? 'General contractor' : 'Subcontractor'} account</span><p>Profile details and insurance information are self-reported and unverified.</p></div>
-      <nav className="v2-shell-nav" aria-label="Workspace"><button type="button" aria-current={section === 'workflow' ? 'page' : undefined} onClick={() => setSection('workflow')}>{identity.role === 'gc' ? 'Connections' : 'Connections & metadata'}</button>{identity.role === 'sub' && <button type="button" aria-current={section === 'files' ? 'page' : undefined} onClick={() => setSection('files')}>Private files</button>}</nav>
-      {identity.role === 'gc' ? <GcConnections key={session.generation} authorizationToken={session.token} /> : section === 'files' ? <PrivateFiles key={session.generation} token={session.token} /> : <SubcontractorWorkflow key={session.generation} token={session.token} hideUnavailableFiles />}
+      <nav className="v2-shell-nav" aria-label="Workspace"><button type="button" aria-current={section === 'workflow' ? 'page' : undefined} onClick={() => setSection('workflow')}>{identity.role === 'gc' ? 'Connections' : 'Connections & metadata'}</button><button type="button" aria-current={section === 'files' ? 'page' : undefined} onClick={() => setSection('files')}>{identity.role === 'gc' ? 'Shared files' : 'Private files'}</button></nav>
+      {identity.role === 'gc' ? (section === 'files' ? <GcGrantedFiles key={session.generation} authorizationToken={session.token} /> : <GcConnections key={session.generation} authorizationToken={session.token} />) : section === 'files' ? <PrivateFiles key={session.generation} token={session.token} /> : <SubcontractorWorkflow key={session.generation} token={session.token} hideUnavailableFiles />}
     </>}
   </div>
 }

@@ -278,6 +278,10 @@ try:
                 return response.json()
             assert granted_files(gc, gc_token) == {'files': [], 'nextCursor': None}
             assert granted_files(other, other_token) == {'files': [], 'nextCursor': None}
+            gc.get_by_role('button', name='Open shared files').click()
+            other.get_by_role('button', name='Open shared files').click()
+            expect(gc.get_by_text('No separately shared files were returned.')).to_be_visible()
+            expect(other.get_by_text('No separately shared files were returned.')).to_be_visible()
             for fid in file_ids:
                 denied_file(download(gc, gc_token, fid))  # metadata grant is insufficient
                 denied_file(download(other, other_token, fid))
@@ -304,6 +308,21 @@ try:
             listed = granted_files(gc, gc_token)
             assert listed['nextCursor'] is None and [item['id'] for item in listed['files']] == [pdf_id]
             assert granted_files(other, other_token) == {'files': [], 'nextCursor': None}
+            gc.get_by_role('button', name='Refresh list').click()
+            expect(gc.get_by_role('button', name='View file ' + pdf_id)).to_be_visible()
+            assert gc.get_by_role('button', name='View file ' + png_id).count() == 0
+            with gc.expect_response(lambda r: r.url.endswith(FILES + '/granted/' + pdf_id) and r.request.method == 'GET') as viewer_response:
+                gc.get_by_role('button', name='View file ' + pdf_id).click()
+            assert viewer_response.value.status == 200 and viewer_response.value.body() == (fixture_dir / 'sample.pdf').read_bytes()
+            frame = gc.get_by_title('Self-reported PDF preview')
+            expect(frame).to_be_visible()
+            assert frame.get_attribute('sandbox') == '' and frame.get_attribute('src').startswith('blob:')
+            gc.get_by_role('button', name='Back to files').click()
+            other.get_by_role('button', name='Refresh list').click()
+            expect(other.get_by_text('No separately shared files were returned.')).to_be_visible()
+            # The separate composition has no anonymous client-report access to private files.
+            for path in ['/api/client/share/synthetic-token', '/api/v2/client/share/synthetic-token']:
+                assert gc.context.request.get(base + path).status == 404
             actual = download(gc, gc_token, pdf_id)
             assert actual.status == 200 and actual.headers['content-type'] == 'application/pdf'
             assert actual.body() == (fixture_dir / 'sample.pdf').read_bytes()
@@ -315,11 +334,21 @@ try:
             assert file_revoke.value.status == 204
             assert file_revoke.value.request.post_data_json == {'fileId': pdf_id, 'gcUserId': gc_id}
             expect(sub.get_by_text('Revocation request recorded for this file and GC account.', exact=False)).to_be_visible()
+            # A previously listed file must be reauthorized on open, and a denial clears the stale list.
+            with gc.expect_response(lambda r: r.url.endswith(FILES + '/granted/' + pdf_id) and r.request.method == 'GET') as revoked_view:
+                gc.get_by_role('button', name='View file ' + pdf_id).click()
+            assert revoked_view.value.status == 404
+            expect(gc.get_by_role('dialog').get_by_role('alert')).to_contain_text('unavailable or access may have changed')
+            gc.get_by_role('button', name='Back to files').click()
+            expect(gc.get_by_role('alert')).to_contain_text('Files are unavailable')
+            assert gc.get_by_role('button', name='View file ' + pdf_id).count() == 0
             denied_file(download(gc, gc_token, pdf_id))
             denied_file(download(other, other_token, pdf_id))
             assert granted_files(gc, gc_token) == {'files': [], 'nextCursor': None}
             owner_after = sub.context.request.get(base + FILES + '/own/' + pdf_id, headers=headers(sub_token))
             assert owner_after.status == 200 and owner_after.body() == (fixture_dir / 'sample.pdf').read_bytes()
+            gc.get_by_role('button', name='Return to connections').click()
+            expect(gc.get_by_role('heading', name='Subcontractor connections')).to_be_visible()
             sub.get_by_role('button', name='Return to connections').click()
             with sub.expect_response(lambda r: r.url.endswith('/api/v2/self-reported-coi-metadata/revoke') and r.request.method == 'POST') as revoked:
                 sub.get_by_role('button', name='Revoke metadata access for this selection').click()
@@ -334,7 +363,7 @@ try:
                 assert page.evaluate('localStorage.length + sessionStorage.length') == 0
             for ctx in contexts: ctx.close()
             browser.close()
-    print('PASS: real synthetic HTTP + PostgreSQL 16 browser signup/login, QR, metadata, PDF/PNG upload and owner previews, explicit file consent, per-GC/per-file download denial, grant and revocation; defaults off')
+    print('PASS: real synthetic HTTP + PostgreSQL 16 browser signup/login, QR, metadata, PDF/PNG owner previews, GC viewer, per-GC/per-file consent, revocation and client-report denial; defaults off')
 finally:
     signal.alarm(0)
     stop(vite)
