@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
   Save, Lock, Check, QrCode, Copy, RefreshCw, Printer, ExternalLink,
-  Smartphone, KeyRound, ShieldAlert, Sparkles, AlertTriangle, Download,
   Phone, Plus, Trash2, Star, Mail,
 } from 'lucide-react'
 import type { GCSettings, UserPhone } from '../types'
 import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe } from '../api'
 import { formatPhone, isValidUsPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 import { QRCodeSVG } from 'qrcode.react'
-
-const BACKUP_CODES = ['A3F9-K8X2', '7M1B-QQ40', 'Z9C2-T6L1', '5V0P-9Y7D', 'E8R4-N3W6', '2K7H-B1J5', 'F6S0-X4M9', 'U1A8-D5C3']
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<GCSettings | null>(null)
@@ -29,14 +26,6 @@ export function SettingsPage() {
   const [copied, setCopied] = useState(false)
   const [regen, setRegen] = useState(false)
 
-  // 2FA (simulated full setup)
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
-  const [twoFactorMethod, setTwoFactorMethod] = useState<'app' | 'sms'>('app')
-  const [smsPhone, setSmsPhone] = useState('')
-  const [verifyCode, setVerifyCode] = useState('')
-  const [show2faSetup, setShow2faSetup] = useState(false)
-  const [tfaMsg, setTfaMsg] = useState<{ text: string; ok: boolean } | null>(null)
-  const tfaSecret = 'SAFECOI-K7B2-M9F1-Z4Q0'
   // multi-phone numbers (email is the identifier)
   const [phones, setPhones] = useState<UserPhone[]>([])
   const [newPhone, setNewPhone] = useState('')
@@ -166,21 +155,6 @@ export function SettingsPage() {
       showToast(err.message)
     }
   }
-  const handleVerify2fa = () => {
-    setTfaMsg(null)
-    if (twoFactorMethod === 'sms' && !isValidUsPhone(smsPhone)) {
-      return setTfaMsg({ text: 'Enter a complete 10-digit mobile phone number', ok: false })
-    }
-    if (!verifyCode || verifyCode.trim().length < 6) {
-      return setTfaMsg({ text: 'Enter the 6-digit verification code', ok: false })
-    }
-    setTwoFactorEnabled(true)
-    setShow2faSetup(false)
-    setVerifyCode('')
-    setTfaMsg({ text: 'Two-method authentication is now enabled', ok: true })
-    showToast('2FA enabled')
-  }
-
   if (loading || !settings) {
     return <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 text-center text-xs text-slate-400">Loading settings…</div>
   }
@@ -196,7 +170,7 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Profile &amp; Settings</h1>
         <p className="text-xs text-slate-500 mt-1">
-          Your company profile, security (passwords &amp; two-method authentication), and subcontractor onboarding QR code — all in one place.
+          Manage your company profile, password, and subcontractor onboarding QR code.
         </p>
       </div>
 
@@ -451,187 +425,10 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {/* Security: two-method authentication */}
-        <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-slate-800" />
-              <h2 className="text-sm font-bold text-slate-900">Two-method authentication (2FA)</h2>
-            </div>
-            <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-              twoFactorEnabled
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>
-              {twoFactorEnabled ? 'Enabled' : 'Not enabled'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">
-            Add a second sign-in step to protect compliance records and client portals from takeover.
-          </p>
-
-          {!twoFactorEnabled && !show2faSetup && (
-            <button
-              type="button"
-              onClick={() => setShow2faSetup(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition"
-            >
-              <Smartphone className="w-4 h-4" /> Set up two-method authentication
-            </button>
-          )}
-
-          {show2faSetup && !twoFactorEnabled && (
-            <div className="space-y-4 rounded-2xl border border-slate-200 p-5 bg-slate-50">
-              <div className="flex gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setTwoFactorMethod('app')}
-                  className={`px-3 py-1.5 rounded-lg font-semibold border ${
-                    twoFactorMethod === 'app'
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-white text-slate-600 border-slate-200'
-                  }`}
-                >
-                  Authenticator app (recommended)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTwoFactorMethod('sms')}
-                  className={`px-3 py-1.5 rounded-lg font-semibold border ${
-                    twoFactorMethod === 'sms'
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-white text-slate-600 border-slate-200'
-                  }`}
-                >
-                  SMS code
-                </button>
-              </div>
-
-              {twoFactorMethod === 'app' ? (
-                <div className="grid md:grid-cols-2 gap-4 items-center">
-                  <div className="text-center p-3 bg-white rounded-xl border border-slate-200">
-                    <div className="inline-block p-2 bg-white rounded-lg">
-                      <QRCodeSVG value={`otpauth://totp/COIShield:${settings.email || 'user'}?secret=${tfaSecret}&issuer=COI%20Shield`} size={170} level="M" />
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1">Scan with Google Authenticator, 1Password, or Authy</p>
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <p className="text-slate-600">Can't scan? Enter the setup key manually:</p>
-                    <div className="flex items-center gap-2">
-                      <code className="px-2.5 py-1 rounded bg-white border border-slate-200 font-mono text-[11px] text-slate-700 select-all">
-                        {tfaSecret}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => { navigator.clipboard?.writeText(tfaSecret); showToast('Secret copied') }}
-                        className="px-2 py-1 rounded border border-slate-200 hover:bg-white text-[11px]"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                        Enter the 6-digit code shown in your app
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={verifyCode}
-                        onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ''))}
-                        placeholder="123456"
-                        className="w-40 tracking-widest text-center text-sm font-mono px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 text-xs">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Mobile phone for SMS codes</label>
-                    <input
-                      type="tel"
-                      value={smsPhone}
-                      onChange={(e) => setSmsPhone(formatPhone(e.target.value))}
-                      placeholder="(312) 555-0100"
-                      pattern={US_PHONE_PATTERN}
-                      title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
-                      className="w-60 px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Enter the 6-digit test code (use any 6 digits for the demo)</label>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={verifyCode}
-                      onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456"
-                      className="w-40 tracking-widest text-center text-sm font-mono px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {tfaMsg && <p className={`text-xs ${tfaMsg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{tfaMsg.text}</p>}
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleVerify2fa}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition"
-                >
-                  Verify and enable
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShow2faSetup(false)}
-                  className="px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {twoFactorEnabled && (
-            <div className="space-y-3 rounded-2xl border border-emerald-200 p-5 bg-emerald-50/50 text-xs">
-              <div className="flex items-center gap-2 text-emerald-800 font-semibold">
-                <Check className="w-4 h-4" /> Two-method authentication is active
-              </div>
-              <p className="text-emerald-900/80">
-                You'll be asked for a one-time code each time you sign in. Save these backup codes somewhere safe — each can be used once if you lose access to your authenticator:
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px] text-slate-700">
-                {BACKUP_CODES.map((c) => (
-                  <span key={c} className="px-2 py-1 rounded bg-white border border-emerald-200 text-center select-all">{c}</span>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const blob = new Blob([BACKUP_CODES.join('\n')], { type: 'text/plain' })
-                    const u = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = u
-                    a.download = 'coi-shield-backup-codes.txt'
-                    a.click()
-                    URL.revokeObjectURL(u)
-                  }}
-                  className="px-3 py-1.5 rounded-lg border border-emerald-300 font-semibold text-emerald-900 bg-white hover:bg-emerald-100 flex items-center gap-1"
-                >
-                  <Download className="w-3.5 h-3.5" /> Download backup codes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setTwoFactorEnabled(false); showToast('2FA disabled') }}
-                  className="px-3 py-1.5 rounded-lg text-rose-700 hover:bg-rose-50 font-semibold"
-                >
-                  Disable two-method authentication
-                </button>
-              </div>
-            </div>
-          )}
+        {/* The former demo controls did not enforce a second factor. */}
+        <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-2">
+          <h2 className="text-sm font-bold text-slate-900">Two-factor authentication</h2>
+          <p className="text-xs text-slate-600">Two-factor authentication is not currently enabled from this page. The previous demo controls did not protect sign-ins.</p>
         </div>
 
         {/* Insurance requirements */}
