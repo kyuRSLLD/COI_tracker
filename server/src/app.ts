@@ -17,6 +17,7 @@ import { settingsRouter } from './routes/settings.ts'
 import { adminRouter } from './routes/admin.ts'
 import { subPortalRouter } from './routes/subPortal.ts'
 import { stagedInvitationsRouter } from './routes/stagedInvitations.ts'
+import { relationshipPrototypeRouter } from './routes/relationshipPrototype.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -28,6 +29,9 @@ export async function createApp() {
   // Parse invitation bodies separately: never log parser errors containing
   // raw bearer capabilities, and bound unauthenticated request sizes.
   app.use('/api/invitations', express.json({ limit: '4kb' }), (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.set('Cache-Control', 'no-store').status(err.status === 413 ? 413 : 400).json({ error: 'Invalid request body' })
+  })
+  app.use('/api/relationship-prototype', express.json({ limit: '4kb' }), (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.set('Cache-Control', 'no-store').status(err.status === 413 ? 413 : 400).json({ error: 'Invalid request body' })
   })
   app.use(express.json({ limit: '10mb' }))
@@ -57,6 +61,7 @@ export async function createApp() {
   app.use('/api/staff', adminRouter)
   app.use('/api/sub', subPortalRouter)
   app.use('/api/invitations', stagedInvitationsRouter)
+  app.use('/api/relationship-prototype', relationshipPrototypeRouter)
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {

@@ -18,6 +18,26 @@ const DATABASE_URL = process.env.DATABASE_URL && process.env.DATABASE_URL.trim()
 
 export const isPostgres = Boolean(DATABASE_URL && !DATABASE_URL.includes('your_') && DATABASE_URL.startsWith('postgres'))
 
+// This feature deliberately cannot connect to PostgreSQL or a normal app DB.
+// Resolve the directory and an existing file to reject symlink escapes from tmp.
+const prototypeBootEnabled = process.env.RELATIONSHIP_PROTOTYPE_ENABLED === 'true'
+const prototypeBootMode = process.env.NODE_ENV
+export function relationshipPrototypeEnvironmentSafe(): boolean {
+  try {
+    if (!prototypeBootEnabled || process.env.RELATIONSHIP_PROTOTYPE_ENABLED !== 'true' ||
+        !['development', 'test'].includes(prototypeBootMode || '') || process.env.NODE_ENV !== prototypeBootMode ||
+        process.env.DATABASE_URL?.trim() || DATABASE_URL || isPostgres ||
+        !process.env.SQLITE_PATH || process.env.SQLITE_PATH !== DB_FILE || !path.isAbsolute(DB_FILE)) return false
+    const tmp = fs.realpathSync('/tmp')
+    const parent = fs.realpathSync(path.dirname(DB_FILE))
+    const inTmp = (p: string) => p.startsWith(tmp + path.sep)
+    if (!inTmp(parent)) return false
+    const stat = fs.lstatSync(DB_FILE, { throwIfNoEntry: false })
+    if (stat && (!stat.isFile() || !inTmp(fs.realpathSync(DB_FILE)))) return false
+    return true
+  } catch { return false }
+}
+
 let pgPool: pg.Pool | null = null
 let sqliteDb: sqlite3.Database | null = null
 
@@ -118,6 +138,7 @@ export async function dbExec(sql: string): Promise<void> {
 
 export type DbTransaction = {
   get: <T = any>(sql: string, params?: any[]) => Promise<T | undefined>
+  all: <T = any>(sql: string, params?: any[]) => Promise<T[]>
   run: (sql: string, params?: any[]) => Promise<{ changes: number }>
 }
 
@@ -130,6 +151,7 @@ export async function dbTransaction<T>(fn: (tx: DbTransaction) => Promise<T>): P
       await client.query('BEGIN')
       const tx: DbTransaction = {
         get: async <R = any>(sql: string, params: any[] = []) => (await client.query(toPgSql(sql), params)).rows[0] as R | undefined,
+        all: async <R = any>(sql: string, params: any[] = []) => (await client.query(toPgSql(sql), params)).rows as R[],
         run: async (sql, params = []) => ({ changes: (await client.query(toPgSql(sql), params)).rowCount ?? 0 }),
       }
       const value = await fn(tx)
@@ -152,6 +174,9 @@ export async function dbTransaction<T>(fn: (tx: DbTransaction) => Promise<T>): P
   })
   const tx: DbTransaction = {
     run,
+    all: <R = any>(sql: string, params: any[] = []) => new Promise<R[]>((resolve, reject) => {
+      db.all(sql, params, (err, rows) => err ? reject(err) : resolve((rows || []) as R[]))
+    }),
     get: <R = any>(sql: string, params: any[] = []) => new Promise<R | undefined>((resolve, reject) => {
       db.get(sql, params, (err, row) => err ? reject(err) : resolve(row as R | undefined))
     }),
@@ -338,6 +363,30 @@ export async function initDatabase(): Promise<void> {
   `
 
   await dbExec(schema)
+
+  // Never create these tables unless the process booted explicitly opted in
+  // with a temporary SQLite path. No production schema is touched.
+  if (relationshipPrototypeEnvironmentSafe()) await dbExec(`
+    CREATE TABLE IF NOT EXISTS prototype_relationship_capabilities (
+      id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK (kind IN ('gc_invite', 'sub_qr')),
+      owner_user_id TEXT NOT NULL REFERENCES users(id), sub_profile_id TEXT,
+      consent_version TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+      consumed_at TEXT, revoked_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS prototype_relationships (
+      gc_user_id TEXT NOT NULL REFERENCES users(id), sub_user_id TEXT NOT NULL REFERENCES users(id),
+      sub_profile_id TEXT NOT NULL REFERENCES subcontractors(id), active INTEGER NOT NULL CHECK (active IN (0, 1)),
+      connected_at TEXT NOT NULL, revoked_at TEXT, consent_version TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('gc_invite', 'sub_qr')), source_id TEXT NOT NULL,
+      PRIMARY KEY (gc_user_id, sub_user_id)
+    );
+    CREATE TABLE IF NOT EXISTS prototype_consent_events (
+      id TEXT PRIMARY KEY, gc_user_id TEXT NOT NULL, sub_user_id TEXT NOT NULL,
+      sub_profile_id TEXT NOT NULL, gc_company_name TEXT NOT NULL, consent_version TEXT NOT NULL,
+      source TEXT NOT NULL, source_id TEXT NOT NULL, consented_at TEXT NOT NULL, connected_at TEXT NOT NULL
+    );
+  `)
 
   // Never create staging tables in production or when the experiment is off.
   // Enable this before app startup, not dynamically after initialization.

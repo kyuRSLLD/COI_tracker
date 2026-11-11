@@ -12,7 +12,8 @@
     "seed:prod": "node dist/seed.js",
     "test": "node --experimental-strip-types src/test-suite.ts",
     "test:carrier": "node --experimental-strip-types --test test/carrier-connect.test.ts",
-    "test:invitations": "node --experimental-strip-types --test test/staged-invitations.test.ts test/staged-sub-qr.test.ts"
+    "test:invitations": "node --experimental-strip-types --test test/staged-invitations.test.ts test/staged-sub-qr.test.ts",
+    "test:relationships": "node --experimental-strip-types --test test/relationship-prototype.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
