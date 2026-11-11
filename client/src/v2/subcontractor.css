@@ -1,0 +1,33 @@
+.sub-v2 { --ink:#192b30; --muted:#52686b; --line:#ccd9d6; --accent:#12695c; box-sizing:border-box; max-width:980px; margin:0 auto; padding:32px 20px 72px; color:var(--ink); background:#f4f7f5; font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.sub-v2 * { box-sizing:border-box; }
+.sub-v2 .v2-header { padding:12px 0 24px; }
+.sub-v2 h1 { font-size:clamp(1.9rem,5vw,3rem); line-height:1.12; letter-spacing:-.035em; margin:.5rem 0; }
+.sub-v2 h2 { font-size:1.45rem; line-height:1.25; margin:.35rem 0 .8rem; }
+.sub-v2 p { margin:.65rem 0 1rem; }
+.sub-v2 .v2-eyebrow { color:var(--accent); font-weight:800; letter-spacing:.11em; font-size:.72rem; }
+.sub-v2 .v2-card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:clamp(18px,4vw,28px); margin-bottom:18px; box-shadow:0 4px 18px #19392b0b; overflow-wrap:anywhere; }
+.sub-v2 .v2-disclosure, .sub-v2 .v2-selection { border-left:4px solid #218879; background:#eff7f4; padding:14px 16px; margin:16px 0; white-space:pre-wrap; }
+.sub-v2 .v2-disclosure p { margin-bottom:0; }
+.sub-v2 .v2-form { display:grid; gap:15px; margin:18px 0; }
+.sub-v2 label { display:grid; gap:5px; font-weight:650; }
+.sub-v2 input:not([type=checkbox]), .sub-v2 select { width:100%; min-width:0; min-height:44px; padding:8px 10px; color:var(--ink); background:white; border:1px solid #9aaea9; border-radius:6px; font:inherit; }
+.sub-v2 button { width:fit-content; min-height:44px; padding:9px 17px; border:1px solid var(--accent); border-radius:6px; background:var(--accent); color:white; font:inherit; font-weight:700; cursor:pointer; }
+.sub-v2 button.secondary { background:#fff; color:#125b51; }
+.sub-v2 button:disabled { opacity:.55; cursor:not-allowed; }
+.sub-v2 :focus-visible { outline:3px solid #f4a62a; outline-offset:3px; }
+.sub-v2 .v2-check { display:flex; align-items:flex-start; gap:10px; font-weight:500; margin:16px 0; }
+.sub-v2 .v2-check input { width:20px; height:20px; flex:none; margin:3px 0 0; }
+.sub-v2 .v2-row, .sub-v2 .v2-coverage { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.sub-v2 fieldset { margin:0; border:1px solid var(--line); padding:14px; border-radius:6px; min-width:0; }
+.sub-v2 legend { font-weight:700; padding:0 5px; }
+.sub-v2 .v2-coverage { margin-bottom:14px; align-items:end; }
+.sub-v2 .v2-coverage button { grid-column:1/-1; }
+.sub-v2 .v2-list { list-style:none; margin:1rem 0 0; padding:0; }
+.sub-v2 .v2-list li { border-top:1px solid var(--line); padding:14px 0; }
+.sub-v2 .v2-badge { color:#5b540d; background:#faf4cd; border-radius:999px; padding:3px 8px; font-size:.75rem; font-weight:700; }
+.sub-v2 .v2-note { color:var(--muted); font-size:.9rem; }
+.sub-v2 .v2-success { color:#155f4e; font-weight:650; }
+.sub-v2 [role=alert] { color:#942c1f; }
+.sub-v2 .v2-qr { margin-top:18px; padding:16px; background:#f3f8f5; border:1px solid var(--line); border-radius:8px; }
+.sub-v2 .v2-qr svg { display:block; background:white; max-width:100%; height:auto; }
+@media (max-width:600px) { .sub-v2 { padding:20px 12px 50px; } .sub-v2 .v2-row, .sub-v2 .v2-coverage { grid-template-columns:1fr; } .sub-v2 .v2-coverage button { grid-column:auto; } .sub-v2 button { max-width:100%; } }

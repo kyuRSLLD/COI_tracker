@@ -12,11 +12,13 @@ import { createSesRegistrationDelivery } from './v2/sesRegistrationDelivery.ts'
 import { createGcOwnerV2Router } from './routes/gcOwnerV2.ts'
 import { createGcSubConnectionsV2Router } from './routes/gcSubConnectionsV2.ts'
 import { privateCertificatesRouter } from './routes/privateCertificates.ts'
+import { createSelfReportedCoiMetadataV2Router } from './routes/selfReportedCoiMetadataV2.ts'
 import { gcSubConsentService } from './services/gcSubConsent.ts'
+import { selfReportedCoiMetadataService } from './services/selfReportedCoiMetadata.ts'
 import { PrivateCertificateStorage } from './services/privateCertificateStorage.ts'
 import type { PrivateS3Transport } from './services/privateCertificateStorage.ts'
 
-type LimitInput = { scope: 'auth' | 'protected' | 'connections-router'; phase: 'preauth' | 'principal'; remoteAddress: string; subject?: string }
+type LimitInput = { scope: 'auth' | 'protected' | 'connections-router' | 'metadata-router'; phase: 'preauth' | 'principal'; remoteAddress: string; subject?: string }
 type Options = {
   pool: pg.Pool
   authConfig: V2AuthConfig
@@ -27,6 +29,7 @@ type Options = {
   unsafeTestOnlyMockSes?: NonNullable<Parameters<typeof createSesRegistrationDelivery>[1]>
   // Unsafe opt-in is for controlled synthetic HTTP tests, never production.
   unsafeTestOnlyEnableConsent?: boolean
+  unsafeTestOnlyEnableMetadata?: boolean
   testAuthorizeInviteRecipient?: (input: { gcSubject: string; profileId: string }) => Promise<boolean>
   unsafeTestOnlyMockS3?: PrivateS3Transport
 }
@@ -127,6 +130,13 @@ export function createSecureV2SyntheticTestApp(options: Options) {
     ? privateCertificatesRouter({ enabled: true, pool: options.pool, verifiedMiddleware: adapter,
       makeStorage: ({ records, authorize }) => new PrivateCertificateStorage({ enabled: true, bucket: 'synthetic-private-test', records, authorize, s3: options.unsafeTestOnlyMockS3! }) })
     : privateCertificatesRouter()
+  // Independent unsafe opt-in: profile consent does not grant metadata or files.
+  const selfReportedCoiMetadataRouter = options.unsafeTestOnlyEnableMetadata === true
+    ? createSelfReportedCoiMetadataV2Router({
+      service: selfReportedCoiMetadataService(options.pool, { publicKey: options.authConfig.publicKey, issuer: options.authConfig.issuer, audience: options.authConfig.audience }),
+      authenticate: auth.requireAuth,
+      checkRateLimit: input => limit({ scope: 'metadata-router', ...input }),
+    }) : undefined
   // The outer gate never creates a principal, so the certificate router can
   // safely clear a prior principal before the adapter's fresh verification.
   const outerAuthentication: RequestHandler = (req, res, next) => {
@@ -136,6 +146,6 @@ export function createSecureV2SyntheticTestApp(options: Options) {
       middlewareLimit('protected', 'principal')(req, res, next)
     })
   }
-  return createSecureV2App({ authRouter, gcRouter, connectionsRouter, certificatesRouter,
+  return createSecureV2App({ authRouter, gcRouter, connectionsRouter, certificatesRouter, selfReportedCoiMetadataRouter,
     authenticate: outerAuthentication, beforeProtected: middlewareLimit('protected', 'preauth'), routersOwnBodyParsing: true })
 }

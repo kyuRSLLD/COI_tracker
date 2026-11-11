@@ -22,16 +22,23 @@ PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); p
 env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/initdb" -D "$WORK/data" -U synthetic -A trust --no-instructions >/dev/null
 env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" -o "-F -h 127.0.0.1 -p $PORT -k $WORK" -w start >/dev/null
 env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/createdb" -h 127.0.0.1 -p "$PORT" -U synthetic registration_test_disposable
-for name in gc_sub_test_disposable auth_v2_test_disposable secure_v2_test_disposable owner_foundation_test_disposable; do
+for name in gc_sub_test_disposable auth_v2_test_disposable secure_v2_test_disposable owner_foundation_test_disposable certificate_test_disposable report_test_disposable; do
   env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/createdb" -h 127.0.0.1 -p "$PORT" -U synthetic "$name"
 done
 printf 'Running registration and consent integration on disposable local PostgreSQL 16\n'
-env -i HOME="$WORK" PATH="$PATH" NODE_ENV=test \
+env -i HOME="$WORK" TMPDIR="$ROOT/.work" PATH="$PATH" NODE_ENV=test \
+  PRIVATE_INSPECTION_TEST_PYTHON="${PRIVATE_INSPECTION_TEST_PYTHON:-}" \
   REGISTRATION_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/registration_test_disposable" \
   GC_SUB_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/gc_sub_test_disposable" \
   AUTH_V2_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/auth_v2_test_disposable" \
   GC_OWNER_V2_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/owner_foundation_test_disposable" \
+  OWNER_FOUNDATION_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/owner_foundation_test_disposable" \
+  OWNER_WRITES_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/owner_foundation_test_disposable" \
+  CERTIFICATE_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/certificate_test_disposable" \
+  REPORT_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/report_test_disposable" \
   SECURE_V2_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/secure_v2_test_disposable" \
-  node --experimental-strip-types --test server/test/registration-v2.test.ts server/test/gc-sub-consent.test.ts \
+  node --experimental-strip-types --test --test-concurrency=1 server/test/registration-v2.test.ts server/test/gc-sub-consent.test.ts \
     server/test/gc-sub-connections-v2.test.ts server/test/gc-sub-auth-races.test.ts server/test/auth-v2-pg.test.ts server/test/secure-v2-synthetic.test.ts \
-    server/test/gc-owner-v2.test.ts server/test/gc-owner-v2-auth-races.test.ts
+    server/test/gc-owner-v2.test.ts server/test/gc-owner-v2-auth-races.test.ts server/test/owner-foundation.test.ts server/test/owner-writes.test.ts \
+    server/test/private-certificate-repository.test.ts server/test/self-reported-coi-metadata.test.ts server/test/anonymous-reports-v1.test.ts \
+    server/test/self-reported-private-files.test.ts

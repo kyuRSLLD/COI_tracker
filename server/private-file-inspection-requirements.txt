@@ -1,0 +1,4 @@
+# Tested parser versions; this is not a hash-locked deployment artifact.
+# Update only after security review and rerunning the isolated tests.
+Pillow==13.0.0
+pypdf==6.21.4

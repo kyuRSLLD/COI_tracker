@@ -14,6 +14,10 @@ import { migrateGcSubConsentV1 } from '../src/db/migrations/002_gc_sub_consent.t
 import { migrateAuthV2V1 } from '../src/db/migrations/003_auth_v2.ts'
 import { migratePrivateCertificateMetadataV1 } from '../src/db/migrations/003_private_certificate_metadata.ts'
 import { migrateRegistrationV2V1 } from '../src/db/migrations/004_registration_v2.ts'
+import { migrateSelfReportedCoiMetadataV1 } from '../src/db/migrations/006_self_reported_coi_metadata.ts'
+import { migrateAnonymousReportsV1 } from '../src/db/migrations/006_anonymous_client_reports.ts'
+import { migrateSelfReportedPrivateFilesV1 } from '../src/db/migrations/007_self_reported_private_files.ts'
+import { METADATA_CONSENT_V1, METADATA_CONSENT_V1_TEXT } from '../src/services/selfReportedCoiMetadata.ts'
 import { postgresOwnerConnection } from '../src/db/ownerConnection.ts'
 import { createV2Auth, hashV2Password } from '../src/v2/auth.ts'
 import { createSecureV2SyntheticTestApp, createVerifiedPrincipalAdapter } from '../src/secure-v2-synthetic.ts'
@@ -49,9 +53,45 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
       assert.equal(await migratePrivateCertificateMetadataV1(c), 'applied')
       assert.equal(await migrateRegistrationV2V1(c), 'applied')
       assert.equal(await migrateFreshSubProfileEvidenceV1(c), 'applied')
+      // Deterministic 006 order on the same schema; separate ledgers and locks,
+      // not a single filename-based migration version namespace.
+      assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'applied')
+      assert.equal(await migrateAnonymousReportsV1(c), 'applied')
+      const ledgers = await c.query(`SELECT 'metadata' AS kind, version, checksum FROM self_reported_coi_schema_migrations
+        UNION ALL SELECT 'report', version, checksum FROM report_v1_schema_migrations ORDER BY kind`)
+      assert.equal(ledgers.rowCount, 2)
+      assert.deepEqual(ledgers.rows.map(r => [r.kind, r.version]), [['metadata', 1], ['report', 1]])
+      assert.notEqual(ledgers.rows[0].checksum, ledgers.rows[1].checksum)
+      assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'already-applied')
+      assert.equal(await migrateAnonymousReportsV1(c), 'already-applied')
+      await c.query("UPDATE self_reported_coi_schema_migrations SET checksum='tampered'")
+      await assert.rejects(migrateSelfReportedCoiMetadataV1(c), /changed metadata migration history/)
+      assert.equal(await migrateAnonymousReportsV1(c), 'already-applied')
+      await c.query('UPDATE self_reported_coi_schema_migrations SET checksum=$1', [ledgers.rows[0].checksum])
+      await c.query("UPDATE report_v1_schema_migrations SET checksum='tampered'")
+      await assert.rejects(migrateAnonymousReportsV1(c), /changed report migration history/)
+      assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'already-applied')
+      await c.query('UPDATE report_v1_schema_migrations SET checksum=$1', [ledgers.rows[1].checksum])
+      assert.equal(await migrateAnonymousReportsV1(c), 'already-applied')
+      // Holding either lock must not block the other independent migration.
+      const other = await pool.connect()
+      try {
+        await other.query("SET lock_timeout='1s'")
+        await c.query('BEGIN')
+        await c.query('SELECT pg_advisory_xact_lock(1129273683, 6)')
+        assert.equal(await migrateSelfReportedCoiMetadataV1(other), 'already-applied')
+        await c.query('ROLLBACK')
+        await c.query('BEGIN')
+        await c.query('SELECT pg_advisory_xact_lock(1129273683, 7)')
+        assert.equal(await migrateAnonymousReportsV1(other), 'already-applied')
+      } finally { await c.query('ROLLBACK'); await other.query('RESET lock_timeout'); other.release() }
+      assert.equal(await migrateSelfReportedPrivateFilesV1(c), 'applied')
+      assert.equal(await migrateSelfReportedPrivateFilesV1(c), 'already-applied')
+      assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'already-applied')
+      assert.equal(await migrateAnonymousReportsV1(c), 'already-applied')
     } finally { c.release() }
     const passhash = await hashV2Password(password)
-    await pool.query(`INSERT INTO users(id,email,password_hash,name,role,created_at) VALUES ('gc1','gc1@example.test','legacy','GC One','gc','now'),('gc2','gc2@example.test','legacy','GC Two','gc','now'),('sub1','sub1@example.test','legacy','Sub One','sub','now'),('sub2','sub2@example.test','legacy','Sub Two','sub','now');`)
+    await pool.query(`INSERT INTO users(id,email,password_hash,name,role,created_at) VALUES ('gc1','gc1@example.test','legacy','GC One','gc','now'),('gc2','gc2@example.test','legacy','GC Two','gc','now'),('sub1','sub1@example.test','legacy','Sub One','sub','now'),('sub2','sub2@example.test','legacy','Sub Two','sub','now'),('client','client@example.test','legacy','Client','admin','now');`)
     await pool.query(`INSERT INTO auth_v2_accounts(user_id,login_email,password_hash,email_verified_at,verification_reference,enabled)
       SELECT id,email,$1,clock_timestamp(),'synthetic-only',true FROM users`, [passhash])
     const phases: string[] = []
@@ -67,7 +107,7 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
       async put(command: any) { s3Calls++; objects.set(command.input.Key, { body: Buffer.from(command.input.Body), mime: command.input.ContentType }) },
       async get(command: any) { s3Calls++; const obj = objects.get(command.input.Key); if (!obj) throw Error('secret mock S3 key'); return { Body: Readable.from([obj.body]), ContentLength: obj.body.length, ContentType: obj.mime } },
     }
-    const options = { pool, authConfig: config, testRateLimit, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyMockS3: s3 }
+    const options = { pool, authConfig: config, testRateLimit, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyEnableMetadata: true, unsafeTestOnlyMockS3: s3 }
     const unsafePool = new pg.Pool({ connectionString: 'postgresql://synthetic@192.0.2.1:5432/secure_v2_test_fake' })
     try { assert.throws(() => createSecureV2SyntheticTestApp({ ...options, pool: unsafePool }), /loopback/) } finally { await unsafePool.end() }
     const savedEnv = process.env.NODE_ENV
@@ -178,7 +218,57 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
     assert.deepEqual((await connection('/subcontractors', 'gc')).body.subcontractors, [{ id: freshProfile.subcontractor_id, company_name: 'Synthetic Business', trade: 'Electrical', profile_id: freshProfile.profile_id, evidence_type: freshProfile.evidence_type }])
     assert.deepEqual((await connection('/cois', 'gc', { profileId: freshProfile.profile_id })).body, { cois: [] })
     assert.equal((await pool.query('SELECT count(*)::int n FROM gc_sub_coi_ownership WHERE profile_id=$1', [freshProfile.profile_id])).rows[0].n, 0)
-    assert.equal((await connection('/revoke', 'sub', { profileId: freshProfile.profile_id, gcUserId: (await pool.query("SELECT id FROM users WHERE email='new-gc@example.test'")).rows[0].id })).status, 204)
+    // A second, independently authenticated GC has the same profile-only grant,
+    // yet receives no metadata until separately and explicitly authorized.
+    const gc2Login = await postReg('/api/v2/auth/login', { email: 'gc2@example.test', password })
+    assert.equal(gc2Login.status, 200)
+    registeredTokens.set('other-gc', JSON.parse(gc2Login.text).token)
+    const clientLogin = await postReg('/api/v2/auth/login', { email: 'client@example.test', password })
+    assert.equal(clientLogin.status, 200)
+    registeredTokens.set('client', JSON.parse(clientLogin.text).token)
+    const secondFreshQr = await connection('/qr', 'sub', { profileId: freshProfile.profile_id, consentVersion: disclosure.body.version, affirmative: true })
+    assert.equal(secondFreshQr.status, 200)
+    assert.equal((await connection('/qr/redeem', 'other-gc', { token: secondFreshQr.body.token })).status, 204)
+    const metadataPath = '/api/v2/self-reported-coi-metadata'
+    const metadata = async (path: string, role: string, body?: object) => {
+      const r = await fetch(regBase + metadataPath + path, { method: body === undefined ? 'GET' : 'POST',
+        headers: { authorization: `Bearer ${registeredTokens.get(role)}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+      assert.match(r.headers.get('cache-control') || '', /no-store/)
+      const text = await r.text(); return { status: r.status, body: text ? JSON.parse(text) : null }
+    }
+    assert.deepEqual((await metadata('/consent', 'sub')).body, { version: METADATA_CONSENT_V1, text: METADATA_CONSENT_V1_TEXT })
+    const created = await metadata('/own', 'sub', { carrier: 'Synthetic Insurer', effectiveDate: '2026-01-01', expirationDate: '2027-01-01', coverage: [{ type: 'General liability', limitCents: 100000000 }] })
+    assert.equal(created.status, 200)
+    const ownMetadata = await metadata('/own', 'sub')
+    assert.equal(ownMetadata.status, 200); assert.equal(ownMetadata.body.records.length, 1)
+    assert.equal(ownMetadata.body.records[0].id, created.body.id)
+    assert.equal(ownMetadata.body.records[0].profile_id, freshProfile.profile_id)
+    assert.deepEqual(Object.keys(ownMetadata.body.records[0]).sort(), ['id','profile_id','carrier','effective_date','expiration_date','coverage','created_at','reporting_status'].sort())
+    assert.equal(ownMetadata.body.records[0].reporting_status, 'self_reported_unverified')
+    assert.deepEqual((await metadata('/granted', 'gc')).body.records, [])
+    assert.deepEqual((await metadata('/granted', 'other-gc')).body.records, [])
+    const freshGcId = (await pool.query("SELECT id FROM users WHERE email='new-gc@example.test'")).rows[0].id
+    const grant = { coiId: created.body.id, gcUserId: freshGcId, consentVersion: METADATA_CONSENT_V1, affirmative: true }
+    assert.equal((await metadata('/grant', 'sub', grant)).status, 204)
+    const disclosed = await metadata('/granted', 'gc')
+    assert.equal(disclosed.status, 200); assert.deepEqual(disclosed.body.records, ownMetadata.body.records)
+    assert.deepEqual((await metadata('/granted', 'other-gc')).body.records, [])
+    assert.equal((await metadata('/granted', 'client')).status, 401)
+    assert.equal((await fetch(regBase + '/api/client/share/' + created.body.id)).status, 404)
+    // The metadata UUID is not a document ID; GC document access is unavailable.
+    for (const role of ['gc', 'other-gc']) {
+      const fileResponse = await fetch(regBase + '/api/v2/certificates/' + created.body.id, { headers: { authorization: `Bearer ${registeredTokens.get(role)}` } })
+      assert.equal(fileResponse.status, 503); assert.deepEqual(await fileResponse.json(), { error: 'Unavailable' })
+    }
+    assert.equal((await fetch(regBase + '/api/v2/certificates/' + created.body.id, { headers: { authorization: `Bearer ${registeredTokens.get('sub')}` } })).status, 404)
+    assert.equal(s3Calls, 0)
+    assert.equal((await metadata('/revoke', 'sub', { coiId: created.body.id, gcUserId: freshGcId })).status, 204)
+    assert.deepEqual((await metadata('/granted', 'gc')).body.records, [])
+    assert.equal((await pool.query('SELECT count(*)::int n FROM self_reported_coi_grants WHERE coi_id=$1 AND revoked_at IS NULL', [created.body.id])).rows[0].n, 0)
+    const afterRevokeFile = await fetch(regBase + '/api/v2/certificates/' + created.body.id, { headers: { authorization: `Bearer ${registeredTokens.get('gc')}` } })
+    assert.equal(afterRevokeFile.status, 503); assert.deepEqual(await afterRevokeFile.json(), { error: 'Unavailable' }); assert.equal(s3Calls, 0)
+    assert.equal((await connection('/revoke', 'sub', { profileId: freshProfile.profile_id, gcUserId: freshGcId })).status, 204)
     assert.deepEqual((await connection('/subcontractors', 'gc')).body.subcontractors, [])
     assert.ok(actions.includes('request') && actions.includes('confirm'))
     const placeholder = await postReg('/api/v2/auth/register', { role: 'gc' })
@@ -325,12 +415,25 @@ test('real HTTP composition with PostgreSQL 16 and synthetic identities, mock S3
     assert.equal(oversized.status, 503); assert.deepEqual(oversized.body, { error: 'Unavailable' })
     const oversizedAuth = await call('/api/v2/auth/login', 'POST', undefined, { email: 'a@example.test', password: 'x'.repeat(9000) })
     assert.equal(oversizedAuth.status, 413)
-    assert.ok(phases.includes('auth:preauth') && phases.includes('protected:preauth') && phases.includes('protected:principal') && phases.includes('connections-router:preauth') && phases.includes('connections-router:principal'))
+    assert.ok(phases.includes('auth:preauth') && phases.includes('protected:preauth') && phases.includes('protected:principal') && phases.includes('connections-router:preauth') && phases.includes('connections-router:principal') && phases.includes('metadata-router:preauth') && phases.includes('metadata-router:principal'))
     mode = 'deny'; assert.equal((await call('/api/v2/auth/login', 'POST', undefined, {})).status, 429); assert.equal((await call('/api/v2/gc/subcontractors', 'GET', gc2)).status, 429)
+    assert.equal((await call('/api/v2/self-reported-coi-metadata/granted', 'GET', gc2)).status, 429)
     mode = 'error'; const limitError = await call('/api/v2/gc/subcontractors', 'GET', gc2); assert.equal(limitError.status, 503); assert.deepEqual(limitError.body, { error: 'Unavailable' }); mode = 'allow'
+    const metadataLimiterDenies = await start(createSecureV2SyntheticTestApp({ ...options, testRateLimit: async x => x.scope !== 'metadata-router' }))
+    assert.equal((await fetch(metadataLimiterDenies + '/api/v2/self-reported-coi-metadata/granted', { headers: { authorization: `Bearer ${gc2}` } })).status, 429)
+    const metadataLimiterErrors = await start(createSecureV2SyntheticTestApp({ ...options, testRateLimit: async x => { if (x.scope === 'metadata-router') throw new Error('sensitive limiter error'); return true } }))
+    const metadataError = await fetch(metadataLimiterErrors + '/api/v2/self-reported-coi-metadata/granted', { headers: { authorization: `Bearer ${gc2}` } })
+    assert.equal(metadataError.status, 503); assert.deepEqual(await metadataError.json(), { error: 'Unavailable' })
     const defaults = await start(createSecureV2SyntheticTestApp({ pool, authConfig: config, testRateLimit }))
     assert.equal((await fetch(defaults + '/api/v2/connections/consent', { headers: { authorization: `Bearer ${sub1}` } })).status, 503)
     assert.equal((await fetch(defaults + file, { headers: { authorization: `Bearer ${sub1}` } })).status, 503)
+    assert.equal((await fetch(defaults + '/api/v2/self-reported-coi-metadata/own', { headers: { authorization: `Bearer ${sub1}` } })).status, 503)
+    assert.equal((await fetch(defaults + '/api/v2/self-reported-coi-metadata/own')).status, 401)
+    const consentOnly = await start(createSecureV2SyntheticTestApp({ ...options, unsafeTestOnlyEnableMetadata: false }))
+    assert.equal((await fetch(consentOnly + '/api/v2/connections/consent', { headers: { authorization: `Bearer ${sub1}` } })).status, 200)
+    assert.equal((await fetch(consentOnly + '/api/v2/self-reported-coi-metadata/own', { headers: { authorization: `Bearer ${sub1}` } })).status, 503)
+    const metadataWithoutLimiter = await start(createSecureV2SyntheticTestApp({ pool, authConfig: config, unsafeTestOnlyEnableMetadata: true }))
+    assert.equal((await fetch(metadataWithoutLimiter + '/api/v2/self-reported-coi-metadata/own', { headers: { authorization: `Bearer ${sub1}` } })).status, 503)
     const invitationApp = await start(createSecureV2SyntheticTestApp({ ...options, testAuthorizeInviteRecipient: async ({ gcSubject, profileId }) => gcSubject === 'gc2' && profileId === profile }))
     const invite = await fetch(invitationApp + '/api/v2/connections/invitations', { method: 'POST', headers: { authorization: `Bearer ${gc2}`, 'content-type': 'application/json' }, body: JSON.stringify({ profileId: profile }) })
     assert.equal(invite.status, 200); assert.match((await invite.json()).token, /^[A-Za-z0-9_-]{43}$/)

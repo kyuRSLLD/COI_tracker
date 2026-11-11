@@ -64,7 +64,8 @@ function fixtures() {
     res.status(401).json({ error: 'Authentication required' })
   }
   const app = createSecureV2App({ authRouter, authenticate, gcRouter: privateRouter('gc'),
-    connectionsRouter: privateRouter('connections'), certificatesRouter: privateRouter('certificates') })
+    connectionsRouter: privateRouter('connections'), certificatesRouter: privateRouter('certificates'),
+    selfReportedCoiMetadataRouter: privateRouter('self-reported-coi-metadata') })
   return { app, hits }
 }
 
@@ -93,7 +94,7 @@ test('legacy, static, noncanonical and non-allowlisted paths are rejected before
   } finally { await close(server) }
 })
 
-test('only the auth router is public; all three private mounts require validated bearer authentication', async () => {
+test('only the auth router is public; all private mounts require validated bearer authentication', async () => {
   const { app, hits } = fixtures()
   const { server, port } = await listen(app)
   try {
@@ -102,7 +103,7 @@ test('only the auth router is public; all three private mounts require validated
     assertSecurity(publicReply)
     assert.deepEqual(JSON.parse(publicReply.body), { area: 'auth' })
     hits.length = 0
-    for (const area of ['gc', 'connections', 'certificates']) {
+    for (const area of ['gc', 'connections', 'certificates', 'self-reported-coi-metadata']) {
       for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
         const denied = await call(port, `/api/v2/${area}/item`, { method })
         assert.equal(denied.status, 401, `${method} ${area}`)
@@ -136,10 +137,10 @@ test('only the auth router is public; all three private mounts require validated
   } finally { await close(server) }
 })
 
-test('missing dependencies fail closed and the optional certificates router is unavailable', async () => {
+test('missing dependencies fail closed and optional private routers are unavailable', async () => {
   const none = await listen(createSecureV2App())
   try {
-    for (const path of ['/api/v2/auth/login', '/api/v2/gc/item', '/api/v2/connections/item', '/api/v2/certificates/item']) {
+    for (const path of ['/api/v2/auth/login', '/api/v2/gc/item', '/api/v2/connections/item', '/api/v2/certificates/item', '/api/v2/self-reported-coi-metadata/item']) {
       const reply = await call(none.port, path, { headers: good })
       assert.equal(reply.status, 503, path)
       assert.deepEqual(JSON.parse(reply.body), { error: 'Service unavailable' })
@@ -150,7 +151,7 @@ test('missing dependencies fail closed and the optional certificates router is u
     ? next() : res.status(401).end()
   const missingRouters = await listen(createSecureV2App({ authenticate: validOnly }))
   try {
-    for (const area of ['gc', 'connections', 'certificates']) {
+    for (const area of ['gc', 'connections', 'certificates', 'self-reported-coi-metadata']) {
       assert.equal((await call(missingRouters.port, `/api/v2/${area}/item`)).status, 401)
       assert.equal((await call(missingRouters.port, `/api/v2/${area}/item`, { headers: good })).status, 503)
     }

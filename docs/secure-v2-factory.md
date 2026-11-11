@@ -4,14 +4,14 @@
 
 ## Boundary and injection contract
 
-The factory accepts an object with optional `authRouter`, `gcRouter`, `connectionsRouter`, `certificatesRouter` (Express routers), and `authenticate` (an Express request middleware). The first three routers and the verifier are required to provide those services; certificates are optional. They are optional in the type so an incomplete composition fails closed at request time:
+The factory accepts an object with optional `authRouter`, `gcRouter`, `connectionsRouter`, `certificatesRouter`, `selfReportedCoiMetadataRouter` (Express routers), and `authenticate` (an Express request middleware). The first three routers and the verifier are required to provide those services; certificates and metadata are optional. They are optional in the type so an incomplete composition fails closed at request time:
 
 1. Apply security and no-store headers, then reject non-allowlisted or ambiguous paths.
 2. Mount the public auth router at `/api/v2/auth`, after a strict 64 KiB JSON parser. Missing router: generic 503.
-3. Mount `/api/v2/gc`, `/api/v2/connections`, and `/api/v2/certificates`, each in the order: injected authenticator, strict 64 KiB JSON parser, corresponding router. A missing verifier returns generic 503; with a verifier, missing or syntactically malformed bearer credentials return generic 401 without calling it. A missing private router returns generic 503 after successful authentication.
+3. Mount `/api/v2/gc`, `/api/v2/connections`, `/api/v2/certificates`, and `/api/v2/self-reported-coi-metadata`, each in the order: injected authenticator, strict 64 KiB JSON parser, corresponding router. A missing verifier returns generic 503; with a verifier, missing or syntactically malformed bearer credentials return generic 401 without calling it. A missing private router returns generic 503 after successful authentication.
 4. Unhandled endpoints return generic 404. Parser and unhandled Express errors are translated to generic 400, 413, 415, or 500 responses without the original error message or stack. If a handler has already started its response, the connection is terminated on an error because sent bytes cannot be retracted.
 
-These are the default settings. A trusted composition can supply `beforeProtected` ahead of authentication and can set `routersOwnBodyParsing: true`, removing the factory JSON parser from all four mounts. The latter is safe only when each trusted JSON router supplies its own correctly bounded parser and binary endpoints independently validate and bound raw input. It allows the certificate router to receive an unconsumed raw stream and preserves the auth and connections routers' smaller limits. See [the strictly test-only concrete composition](./secure-v2-synthetic-composition.md); it is disconnected and must not be deployed.
+These are the default settings. A trusted composition can supply `beforeProtected` ahead of authentication and can set `routersOwnBodyParsing: true`, removing the factory JSON parser from all five mounts. The latter is safe only when each trusted JSON router supplies its own correctly bounded parser and binary endpoints independently validate and bound raw input. It allows the certificate router to receive an unconsumed raw stream and preserves the auth and connections routers' smaller limits. See [the strictly test-only concrete composition](./secure-v2-synthetic-composition.md); it is disconnected and must not be deployed.
 
 Paths must have the exact lowercase prefixes and segment boundaries shown. The boundary rejects percent-encoded path characters, backslashes, duplicate slashes, whitespace/control characters and `.`/`..` segments; query strings are not subject to that path restriction. This intentionally conservative rule means URL-encoded path identifiers (including encoded Unicode) are not currently supported; design and test any canonicalization change against the actual reverse proxy before relaxing it. This factory does not enable CORS. Only JSON requests handled by its parser are subject to its JSON limit, including after decompression; uploads, multipart, forms, other content types and upstream buffering need their own reviewed limits.
 
@@ -28,6 +28,7 @@ const app = createSecureV2App({
   gcRouter: reviewedGcRouter,
   connectionsRouter: reviewedConnectionsRouter,
   certificatesRouter: reviewedCertificatesRouter, // omit to deny with 503
+  selfReportedCoiMetadataRouter: reviewedMetadataRouter, // omit to deny with 503
 })
 ```
 
@@ -41,7 +42,7 @@ From the isolated worktree with the repository's Node dependencies installed, ru
 node --experimental-strip-types --test server/test/secure-v2-app.test.ts
 ```
 
-The tests use only synthetic in-memory Express routers, spy counters, synthetic bearer strings and loopback HTTP. They verify blocked legacy/static/share and ambiguous paths (including a deliberately broad auth router), GET/POST/OPTIONS/HEAD, malformed/duplicate/missing and invalid credentials, valid gating of all three private routers, absent dependencies, parser ordering, malformed and oversized JSON (including compressed input), error sanitization, security headers, and middleware control-flow/error cases. They do not use real data, databases, credentials, or external services. They do not prove that real token verification or real application routers are secure.
+The tests use only synthetic in-memory Express routers, spy counters, synthetic bearer strings and loopback HTTP. They verify blocked legacy/static/share and ambiguous paths (including a deliberately broad auth router), GET/POST/OPTIONS/HEAD, malformed/duplicate/missing and invalid credentials, valid gating of all four private routers, absent dependencies, parser ordering, malformed and oversized JSON (including compressed input), error sanitization, security headers, and middleware control-flow/error cases. They do not use real data, databases, credentials, or external services. They do not prove that real token verification or real application routers are secure.
 
 ## Required before production
 
