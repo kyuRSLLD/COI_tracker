@@ -116,6 +116,62 @@ export async function dbExec(sql: string): Promise<void> {
   })
 }
 
+export type DbTransaction = {
+  get: <T = any>(sql: string, params?: any[]) => Promise<T | undefined>
+  run: (sql: string, params?: any[]) => Promise<{ changes: number }>
+}
+
+// Each transaction owns its connection: other requests cannot accidentally run
+// inside it. BEGIN IMMEDIATE serializes SQLite writers; PostgreSQL uses row locks.
+export async function dbTransaction<T>(fn: (tx: DbTransaction) => Promise<T>): Promise<T> {
+  if (isPostgres) {
+    const client = await getPgPool().connect()
+    try {
+      await client.query('BEGIN')
+      const tx: DbTransaction = {
+        get: async <R = any>(sql: string, params: any[] = []) => (await client.query(toPgSql(sql), params)).rows[0] as R | undefined,
+        run: async (sql, params = []) => ({ changes: (await client.query(toPgSql(sql), params)).rowCount ?? 0 }),
+      }
+      const value = await fn(tx)
+      await client.query('COMMIT')
+      return value
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+  const sqlite3 = (await import('sqlite3')).default
+  const db = await new Promise<sqlite3.Database>((resolve, reject) => {
+    const connection = new sqlite3.Database(DB_FILE, (err) => err ? reject(err) : resolve(connection))
+  })
+  db.configure('busyTimeout', 5000)
+  const run = (sql: string, params: any[] = []) => new Promise<{ changes: number }>((resolve, reject) => {
+    db.run(sql, params, function (err) { if (err) reject(err); else resolve({ changes: this.changes }) })
+  })
+  const tx: DbTransaction = {
+    run,
+    get: <R = any>(sql: string, params: any[] = []) => new Promise<R | undefined>((resolve, reject) => {
+      db.get(sql, params, (err, row) => err ? reject(err) : resolve(row as R | undefined))
+    }),
+  }
+  try {
+    await run('PRAGMA foreign_keys = ON')
+    await run('BEGIN IMMEDIATE')
+    try {
+      const value = await fn(tx)
+      await run('COMMIT')
+      return value
+    } catch (error) {
+      await run('ROLLBACK')
+      throw error
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => db.close(err => err ? reject(err) : resolve()))
+  }
+}
+
 export async function initDatabase(): Promise<void> {
   console.log(`[db] Using ${isPostgres ? 'PostgreSQL (' + DATABASE_URL?.replace(/:[^:@/]+@/, ':***@') + ')' : 'SQLite (' + DB_FILE + ')'}`)
 
@@ -282,6 +338,50 @@ export async function initDatabase(): Promise<void> {
   `
 
   await dbExec(schema)
+
+  // Never create staging tables in production or when the experiment is off.
+  // Enable this before app startup, not dynamically after initialization.
+  if (process.env.STAGED_INVITES_ENABLED === 'true' && process.env.NODE_ENV !== 'production') await dbExec(`
+    -- Staging only: no legacy COI or upload-request access is conferred.
+    CREATE TABLE IF NOT EXISTS staged_gc_invitations (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT UNIQUE NOT NULL,
+      gc_user_id TEXT NOT NULL REFERENCES users(id),
+      gc_settings_id TEXT NOT NULL REFERENCES gc_settings(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      max_uses INTEGER NOT NULL CHECK (max_uses BETWEEN 1 AND 10),
+      uses INTEGER NOT NULL DEFAULT 0 CHECK (uses >= 0 AND uses <= max_uses),
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_staged_invites_owner ON staged_gc_invitations(gc_user_id);
+    CREATE TABLE IF NOT EXISTS staged_sub_qr_capabilities (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT UNIQUE NOT NULL,
+      sub_user_id TEXT NOT NULL REFERENCES users(id),
+      company_name TEXT NOT NULL,
+      trade TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_staged_sub_qr_owner ON staged_sub_qr_capabilities(sub_user_id);
+    CREATE TABLE IF NOT EXISTS staged_gc_sub_relationships (
+      gc_user_id TEXT NOT NULL REFERENCES users(id),
+      sub_user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('gc_invite', 'sub_qr')),
+      source_id TEXT NOT NULL,
+      PRIMARY KEY (gc_user_id, sub_user_id)
+    );
+    CREATE TABLE IF NOT EXISTS staged_invite_rate_limit (
+      id TEXT PRIMARY KEY,
+      window_start INTEGER NOT NULL,
+      hits INTEGER NOT NULL
+    );
+  `)
+
   console.log('[db] Schema initialized successfully')
 
   try {

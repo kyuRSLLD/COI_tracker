@@ -2,6 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Fragment secrets are removed synchronously before any page subresources load.
+      if (location.pathname === '/invite-sub' || location.pathname === '/connect-sub') {
+        window.__stagedFragment = location.hash.slice(1);
+        history.replaceState(null, '', location.pathname);
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>COI Shield — Certificate of Insurance Tracker for General Contractors</title>

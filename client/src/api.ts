@@ -258,3 +258,26 @@ export const apiPhones = {
   makePrimary: (id: string) =>
     request<{ phones: import('./types').UserPhone[] }>(`/api/auth/phones/${id}/primary`, { method: 'PATCH' }),
 }
+
+// Development-only staged invitations. Secrets are carried in JSON bodies, never URLs.
+type StagedInvite = { id: string; token: string; expires_at: string }
+async function stagedRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const auth = getToken()
+  const res = await fetch(path, { method, headers: { ...(auth ? { Authorization: `Bearer ${auth}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), cache: 'no-store' })
+  if (!res.ok) throw new Error('Staged invitation request failed')
+  // Revocation may return 204 with no body.
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+export const apiStagedInvites = {
+  create: () => stagedRequest<StagedInvite>('/api/invitations', 'POST', { max_uses: 1 }),
+  info: (token: string) => stagedRequest<any>('/api/invitations/info', 'POST', { token }),
+  accept: (token: string) => stagedRequest<{ status: string }>('/api/invitations/accept', 'POST', { token }),
+  createSubQr: (trade: string) => stagedRequest<StagedInvite>('/api/invitations/sub-qr', 'POST', { trade }),
+  subQrInfo: (token: string) => stagedRequest<any>('/api/invitations/sub-qr/info', 'POST', { token }),
+  acceptSubQr: (token: string) => stagedRequest<{ status: string }>('/api/invitations/sub-qr/accept', 'POST', { token }),
+  revokeSubQr: (id: string) => {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('Invalid invitation ID')
+    return stagedRequest<unknown>(`/api/invitations/sub-qr/${id}`, 'DELETE')
+  },
+}

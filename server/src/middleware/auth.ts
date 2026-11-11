@@ -3,6 +3,12 @@ import jwt from 'jsonwebtoken'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
 
+// Staged invitation endpoints must not trust the development fallback, nor a
+// key changed in the environment after this module captured its signing key.
+export function stagedInvitationAuthConfigured(): boolean {
+  return Boolean(process.env.JWT_SECRET && process.env.JWT_SECRET === JWT_SECRET && JWT_SECRET !== 'dev-secret-change-in-production' && Buffer.byteLength(JWT_SECRET, 'utf8') >= 32)
+}
+
 export interface AuthRequest extends Request {
   user?: { id: string; email: string; role: string; name: string; subcontractor_id?: string | null }
 }

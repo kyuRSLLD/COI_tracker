@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { X, Building2 } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { apiSubcontractors } from '../api'
+import { InvitePanel } from './InvitePanel'
+import { SubcontractorQrScanner } from './SubcontractorQrScanner'
+import { apiStagedInvites, getStoredUser } from '../api'
+import { stagedInvitesEnabled, previewNotice } from '../lib/stagedInvites'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 
 const TRADES = [
@@ -38,6 +42,8 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
   const [address, setAddress] = useState('')
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<'manual' | 'invite' | 'scan'>('manual')
+  const [staged, setStaged] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -59,6 +65,8 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
       setNotes('')
     }
     setError(null)
+    setMode('manual')
+    setStaged(false)
   }, [subcontractor, open])
 
   if (!open) return null
@@ -94,7 +102,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+      <div className="bg-white rounded-3xl max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 shadow-2xl border border-slate-200">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-brand-600 uppercase tracking-wider font-['JetBrains_Mono']">
@@ -112,6 +120,22 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
           </button>
         </div>
 
+        {stagedInvitesEnabled && !subcontractor && getStoredUser()?.role === 'gc' && <div className="mt-5 space-y-3">
+          <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{previewNotice}</p>
+          <div role="group" aria-label="How to add a subcontractor" className="flex flex-wrap gap-2">
+            {([['manual', 'Manual add'], ['invite', 'Invite'], ['scan', 'Scan subcontractor QR']] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={mode === key} onClick={() => { setMode(key); setStaged(false) }} className={`rounded-lg px-3 py-2 text-xs font-semibold ${mode === key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>{label}</button>)}
+          </div>
+        </div>}
+        {stagedInvitesEnabled && !subcontractor && mode === 'invite' && <InvitePanel hidden={false} />}
+        {stagedInvitesEnabled && !subcontractor && mode === 'scan' && (staged ? <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Test relationship recorded. No live subcontractor link or COI sharing was created.</p> : <div className="mt-4"><SubcontractorQrScanner
+          onValidToken={async token => {
+            const info = await apiStagedInvites.subQrInfo(token)
+            const companyName = info.company_name ?? info.subcontractor?.company_name ?? info.sub_company_name
+            return { companyName, trade: info.trade ?? info.subcontractor?.trade }
+          }}
+          onConfirmToken={async token => { const result = await apiStagedInvites.acceptSubQr(token); if (result?.status !== 'staged') throw new Error('Unexpected status') }}
+          onConnected={() => setStaged(true)} onClose={() => setMode('manual')} /></div>)}
+        <div hidden={!subcontractor && mode !== 'manual'}>
         {error && <div className="mt-4 p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">{error}</div>}
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
@@ -203,6 +227,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
             </button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   )

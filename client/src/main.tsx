@@ -17,8 +17,18 @@ import { UploadPortalPage } from './pages/UploadPortalPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
 import { SubcontractorDashboardPage } from './pages/SubcontractorDashboardPage'
 import { JoinPage } from './pages/JoinPage'
+import { StagedInvitePage } from './pages/StagedInvitePage'
+import { stagedInvitesEnabled, isInviteToken, pendingInviteKey } from './lib/stagedInvites'
 import { SubcontractorModal } from './components/SubcontractorModal'
 import { RequestCOIModal } from './components/RequestCOIModal'
+
+// The HTML entry point strips the fragment before loading subresources. Keep it only
+// in memory unless login requires a sessionStorage handoff.
+let capturedFragment = (window as Window & { __stagedFragment?: string }).__stagedFragment
+delete (window as Window & { __stagedFragment?: string }).__stagedFragment
+let initialInviteToken = stagedInvitesEnabled && location.pathname === '/invite-sub' && isInviteToken(capturedFragment) ? capturedFragment : null
+if (location.pathname === '/invite-sub' && (!stagedInvitesEnabled || capturedFragment)) sessionStorage.removeItem(pendingInviteKey)
+capturedFragment = undefined
 
 function roleHome(u: User | null): string {
   if (!u) return '/login'
@@ -54,7 +64,9 @@ function App() {
     location.pathname.startsWith('/share/') ||
     location.pathname.startsWith('/upload/') ||
     location.pathname.startsWith('/join/') ||
-    location.pathname === '/login'
+    location.pathname === '/login' ||
+    location.pathname === '/invite-sub' ||
+    location.pathname === '/connect-sub'
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -114,6 +126,8 @@ function App() {
             element={user && user.role === 'admin' ? <AdminDashboardPage /> : <Navigate to={user ? roleHome(user) : '/login'} replace />}
           />
           <Route path="/admin" element={<Navigate to="/staff" replace />} />
+          <Route path="/invite-sub" element={stagedInvitesEnabled ? <StagedInvitePage initialToken={initialInviteToken} onSignedIn={setUser} onConsumed={() => { initialInviteToken = null }} /> : <Navigate to="/" replace />} />
+          <Route path="/connect-sub" element={stagedInvitesEnabled ? <div className="p-8 text-sm">Development preview — requests are not yet connected to the live subcontractor dashboard or COIs. Scan this code from the general contractor's Add subcontractor dialog. This is not a live connection.</div> : <Navigate to="/" replace />} />
           <Route path="/join/:inviteCode" element={<JoinPage />} />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />

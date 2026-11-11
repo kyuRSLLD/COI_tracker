@@ -1,3 +1,6 @@
+import { SubcontractorConnectionQr } from '../components/SubcontractorConnectionQr'
+import { apiStagedInvites, getStoredUser } from '../api'
+import { stagedInvitesEnabled, previewLink } from '../lib/stagedInvites'
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -130,6 +133,9 @@ export function SubcontractorDashboardPage() {
           </span>
         </div>
 
+        {stagedInvitesEnabled && getStoredUser()?.role === 'sub' && <SubcontractorConnectionQr
+          createConnectionInvite={async trade => { const result = await apiStagedInvites.createSubQr(trade); if (typeof result.id !== 'string' || typeof result.token !== 'string' || result.id.includes(result.token)) throw new Error('Invalid invitation ID'); return { id: result.id, invite_url: previewLink('/connect-sub', result.token), expires_at: result.expires_at } }}
+          revokeConnectionInvite={async invite => { await apiStagedInvites.revokeSubQr(invite.id) }} />}
         {/* Free first month banner */}
         <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-900">
           <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
