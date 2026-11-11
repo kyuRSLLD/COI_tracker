@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import time
@@ -17,6 +18,18 @@ ROOT = Path(__file__).resolve().parents[3]
 WORK = Path(os.environ['E2E_WORK'])
 PASSWORD = 'unique synthetic password 123'
 server = vite = None
+FILES = '/api/v2/self-reported-private-files'
+
+def interrupt(signum, _frame):
+    raise SystemExit(128 + signum)
+
+def timed_out(_signum, _frame):
+    raise TimeoutError('Browser test exceeded the 120-second deadline')
+
+signal.signal(signal.SIGTERM, interrupt)
+signal.signal(signal.SIGINT, interrupt)
+signal.signal(signal.SIGALRM, timed_out)
+signal.alarm(120)
 
 def qr_decode(png):
     z = ctypes.CDLL('libzbar.so.0')
@@ -46,21 +59,30 @@ def wait_file(path, process):
     raise RuntimeError('Timed out waiting for test process')
 
 def stop(proc):
-    if proc and proc.poll() is None:
-        proc.terminate()
+    if proc:
+        # A dedicated process group covers Vite's esbuild worker even if its
+        # parent already exited. Never signal processes from outside this run.
+        try: os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError: pass
         try: proc.wait(timeout=10)
-        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+        except subprocess.TimeoutExpired:
+            try: os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            proc.wait()
+        # A detached worker may outlive a cleanly exited group leader.
+        try: os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
 
 try:
     with (WORK / 'server.log').open('w') as server_log, (WORK / 'vite.log').open('w') as vite_log:
-        server = subprocess.Popen(['node', '--experimental-strip-types', 'server/test/browser-v2-server.ts'], cwd=ROOT, stdout=server_log, stderr=subprocess.STDOUT, env=os.environ.copy())
+        server = subprocess.Popen(['node', '--experimental-strip-types', 'server/test/browser-v2-server.ts'], cwd=ROOT, stdout=server_log, stderr=subprocess.STDOUT, env=os.environ.copy(), start_new_session=True)
         wait_file(WORK / 'ports.json', server)
         ports = json.loads((WORK / 'ports.json').read_text())
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); vite_port = sock.getsockname()[1]
         base = f'http://127.0.0.1:{vite_port}'
         env = {**os.environ, 'E2E_BACKEND_PORT': str(ports['enabled'])}
-        vite = subprocess.Popen([str(ROOT / 'node_modules/.bin/vite'), '--config', 'client/tests/v2-e2e/vite.config.ts', '--port', str(vite_port), '--strictPort'], cwd=ROOT, stdout=vite_log, stderr=subprocess.STDOUT, env=env)
+        vite = subprocess.Popen([str(ROOT / 'node_modules/.bin/vite'), '--config', 'client/tests/v2-e2e/vite.config.ts', '--port', str(vite_port), '--strictPort'], cwd=ROOT, stdout=vite_log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
         for _ in range(200):
             try:
                 with urlopen(base + '/tests/v2-e2e/index.html', timeout=1) as response: assert response.status == 200
@@ -129,7 +151,7 @@ try:
             other_token, other_id = signup(other, 'other', 'gc', 'Other')
             assert gc_id != other_id
             # Factory defaults stay off, even with a valid session; explicit unsafe options are test-only.
-            for path in ['/api/v2/connections/consent', '/api/v2/self-reported-coi-metadata/own']:
+            for path in ['/api/v2/connections/consent', '/api/v2/self-reported-coi-metadata/own', FILES + '/consent']:
                 response = sub.context.request.get(f'http://127.0.0.1:{ports["disabled"]}' + path, headers={'Authorization': 'Bearer ' + sub_token})
                 assert response.status == 503 and response.json() == {'error': 'Service unavailable'}
             def make_qr(page, token):
@@ -203,6 +225,102 @@ try:
             expect(other.get_by_text('No explicitly granted metadata is currently available', exact=False)).to_be_visible()
             denied = other.context.request.get(base + '/api/v2/self-reported-coi-metadata/granted', headers={'Authorization': 'Bearer ' + other_token})
             assert denied.status == 200 and denied.json() == {'records': []}
+            # Mount the private-file component in the test host only, after creating
+            # metadata. Upload real fixture bytes via the real backend, not API mocks.
+            sub.get_by_role('button', name='Open private files').click()
+            expect(sub.get_by_role('heading', name='Your self-reported files')).to_be_visible()
+            sub.get_by_label('Self-reported COI record').select_option(record_id)
+            fixture_dir = ROOT / 'server/test/fixtures/private-inspection'
+            sub.get_by_label('File', exact=True).set_input_files({'name': 'not-a-fixture.pdf', 'mimeType': 'application/pdf', 'buffer': b'%PDF-not-a-test-fixture'})
+            with sub.expect_response(lambda r: r.url.endswith(FILES + '/own/' + record_id) and r.request.method == 'PUT') as rejected_upload:
+                sub.get_by_role('button', name='Upload private file').click()
+            assert rejected_upload.value.status == 404
+            expect(sub.get_by_text('Upload outcome could not be confirmed.', exact=False)).to_be_visible()
+            initial_list = sub.context.request.get(base + FILES + '/own/list', headers={'Authorization': 'Bearer ' + sub_token})
+            assert initial_list.status == 200 and initial_list.json() == {'files': [], 'nextCursor': None}
+            samples = [('sample.pdf', 'application/pdf'), ('sample.png', 'image/png')]
+            file_ids = []
+            for filename, mime in samples:
+                data = (fixture_dir / filename).read_bytes()
+                sub.get_by_label('File', exact=True).set_input_files({'name': filename, 'mimeType': mime, 'buffer': data})
+                with sub.expect_response(lambda r: r.url.endswith(FILES + '/own/' + record_id) and r.request.method == 'PUT') as uploaded:
+                    sub.get_by_role('button', name='Upload private file').click()
+                assert uploaded.value.status == 201
+                assert uploaded.value.request.header_value('content-type') == mime
+                assert uploaded.value.request.post_data_buffer == data
+                fid = uploaded.value.json()['id']
+                assert re.fullmatch(r'[0-9a-f-]{36}', fid) and fid not in file_ids
+                file_ids.append(fid)
+                expect(sub.get_by_role('button', name='Preview file ' + fid)).to_be_visible()
+                with sub.expect_response(lambda r: r.url.endswith(FILES + '/own/' + fid) and r.request.method == 'GET') as preview:
+                    sub.get_by_role('button', name='Preview file ' + fid).click()
+                assert preview.value.status == 200 and preview.value.header_value('content-type') == mime
+                assert preview.value.body() == data
+                if mime == 'application/pdf':
+                    frame = sub.get_by_title('Private PDF preview')
+                    expect(frame).to_be_visible()
+                    assert frame.get_attribute('sandbox') == '' and frame.get_attribute('src').startswith('blob:')
+                else:
+                    image = sub.get_by_alt_text('Your private document preview')
+                    expect(image).to_be_visible()
+                    assert image.get_attribute('src').startswith('blob:')
+                    expect(image).to_have_js_property('naturalWidth', 2)
+                sub.get_by_role('button', name='Close preview').click()
+            pdf_id, png_id = file_ids
+            headers = lambda token: {'Authorization': 'Bearer ' + token}
+            def download(page, token, fid):
+                return page.context.request.get(base + FILES + '/granted/' + fid, headers=headers(token))
+            def denied_file(response):
+                assert response.status == 404 and response.json() == {'error': 'Unavailable'}
+            def granted_files(page, token):
+                response = page.context.request.get(base + FILES + '/granted/list', headers=headers(token))
+                assert response.status == 200
+                return response.json()
+            assert granted_files(gc, gc_token) == {'files': [], 'nextCursor': None}
+            assert granted_files(other, other_token) == {'files': [], 'nextCursor': None}
+            for fid in file_ids:
+                denied_file(download(gc, gc_token, fid))  # metadata grant is insufficient
+                denied_file(download(other, other_token, fid))
+            wrong_version = sub.context.request.post(base + FILES + '/grant', headers=headers(sub_token), data={'fileId': pdf_id, 'gcUserId': gc_id, 'consentVersion': meta['version'], 'affirmative': True})
+            denied_file(wrong_version)
+            denied_file(download(gc, gc_token, pdf_id))
+            disclosure_response = sub.context.request.get(base + FILES + '/consent', headers=headers(sub_token))
+            assert disclosure_response.status == 200
+            disclosure = disclosure_response.json()
+            assert disclosure['version'] != meta['version'] and disclosure['text']
+            sub.get_by_label('Ready file').select_option(pdf_id)
+            sub.get_by_role('region', name='Share or revoke a file').get_by_label('Connected GC account').select_option(gc_id)
+            expect(sub.get_by_text(disclosure['text'], exact=True)).to_be_visible()
+            file_agree = sub.get_by_label('I have read and agree to the exact disclosure above for this file and GC account.')
+            file_share = sub.get_by_role('button', name='Share this file')
+            assert not file_agree.is_checked() and file_share.is_disabled()
+            file_agree.check()
+            with sub.expect_response(lambda r: r.url.endswith(FILES + '/grant') and r.request.method == 'POST') as file_grant:
+                file_share.click()
+            assert file_grant.value.status == 204
+            assert file_grant.value.request.post_data_json == {'fileId': pdf_id, 'gcUserId': gc_id, 'consentVersion': disclosure['version'], 'affirmative': True}
+            expect(sub.get_by_text('Share request recorded for this file and GC account.')).to_be_visible()
+            assert not file_agree.is_checked()
+            listed = granted_files(gc, gc_token)
+            assert listed['nextCursor'] is None and [item['id'] for item in listed['files']] == [pdf_id]
+            assert granted_files(other, other_token) == {'files': [], 'nextCursor': None}
+            actual = download(gc, gc_token, pdf_id)
+            assert actual.status == 200 and actual.headers['content-type'] == 'application/pdf'
+            assert actual.body() == (fixture_dir / 'sample.pdf').read_bytes()
+            assert actual.headers['cache-control'] == 'private, no-store'
+            denied_file(download(other, other_token, pdf_id))
+            denied_file(download(gc, gc_token, png_id))  # no implicit grant for another file
+            with sub.expect_response(lambda r: r.url.endswith(FILES + '/revoke') and r.request.method == 'POST') as file_revoke:
+                sub.get_by_role('button', name='Revoke access to this file').click()
+            assert file_revoke.value.status == 204
+            assert file_revoke.value.request.post_data_json == {'fileId': pdf_id, 'gcUserId': gc_id}
+            expect(sub.get_by_text('Revocation request recorded for this file and GC account.', exact=False)).to_be_visible()
+            denied_file(download(gc, gc_token, pdf_id))
+            denied_file(download(other, other_token, pdf_id))
+            assert granted_files(gc, gc_token) == {'files': [], 'nextCursor': None}
+            owner_after = sub.context.request.get(base + FILES + '/own/' + pdf_id, headers=headers(sub_token))
+            assert owner_after.status == 200 and owner_after.body() == (fixture_dir / 'sample.pdf').read_bytes()
+            sub.get_by_role('button', name='Return to connections').click()
             with sub.expect_response(lambda r: r.url.endswith('/api/v2/self-reported-coi-metadata/revoke') and r.request.method == 'POST') as revoked:
                 sub.get_by_role('button', name='Revoke metadata access for this selection').click()
             assert revoked.value.status == 204 and revoked.value.request.post_data_json == {'coiId': record_id, 'gcUserId': gc_id}
@@ -216,7 +334,8 @@ try:
                 assert page.evaluate('localStorage.length + sessionStorage.length') == 0
             for ctx in contexts: ctx.close()
             browser.close()
-    print('PASS: real synthetic HTTP + PostgreSQL 16 browser signup/login, exact consent, raw QR manual/camera, scoped metadata and revocation; defaults off')
+    print('PASS: real synthetic HTTP + PostgreSQL 16 browser signup/login, QR, metadata, PDF/PNG upload and owner previews, explicit file consent, per-GC/per-file download denial, grant and revocation; defaults off')
 finally:
+    signal.alarm(0)
     stop(vite)
     stop(server)

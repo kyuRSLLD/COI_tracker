@@ -1,0 +1,32 @@
+.private-files { box-sizing: border-box; max-width: 1040px; margin: 0 auto; padding: clamp(1rem, 4vw, 2.5rem); color: #183048; font: 16px/1.55 system-ui, sans-serif; }
+.private-files *, .private-files *::before, .private-files *::after { box-sizing: inherit; }
+.private-files h1, .private-files h2, .private-files h3, .private-files p { margin: 0 0 .8rem; }
+.private-files h1 { font-size: clamp(1.8rem, 5vw, 2.65rem); line-height: 1.15; letter-spacing: -.03em; }
+.private-files h2 { font-size: 1.3rem; line-height: 1.25; }
+.private-files header { padding: .8rem 0 1rem; max-width: 46rem; }
+.private-files .pf-eyebrow { font-size: .72rem; letter-spacing: .11em; font-weight: 750; color: #326575; }
+.private-files .pf-card { margin: 1rem 0; border: 1px solid #d4e1e5; border-radius: 12px; padding: clamp(1rem, 3vw, 1.6rem); background: #fff; box-shadow: 0 3px 14px #122f3b0b; }
+.private-files .pf-form { display: grid; gap: .75rem; max-width: 48rem; margin-top: 1rem; }
+.private-files label { display: grid; gap: .3rem; font-weight: 650; }
+.private-files select, .private-files input[type=file] { width: 100%; min-width: 0; padding: .7rem; border: 1px solid #8fa7af; background: #fff; border-radius: 6px; color: #183048; font: inherit; }
+.private-files button { width: fit-content; max-width: 100%; padding: .65rem 1rem; border: 1px solid #124e5e; border-radius: 6px; background: #124e5e; color: white; font: inherit; font-weight: 650; cursor: pointer; }
+.private-files button.pf-secondary { background: #fff; color: #124e5e; }
+.private-files button:disabled { opacity: .5; cursor: not-allowed; }
+.private-files :focus-visible { outline: 3px solid #e1a021; outline-offset: 3px; }
+.private-files .pf-actions, .private-files .pf-section-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; align-items: start; }
+.private-files .pf-actions { justify-content: flex-start; }
+.private-files .pf-list { list-style: none; margin: 1rem 0; padding: 0; }
+.private-files .pf-list li { display: flex; justify-content: space-between; align-items: start; gap: 1rem; border-top: 1px solid #e1eaec; padding: 1rem 0; overflow-wrap: anywhere; }
+.private-files .pf-list p { margin: .35rem 0 0; font-size: .9rem; }
+.private-files .pf-badge { display: inline-block; margin-left: .3rem; border-radius: 99px; padding: .15rem .5rem; background: #edf3ed; color: #355f44; font-size: .75rem; }
+.private-files .pf-preview, .private-files .pf-selection, .private-files .pf-disclosure { background: #f2f7f7; border-left: 3px solid #55919a; padding: 1rem; overflow-wrap: anywhere; }
+.private-files .pf-disclosure p { margin: .5rem 0 0; white-space: pre-wrap; }
+.private-files .pf-preview { margin-top: 1rem; }
+.private-files iframe { width: 100%; height: min(70vh, 640px); border: 1px solid #adc1c6; background: white; }
+.private-files img { display: block; max-width: 100%; max-height: 70vh; object-fit: contain; }
+.private-files label.pf-check { display: flex; align-items: start; gap: .65rem; font-weight: 500; }
+.private-files .pf-check input { flex: none; width: 1.1rem; height: 1.1rem; margin-top: .22rem; }
+.private-files .pf-note { color: #49616c; font-size: .9rem; margin-top: 1rem; }
+.private-files .pf-error, .private-files .pf-message { padding: .8rem; border-radius: 6px; background: #fcebea; color: #842b23; overflow-wrap: anywhere; }
+.private-files .pf-message { background: #eaf5ed; color: #275c37; }
+@media (max-width: 540px) { .private-files .pf-list li { flex-direction: column; } .private-files button { white-space: normal; } }

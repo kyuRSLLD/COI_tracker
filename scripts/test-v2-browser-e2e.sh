@@ -6,7 +6,19 @@ PG_BIN="${PG16_BIN:-/usr/lib/postgresql/16/bin}"
 [[ -x "$PG_BIN/initdb" && -x "$PG_BIN/pg_ctl" && -x "$PG_BIN/createdb" ]] || { echo 'Local PostgreSQL 16 binaries required' >&2; exit 1; }
 mkdir -p "$ROOT/.work"
 WORK="$(mktemp -d "$ROOT/.work/browser-v2.XXXXXXXX")"
+CHILD=""
 cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  if [[ -n "$CHILD" ]]; then
+    kill -TERM "$CHILD" 2>/dev/null || true
+    wait "$CHILD" 2>/dev/null || true
+  fi
+  if (( status != 0 )); then
+    for log in "$WORK/server.log" "$WORK/vite.log" "$WORK/postgres.log"; do
+      if [[ -f "$log" ]]; then printf '\n--- %s ---\n' "${log##*/}" >&2; tail -n 80 "$log" >&2; fi
+    done
+  fi
   if [[ -f "$WORK/data/postmaster.pid" ]]; then
     if ! env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/pg_ctl" -D "$WORK/data" -m immediate -w stop >/dev/null; then
       echo "Could not stop temporary PostgreSQL; preserving $WORK for manual cleanup" >&2
@@ -14,6 +26,7 @@ cleanup() {
     fi
   fi
   rm -rf -- "$WORK"
+  return "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -23,4 +36,12 @@ env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/initdb" -D "$WORK/data" -U synth
 env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" -o "-F -h 127.0.0.1 -p $PORT -k $WORK" -w start >/dev/null
 env -i HOME="$WORK" PATH=/usr/bin:/bin "$PG_BIN/createdb" -h 127.0.0.1 -p "$PORT" -U synthetic secure_v2_test_browser
 printf 'Running browser integration with a disposable local PostgreSQL 16 cluster\n'
-env -i HOME="$WORK" PATH="$PATH" NODE_ENV=test E2E_WORK="$WORK" SECURE_V2_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/secure_v2_test_browser" python3 client/tests/v2-e2e/test_e2e.py
+env -i HOME="$WORK" PATH="$PATH" NODE_ENV=test E2E_WORK="$WORK" SECURE_V2_TEST_PG_URL="postgresql://synthetic@127.0.0.1:$PORT/secure_v2_test_browser" python3 client/tests/v2-e2e/test_e2e.py &
+CHILD=$!
+if wait "$CHILD"; then
+  CHILD=""
+else
+  result=$?
+  CHILD=""
+  exit "$result"
+fi

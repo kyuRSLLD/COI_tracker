@@ -1,7 +1,7 @@
 // TEST ONLY: invoked by scripts/test-v2-browser-e2e.sh with a new isolated cluster.
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
-import { rename, writeFile } from 'node:fs/promises'
+import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import pg from 'pg'
@@ -15,6 +15,8 @@ import { migratePrivateCertificateMetadataV1 } from '../src/db/migrations/003_pr
 import { migrateRegistrationV2V1 } from '../src/db/migrations/004_registration_v2.ts'
 import { migrateFreshSubProfileEvidenceV1 } from '../src/db/migrations/005_fresh_sub_profile_evidence.ts'
 import { migrateSelfReportedCoiMetadataV1 } from '../src/db/migrations/006_self_reported_coi_metadata.ts'
+import { migrateSelfReportedPrivateFilesV1 } from '../src/db/migrations/007_self_reported_private_files.ts'
+import type { FileMime, PrivateFileInspector, ImmutablePrivateStorage } from '../src/services/selfReportedPrivateFiles.ts'
 
 const url = process.env.SECURE_V2_TEST_PG_URL
 const work = process.env.E2E_WORK
@@ -37,6 +39,7 @@ try {
   assert.equal(await migrateRegistrationV2V1(c), 'applied')
   assert.equal(await migrateFreshSubProfileEvidenceV1(c), 'applied')
   assert.equal(await migrateSelfReportedCoiMetadataV1(c), 'applied')
+  assert.equal(await migrateSelfReportedPrivateFilesV1(c), 'applied')
 } finally { c.release() }
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const authConfig = { privateKey: keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(), issuer: 'browser-synthetic', audience: 'browser-synthetic' }
@@ -50,8 +53,33 @@ const mockSes = { async send(command: SendEmailCommand) {
   await writeFile(join(work, `mail-${email.split('@')[0]}`), match[1], { mode: 0o600 })
   return { MessageId: 'synthetic-only' }
 } }
+// Deliberately NOT a real scanner: accept only the two exact test fixtures.
+// All object data remains private to this process; no AWS client is created.
+const fixtures = new Map<FileMime, Buffer>([
+  ['application/pdf', await readFile(new URL('./fixtures/private-inspection/sample.pdf', import.meta.url))],
+  ['image/png', await readFile(new URL('./fixtures/private-inspection/sample.png', import.meta.url))],
+])
+const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const inspector: PrivateFileInspector = { async inspect(bytes, mime, signal) {
+  if (signal?.aborted || !fixtures.get(mime)?.equals(Buffer.from(bytes))) throw new Error('Not a synthetic fixture')
+  return { mime, size: bytes.length, sha256: digest(bytes) }
+} }
+const objects = new Map<string, { bytes: Buffer; version: string }>()
+const storage: ImmutablePrivateStorage = {
+  async putNew(key, bytes, mime, signal) {
+    if (signal?.aborted || objects.has(key)) throw new Error('Unavailable')
+    const copy = Buffer.from(bytes), version = randomUUID()
+    objects.set(key, { bytes: copy, version })
+    return { mime, size: copy.length, sha256: digest(copy), version }
+  },
+  async getVersion(key, version, maxBytes) {
+    const object = objects.get(key)
+    if (!object || object.version !== version || object.bytes.length > maxBytes) throw new Error('Unavailable')
+    return { bytes: Buffer.from(object.bytes), version }
+  },
+}
 const base = { pool, authConfig, testRateLimit: async () => true, testRegistrationRateLimit: async () => true, unsafeTestOnlyMockSes: mockSes }
-const enabled = createSecureV2SyntheticTestApp({ ...base, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyEnableMetadata: true })
+const enabled = createSecureV2SyntheticTestApp({ ...base, unsafeTestOnlyEnableConsent: true, unsafeTestOnlyEnableMetadata: true, unsafeTestOnlyPrivateFiles: { inspector, storage, maxFileBytes: 1024 * 1024, uploadDeadlineMs: 5000 } })
 const disabled = createSecureV2SyntheticTestApp(base)
 const listen = async (app: typeof enabled) => {
   const server = app.listen(0, '127.0.0.1')

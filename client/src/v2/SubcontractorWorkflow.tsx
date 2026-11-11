@@ -9,7 +9,7 @@ type Coverage = { type: string; limitCents: number }
 type RecordItem = { id: string; profile_id: string; carrier: string; effective_date: string; expiration_date: string; coverage: Coverage[]; created_at: string; reporting_status: string }
 type GC = { gc_user_id: string; gc_name: string | null }
 type Load<T> = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: T }
-type Props = { token: string }
+type Props = { token: string; hideUnavailableFiles?: boolean }
 
 // All API paths are fixed, same-origin and query-free. Neither credentials nor
 // capabilities are persisted, logged, or sent to third-party QR services.
@@ -169,18 +169,18 @@ function Metadata({ token }: Props) {
   </>
 }
 
-function Workflow({ token }: Props) {
+function Workflow({ token, hideUnavailableFiles }: Props) {
   const profile = useResource<Profile>(token, '/api/v2/connections/profile', profileValid)
   return <main className="sub-v2"><header className="v2-header"><span className="v2-eyebrow">SUBCONTRACTOR WORKSPACE / V2</span><h1>Connections & insurance information</h1><p>Control profile connections and decide exactly which self-reported metadata to share.</p></header>
     <section className="v2-card" aria-labelledby="profile-heading"><div className="v2-eyebrow">YOUR PROFILE</div><h2 id="profile-heading">Self-reported, not verified</h2><p>Profile company and trade information is self-reported. Email-control evidence does not verify a business, its authority, or insurance. This API only provides the profile ID and evidence type here.</p><StateNotice resource={profile} label="profile" />{profile.value.status === 'ready' && <p><strong>Profile ID:</strong> {profile.value.data.profileId}<br /><strong>Evidence type:</strong> {profile.value.data.evidenceType}</p>}</section>
     {profile.value.status === 'ready' && <QrConnection token={token} profile={profile.value.data} />}
     <Metadata token={token} />
-    <section className="v2-card" aria-labelledby="file-heading"><div className="v2-eyebrow">DOCUMENTS</div><h2 id="file-heading">File upload</h2><p><strong>Not available yet.</strong> No certificate upload, file access, or file sharing is provided by this interface.</p><button type="button" disabled>Upload not available yet</button></section>
+    {!hideUnavailableFiles && <section className="v2-card" aria-labelledby="file-heading"><div className="v2-eyebrow">DOCUMENTS</div><h2 id="file-heading">File upload</h2><p><strong>Not available yet.</strong> No certificate upload, file access, or file sharing is provided by this interface.</p><button type="button" disabled>Upload not available yet</button></section>}
   </main>
 }
-export function SubcontractorWorkflow({ token }: Props) {
+export function SubcontractorWorkflow({ token, hideUnavailableFiles = false }: Props) {
   if (!token) return <main className="sub-v2"><p role="alert">An authorization token must be supplied by the host.</p></main>
   // New credentials reset all transient state, including any QR capability.
-  return <Workflow key={token} token={token} />
+  return <Workflow key={token} token={token} hideUnavailableFiles={hideUnavailableFiles} />
 }
 export default SubcontractorWorkflow
