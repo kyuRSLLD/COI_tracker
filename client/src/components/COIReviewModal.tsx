@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { X, CheckCircle2, FileQuestion, Ban, ExternalLink, ShieldCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, CheckCircle2, FileQuestion, Ban, FileText, ShieldCheck } from 'lucide-react'
 import type { COI, GCSettings } from '../types'
 import { apiCOIs } from '../api'
+import { CertificateViewer } from './CertificateViewer'
 
 interface Props {
   coi: COI | null
@@ -15,6 +16,11 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
   const [notes, setNotes] = useState(coi?.reviewer_notes || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [viewingCertificate, setViewingCertificate] = useState(false)
+
+  useEffect(() => {
+    if (!open) setViewingCertificate(false)
+  }, [open])
 
   if (!open || !coi) return null
 
@@ -95,14 +101,13 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
                 {coi.certificate_size ? ` · ${(coi.certificate_size / 1024 / 1024).toFixed(1)} MB` : ''}
               </div>
             </div>
-            <a
-              href={coi.certificate_url}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => setViewingCertificate(true)}
               className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:text-brand-900 underline"
             >
-              Open <ExternalLink className="w-3 h-3" />
-            </a>
+              Open <FileText className="w-3 h-3" />
+            </button>
           </div>
         )}
 
@@ -197,6 +202,7 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
           </button>
         </div>
       </div>
+      {viewingCertificate && <CertificateViewer certificate={coi} onClose={() => setViewingCertificate(false)} returnLabel="Back to review" />}
     </div>
   )
 }
