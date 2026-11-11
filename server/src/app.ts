@@ -19,15 +19,17 @@ import { subPortalRouter } from './routes/subPortal.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-export async function createApp() {
-  await initDatabase()
+// Deployment switch: keep true until an approved security fix is ready.
+// Changing this requires a code deployment; no environment variable can disable it.
+export const MAINTENANCE_MODE = true
+
+export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { maintenanceMode?: boolean } = {}) {
+  // Existing initialization includes schema changes and a backfill. Do not run it
+  // during maintenance; the health endpoint reports configuration, not DB readiness.
+  if (!maintenanceMode) await initDatabase()
 
   const app = express()
-  app.use(cors({ origin: true, credentials: true }))
-  app.use(express.json({ limit: '10mb' }))
-
-  fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
-  app.use('/uploads', express.static(LOCAL_UPLOADS))
+  app.use(cors({ origin: true, credentials: true, preflightContinue: maintenanceMode }))
 
   app.get('/api/health', (_req, res) => {
     res.json({
@@ -37,6 +39,21 @@ export async function createApp() {
       time: new Date().toISOString(),
     })
   })
+
+  if (maintenanceMode) {
+    // Keep health preflight available, but reject preflights to protected paths.
+    app.options('/api/health', cors({ origin: true, credentials: true }))
+    app.use(['/api', '/uploads'], (_req, res) => {
+      res.set('Cache-Control', 'no-store')
+      res.status(503).json({ error: 'Service temporarily unavailable for maintenance.' })
+    })
+    // Preserve normal preflight behavior for public non-API paths.
+    app.options('*', cors({ origin: true, credentials: true }))
+  }
+
+  app.use(express.json({ limit: '10mb' }))
+  if (!maintenanceMode) fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
+  app.use('/uploads', express.static(LOCAL_UPLOADS))
 
   app.use('/api/auth', authRouter)
   app.use('/api/subcontractors', subcontractorsRouter)

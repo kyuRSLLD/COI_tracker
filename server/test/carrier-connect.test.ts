@@ -19,7 +19,7 @@ const { signToken } = await import('../src/middleware/auth.ts')
 const { computeSubcontractorStatus } = await import('../src/services/compliance.ts')
 
 test('carrier-connect fails closed; historic simulations are labeled and PDF upload works', async () => {
-  const app = await createApp()
+  const app = await createApp({ maintenanceMode: false })
   const server = app.listen(0, '127.0.0.1')
   await new Promise<void>((resolve) => server.once('listening', resolve))
   const address = server.address()

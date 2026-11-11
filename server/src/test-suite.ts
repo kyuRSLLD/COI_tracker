@@ -64,7 +64,7 @@ console.log(' COI Tracker API Integration Test Suite')
 console.log('========================================\n')
 
 await seed()
-const app = await createApp()
+const app = await createApp({ maintenanceMode: false })
 
 // 1. Health check
 const health = await request(app, { url: '/api/health' })
