@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { ShieldCheck, CheckCircle2, ArrowRight, Sparkles, Building2, Lock, UserPlus, LogIn } from 'lucide-react'
 import { apiSub, apiRegister, apiLogin, setStoredUser, setToken, getStoredUser, getToken } from '../api'
 import type { JoinInfo, User } from '../types'
+import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 
 export function JoinPage() {
   const { inviteCode = '' } = useParams<{ inviteCode: string }>()
@@ -296,8 +297,10 @@ export function JoinPage() {
                         <input
                           type="tel"
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          onChange={(e) => setPhone(formatPhone(e.target.value))}
                           placeholder="(312) 555-0199"
+                          pattern={US_PHONE_PATTERN}
+                          title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
                           className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
                         />
                       </div>

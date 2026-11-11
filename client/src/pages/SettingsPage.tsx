@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import type { GCSettings, UserPhone } from '../types'
 import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe } from '../api'
-import { formatPhone } from '../lib/formatPhone'
+import { formatPhone, isValidUsPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 import { QRCodeSVG } from 'qrcode.react'
 
 const BACKUP_CODES = ['A3F9-K8X2', '7M1B-QQ40', 'Z9C2-T6L1', '5V0P-9Y7D', 'E8R4-N3W6', '2K7H-B1J5', 'F6S0-X4M9', 'U1A8-D5C3']
@@ -131,7 +131,10 @@ export function SettingsPage() {
   }
 
   const handleAddPhone = async () => {
-    if (!newPhone.trim()) return
+    if (!isValidUsPhone(newPhone)) {
+      showToast('Please enter a complete 10-digit phone number')
+      return
+    }
     setPhoneSaving(true)
     try {
       const res = await apiPhones.add({ phone: newPhone.trim(), label: newLabel, is_primary: newIsPrimary || phones.length === 0 })
@@ -165,6 +168,9 @@ export function SettingsPage() {
   }
   const handleVerify2fa = () => {
     setTfaMsg(null)
+    if (twoFactorMethod === 'sms' && !isValidUsPhone(smsPhone)) {
+      return setTfaMsg({ text: 'Enter a complete 10-digit mobile phone number', ok: false })
+    }
     if (!verifyCode || verifyCode.trim().length < 6) {
       return setTfaMsg({ text: 'Enter the 6-digit verification code', ok: false })
     }
@@ -215,7 +221,7 @@ export function SettingsPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">Office phone</label>
-              <input value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: formatPhone(e.target.value) })} placeholder="(312) 555-0100" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+              <input type="tel" value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: formatPhone(e.target.value) })} placeholder="(312) 555-0100" pattern={US_PHONE_PATTERN} title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">Compliance email (used for reminders &amp; invites)</label>
@@ -290,11 +296,10 @@ export function SettingsPage() {
           <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
             <input
               type="tel"
-              required
               placeholder="(312) 555-0199"
               value={newPhone}
               onChange={(e) => setNewPhone(formatPhone(e.target.value))}
-              pattern="\\(\d{3}\\) \d{3}-\d{4}"
+              pattern={US_PHONE_PATTERN}
               title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
               className="px-3 py-2 rounded-xl border border-slate-200"
             />
@@ -546,8 +551,10 @@ export function SettingsPage() {
                     <input
                       type="tel"
                       value={smsPhone}
-                      onChange={(e) => setSmsPhone(e.target.value)}
+                      onChange={(e) => setSmsPhone(formatPhone(e.target.value))}
                       placeholder="(312) 555-0100"
+                      pattern={US_PHONE_PATTERN}
+                      title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
                       className="w-60 px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
                     />
                   </div>

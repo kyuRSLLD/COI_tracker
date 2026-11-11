@@ -8,13 +8,14 @@ import type { AuthRequest } from '../middleware/auth.ts'
 
 export const authRouter = Router()
 
-// Normalizes any raw phone into (xxx) xxx-xxxx. Falls back to trimmed raw for non-US formats.
+// Return a normalized US number, or null for missing or invalid input.
 export function normalizePhone(raw: string | undefined | null): string | null {
-  if (!raw) return null
-  const d = String(raw).replace(/\D/g, '')
+  if (typeof raw !== 'string' || !/^\+?[0-9()\s.-]+$/.test(raw.trim())) return null
+  const d = raw.replace(/\D/g, '')
+  if (raw.trim().startsWith('+') && !(d.length === 11 && d[0] === '1')) return null
   if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
   if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
-  return String(raw).trim() || null
+  return null
 }
 
 authRouter.post('/register', async (req, res) => {
@@ -38,6 +39,11 @@ authRouter.post('/register', async (req, res) => {
     }
     const finalRole = role === 'sub' ? 'sub' : 'gc'
     const phoneFormatted = normalizePhone(phone)
+    // Older API clients can register with a single name and no phone, but any
+    // supplied phone, and the current first/last-name signup, must be valid.
+    if (!phoneFormatted && (phone != null && phone !== '' || fn || ln)) {
+      return res.status(400).json({ error: 'Please enter a valid 10-digit phone number' })
+    }
     const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email.toLowerCase()])
     if (existing) {
       return res.status(409).json({ error: 'An account with that email already exists' })
@@ -59,10 +65,10 @@ authRouter.post('/register', async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, email.toLowerCase(), hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, new Date().toISOString(), subId]
     )
-    if (phone) {
+    if (phoneFormatted) {
       await dbRun(
         'INSERT INTO user_phones (id, user_id, phone, label, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-        [uuidv4(), id, phoneFormatted || String(phone).trim(), 'mobile', new Date().toISOString()]
+        [uuidv4(), id, phoneFormatted, 'mobile', new Date().toISOString()]
       )
     }
     const user = { id, email: email.toLowerCase(), name: fullName, first_name: fn || null, last_name: ln || null, phone: phoneFormatted, role: finalRole, subcontractor_id: subId }
@@ -146,7 +152,8 @@ authRouter.post('/phones', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { phone, label, is_primary } = req.body || {}
     if (!phone || !String(phone).trim()) return res.status(400).json({ error: 'Phone is required' })
-    const clean = normalizePhone(phone) || String(phone).trim()
+    const clean = normalizePhone(phone)
+    if (!clean) return res.status(400).json({ error: 'Please enter a valid 10-digit phone number' })
     const id = uuidv4()
     const makePrimary = !!is_primary
     if (makePrimary) {

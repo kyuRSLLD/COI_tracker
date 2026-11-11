@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ShieldCheck, ArrowRight } from 'lucide-react'
 import { apiLogin, apiRegister } from '../api'
-import { formatPhone } from '../lib/formatPhone'
+import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const navigate = useNavigate()
@@ -129,7 +129,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                     value={phone}
                     onChange={(e) => setPhone(formatPhone(e.target.value))}
                     placeholder="(312) 555-0199"
-                    pattern="\\(\d{3}\\) \d{3}-\d{4}"
+                    pattern={US_PHONE_PATTERN}
                     title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                   />
