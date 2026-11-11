@@ -185,8 +185,14 @@ adminRouter.delete('/users/:id', requireAdmin, async (req: AuthRequest, res) => 
   }
 })
 
-// Reset entire database to fresh demo data (admin only)
-adminRouter.post('/danger/reset', requireAdmin, async (_req, res) => {
+// Demo controls are not safe in production, even for an authenticated admin.
+function demoOnly(_req: any, res: any, next: any) {
+  if (process.env.NODE_ENV === 'production') return res.status(404).json({ error: 'Not found' })
+  next()
+}
+
+// Reset entire database to fresh demo data (admin only, development only)
+adminRouter.post('/danger/reset', demoOnly, requireAdmin, async (_req, res) => {
   try {
     const { seed } = await import('../seed.ts')
     await seed()
@@ -196,8 +202,8 @@ adminRouter.post('/danger/reset', requireAdmin, async (_req, res) => {
   }
 })
 
-// One-time bootstrap: if the users table is completely empty, populate demo data (no auth required)
-adminRouter.post('/bootstrap-seed', async (_req, res) => {
+// Development-only bootstrap: never create known demo credentials in production.
+adminRouter.post('/bootstrap-seed', demoOnly, async (_req, res) => {
   try {
     const userCount = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM users')
     if (Number(userCount?.count || 0) > 0) {
@@ -211,8 +217,8 @@ adminRouter.post('/bootstrap-seed', async (_req, res) => {
   }
 })
 
-// Bootstrap helper: if no admin exists yet, promote the caller
-adminRouter.post('/make-me-admin', requireAuth, async (req: AuthRequest, res) => {
+// Development-only bootstrap. Admins must be provisioned by an operator in production.
+adminRouter.post('/make-me-admin', demoOnly, requireAuth, async (req: AuthRequest, res) => {
   try {
     const adminCount = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'")
     if (Number(adminCount?.count || 0) > 0) {
