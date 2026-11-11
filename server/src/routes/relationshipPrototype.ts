@@ -4,12 +4,13 @@ import { dbTransaction, relationshipPrototypeEnvironmentSafe } from '../db/db.ts
 import type { DbTransaction } from '../db/db.ts'
 import { requireAuth, stagedInvitationAuthConfigured } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
+import { certificateIdPattern, openSyntheticCertificate, privateCertificateEnvironmentSafe } from '../services/privateCertificatePrototype.ts'
 
 export const relationshipPrototypeRouter = express.Router()
 const VERSION = 'coi-all-current-future-v1'
 const DISCLOSURE = {
   version: VERSION,
-  scope: 'I agree to share ALL of my current and future COI information with the connected general contractor, including policy details, coverages and review notes. This continues until I revoke the connection. Certificate files and file links are not available in this prototype, and link-like metadata may be omitted. This does not grant access to the general contractor’s clients.',
+  scope: 'I agree to share ALL of my current and future COI information with the connected general contractor, including policy details, coverages and review notes. This continues until I revoke the connection. This relationship grant does not include certificate files or file links; separate explicit file consent is required where available. Link-like metadata may be omitted. This does not grant access to the general contractor’s clients.',
   qr: 'A QR code is a bearer capability: any qualifying signed-in general contractor who obtains and scans it before it expires can connect and receive this information, without another approval from me. Share it only deliberately.',
   invitation: 'By accepting, I authorize the specific general contractor identified on the invitation preview to receive this information.',
 }
@@ -234,3 +235,109 @@ relationshipPrototypeRouter.get('/gc/connections', handle(async (req, res) => {
   })
   res.json({ connections: withoutLinks(connections) })
 }))
+
+// Existing v1 relationship consent explicitly excludes files. These routes
+// require an additional opt-in, tied to the exact active connection instance.
+const FILE_CONSENT_VERSION = 'synthetic-certificate-access-v1'
+const fileScope = 'I authorize this specific connected general contractor to download all my current and future synthetic certificate files until I revoke this file grant or the connection. Existing metadata consent alone does not authorize file access. This does not grant access to the general contractor’s clients.'
+const fileGate: express.RequestHandler = (_req, res, next) => {
+  if (!privateCertificateEnvironmentSafe()) return res.status(503).json({ error: 'Development prototype unavailable' })
+  next()
+}
+
+async function ownedConnection(tx: DbTransaction, req: AuthRequest) {
+  const sub = await actor(tx, req, 'sub')
+  const profile = await subProfile(tx, sub.id)
+  if (!profile) return fail(404, 'Connection unavailable')
+  const gc = await gcProfile(tx, req.params.gcId)
+  const relation = await tx.get<any>(`SELECT source_id FROM prototype_relationships
+    WHERE gc_user_id = ? AND sub_user_id = ? AND sub_profile_id = ? AND active = 1 AND revoked_at IS NULL`, [req.params.gcId, sub.id, profile.id])
+  if (!gc || !relation) return fail(404, 'Connection unavailable')
+  return { sub, profile, gc, relation }
+}
+
+relationshipPrototypeRouter.get('/sub/connections/:gcId/certificate-disclosure', fileGate, handle(async (req, res) => {
+  const result = await dbTransaction(async tx => {
+    const { gc, relation } = await ownedConnection(tx, req)
+    // Never ask the sub to consent to an identity that must be redacted.
+    const name = gc.company_name.trim()
+    if (withoutLinks(name) !== name) return fail(404, 'Connection unavailable')
+    return { version: FILE_CONSENT_VERSION, scope: fileScope, gc_user_id: gc.id, gc_company_name: name, connection_id: relation.source_id }
+  })
+  res.json(result)
+}))
+relationshipPrototypeRouter.post('/sub/connections/:gcId/certificate-access', fileGate, handle(async (req, res) => {
+  await dbTransaction(async tx => {
+    const { sub, profile, gc, relation } = await ownedConnection(tx, req)
+    const name = gc.company_name.trim()
+    if (req.body?.consent !== true || req.body?.consent_version !== FILE_CONSENT_VERSION) return fail(400, 'Explicit file consent is required')
+    if (withoutLinks(name) !== name || req.body?.gc_user_id !== gc.id || req.body?.gc_company_name !== name || req.body?.connection_id !== relation.source_id) return fail(404, 'Connection unavailable')
+    await tx.run(`INSERT INTO prototype_certificate_grants
+      (gc_user_id, sub_user_id, sub_profile_id, relationship_source_id, consent_version, active, granted_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, NULL)
+      ON CONFLICT (gc_user_id, sub_user_id) DO UPDATE SET sub_profile_id = excluded.sub_profile_id,
+        relationship_source_id = excluded.relationship_source_id, consent_version = excluded.consent_version,
+        active = 1, granted_at = excluded.granted_at, revoked_at = NULL`,
+      [gc.id, sub.id, profile.id, relation.source_id, FILE_CONSENT_VERSION, now()])
+  })
+  res.json({ granted: true })
+}))
+relationshipPrototypeRouter.delete('/sub/connections/:gcId/certificate-access', fileGate, handle(async (req, res) => {
+  await dbTransaction(async tx => {
+    const sub = await actor(tx, req, 'sub')
+    const result = await tx.run('UPDATE prototype_certificate_grants SET active = 0, revoked_at = COALESCE(revoked_at, ?) WHERE gc_user_id = ? AND sub_user_id = ?', [now(), req.params.gcId, sub.id])
+    if (!result.changes) return fail(404, 'Grant unavailable')
+  })
+  res.json({ revoked: true })
+}))
+
+async function download(req: AuthRequest, res: express.Response, role: 'gc' | 'sub') {
+  let opened: Awaited<ReturnType<typeof openSyntheticCertificate>>
+  try {
+    opened = await dbTransaction(async tx => {
+      const user = await actor(tx, req, role)
+      if (!certificateIdPattern.test(req.params.coiId)) return fail(404, 'Certificate unavailable')
+      const coi = await tx.get<any>('SELECT id, subcontractor_id, certificate_mime FROM cois WHERE id = ?', [req.params.coiId])
+      if (!coi) return fail(404, 'Certificate unavailable')
+      if (role === 'sub') {
+        const profile = await subProfile(tx, user.id)
+        if (!profile || profile.id !== coi.subcontractor_id) return fail(404, 'Certificate unavailable')
+      } else {
+        if (!await gcProfile(tx, user.id)) return fail(404, 'Certificate unavailable')
+        const relations = await tx.all<any>(`SELECT r.sub_user_id, r.sub_profile_id FROM prototype_relationships r
+          JOIN prototype_certificate_grants g ON g.gc_user_id = r.gc_user_id AND g.sub_user_id = r.sub_user_id
+            AND g.sub_profile_id = r.sub_profile_id AND g.relationship_source_id = r.source_id
+          WHERE r.gc_user_id = ? AND r.sub_profile_id = ? AND r.active = 1 AND r.revoked_at IS NULL
+            AND g.active = 1 AND g.revoked_at IS NULL AND g.consent_version = ?`, [user.id, coi.subcontractor_id, FILE_CONSENT_VERSION])
+        let allowed = false
+        for (const relation of relations) {
+          const profile = await subProfile(tx, relation.sub_user_id)
+          if (profile && profile.id === relation.sub_profile_id) allowed = true
+        }
+        if (!allowed) return fail(404, 'Certificate unavailable')
+      }
+      const result = await openSyntheticCertificate(coi.id, coi.certificate_mime)
+      if (!result) return fail(404, 'Certificate unavailable')
+      // If COMMIT fails, close in the outer catch.
+      opened = result
+      return result
+    })
+  } catch (err) {
+    await opened?.file.close().catch(() => {})
+    throw err
+  }
+  if (res.destroyed) { await opened.file.close().catch(() => {}); return }
+  res.set({ 'Content-Type': opened.mime, 'Content-Length': String(opened.size),
+    'Content-Disposition': `attachment; filename="certificate.${opened.extension}"`,
+    'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" })
+  const stream = opened.file.createReadStream({ start: 0, autoClose: true })
+  stream.on('error', () => {
+    if (res.headersSent) return res.destroy()
+    res.removeHeader('Content-Length'); res.removeHeader('Content-Disposition'); res.removeHeader('Content-Type')
+    res.status(404).json({ error: 'Certificate unavailable' })
+  })
+  res.on('close', () => stream.destroy())
+  stream.pipe(res)
+}
+relationshipPrototypeRouter.get('/gc/certificates/:coiId', fileGate, handle((req, res) => download(req, res, 'gc')))
+relationshipPrototypeRouter.get('/sub/certificates/:coiId', fileGate, handle((req, res) => download(req, res, 'sub')))

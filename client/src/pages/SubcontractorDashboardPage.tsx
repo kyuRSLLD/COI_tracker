@@ -1,5 +1,7 @@
 import { SubcontractorConnectionQr } from '../components/SubcontractorConnectionQr'
-import { apiStagedInvites, getStoredUser } from '../api'
+import { RelationshipPrototypeSub } from '../components/RelationshipPrototypeSub'
+import { relationshipPrototypeEnabled } from '../lib/relationshipPrototypeApi'
+import { apiStagedInvites, getStoredUser, getToken } from '../api'
 import { stagedInvitesEnabled, previewLink } from '../lib/stagedInvites'
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
@@ -117,6 +119,7 @@ export function SubcontractorDashboardPage() {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm text-slate-500">Loading your insurance portal…</div>
   }
 
+  const prototypeToken = relationshipPrototypeEnabled && getStoredUser()?.role === 'sub' ? getToken() : null
   const sub = data?.subcontractor
   const cois = data?.cois || []
 
@@ -136,6 +139,7 @@ export function SubcontractorDashboardPage() {
         {stagedInvitesEnabled && getStoredUser()?.role === 'sub' && <SubcontractorConnectionQr
           createConnectionInvite={async trade => { const result = await apiStagedInvites.createSubQr(trade); if (typeof result.id !== 'string' || typeof result.token !== 'string' || result.id.includes(result.token)) throw new Error('Invalid invitation ID'); return { id: result.id, invite_url: previewLink('/connect-sub', result.token), expires_at: result.expires_at } }}
           revokeConnectionInvite={async invite => { await apiStagedInvites.revokeSubQr(invite.id) }} />}
+        {prototypeToken && <RelationshipPrototypeSub key={prototypeToken} authToken={prototypeToken} />}
         {/* Free first month banner */}
         <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-900">
           <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />

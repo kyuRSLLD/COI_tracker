@@ -3,8 +3,9 @@ import cors from 'cors'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { initDatabase, isPostgres } from './db/db.ts'
+import { dbExec, initDatabase, isPostgres } from './db/db.ts'
 import { LOCAL_UPLOADS, isS3Configured } from './services/storage.ts'
+import { privateCertificateEnvironmentSafe } from './services/privateCertificatePrototype.ts'
 import { authRouter } from './routes/auth.ts'
 import { subcontractorsRouter } from './routes/subcontractors.ts'
 import { coisRouter } from './routes/cois.ts'
@@ -23,6 +24,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export async function createApp() {
   await initDatabase()
+  if (privateCertificateEnvironmentSafe()) await dbExec(`
+    CREATE TABLE IF NOT EXISTS prototype_certificate_grants (
+      gc_user_id TEXT NOT NULL, sub_user_id TEXT NOT NULL, sub_profile_id TEXT NOT NULL,
+      relationship_source_id TEXT NOT NULL, consent_version TEXT NOT NULL,
+      active INTEGER NOT NULL CHECK (active IN (0, 1)), granted_at TEXT NOT NULL, revoked_at TEXT,
+      PRIMARY KEY (gc_user_id, sub_user_id)
+    )
+  `)
 
   const app = express()
   app.use(cors({ origin: true, credentials: true }))

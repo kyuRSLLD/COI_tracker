@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Plus, Search, FileText, Edit2, Trash2, Shield, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
-import { apiSubcontractors, apiSettings, apiCOIs } from '../api'
+import { apiSubcontractors, apiSettings, apiCOIs, getStoredUser, getToken } from '../api'
+import { GcRelationshipPrototype } from '../components/relationshipPrototype/GcRelationshipPrototype'
+import { relationshipPrototypeEnabled } from '../components/relationshipPrototype/gcPrototypeApi'
 import { ExpirationBadge } from '../components/ExpirationBadge'
 import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
@@ -79,6 +81,8 @@ export function SubcontractorsPage() {
     { key: 'pending_review', label: 'Pending review' },
   ]
 
+  const prototypeToken = relationshipPrototypeEnabled && getStoredUser()?.role === 'gc' ? getToken() : null
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       {toast && (
@@ -104,6 +108,8 @@ export function SubcontractorsPage() {
           </button>
         </div>
       </div>
+
+      {prototypeToken && <GcRelationshipPrototype key={prototypeToken} />}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-card space-y-3">

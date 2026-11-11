@@ -17,6 +17,11 @@ export interface SubcontractorQrScannerProps {
   /** Called only after onConfirmToken resolves successfully. */
   onConnected: () => void
   onClose: () => void
+  /** Override staged-only copy when used by another development prototype. */
+  reviewDescription?: string
+  confirmLabel?: string
+  /** Only the development relationship prototype may opt in to raw bearer tokens. */
+  allowRawPrototypeToken?: boolean
 }
 
 type Detector = { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> }
@@ -29,7 +34,7 @@ type CameraState = 'idle' | 'requesting' | 'scanning'
 const invalidLinkMessage = 'This is not a valid subcontractor connection link for this site. Ask the subcontractor for a new QR code or link.'
 
 /** Mount inside the Add Subcontractor modal when its Scan button is selected. */
-export function SubcontractorQrScanner({ onValidToken, onConfirmToken, onConnected, onClose }: SubcontractorQrScannerProps) {
+export function SubcontractorQrScanner({ onValidToken, onConfirmToken, onConnected, onClose, reviewDescription, confirmLabel, allowRawPrototypeToken = false }: SubcontractorQrScannerProps) {
   const id = useId()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -67,9 +72,11 @@ export function SubcontractorQrScanner({ onValidToken, onConfirmToken, onConnect
   const acceptValue = async (value: string) => {
     stopCamera()
     setCameraState('idle')
-    const token = parseSubcontractorQr(value, window.location.origin)
+    const token = allowRawPrototypeToken && /^[A-Za-z0-9_-]{43}$/.test(value)
+      ? value
+      : parseSubcontractorQr(value, window.location.origin)
     if (!token) {
-      setError(invalidLinkMessage)
+      setError(allowRawPrototypeToken ? 'This is not a valid subcontractor connection link or raw prototype token.' : invalidLinkMessage)
       return
     }
     setManualLink('')
@@ -210,7 +217,7 @@ export function SubcontractorQrScanner({ onValidToken, onConfirmToken, onConnect
         <div>
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-brand-600"><QrCode aria-hidden="true" className="h-4 w-4" /> Test connection</div>
           <h3 id={`${id}-title`} className="mt-1 text-lg font-extrabold text-slate-900">Scan subcontractor QR</h3>
-          <p className="mt-1 text-sm text-slate-600">Scan the subcontractor’s connection code, or paste their link. Review the company before recording a test relationship.</p>
+          <p className="mt-1 text-sm text-slate-600">{allowRawPrototypeToken ? 'Scan the prototype QR or paste its raw token. Review the company before confirming.' : 'Scan the subcontractor’s connection code, or paste their link. Review the company before recording a test relationship.'}</p>
         </div>
         <button type="button" onClick={close} disabled={confirming} aria-label="Close QR scanner" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:opacity-50"><X aria-hidden="true" className="h-5 w-5" /></button>
       </div>
@@ -228,20 +235,20 @@ export function SubcontractorQrScanner({ onValidToken, onConfirmToken, onConnect
           {cameraState === 'idle' ? <button type="button" onClick={() => void startCamera()} disabled={loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:opacity-50"><Camera aria-hidden="true" className="h-4 w-4" /> Start camera</button> : <button type="button" onClick={() => { stopCamera(); setCameraState('idle') }} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Stop camera</button>}
         </div>
         <div className="space-y-2 border-t border-slate-100 pt-4">
-          <label htmlFor={`${id}-link`} className="block text-sm font-semibold text-slate-700">Or paste the connection link</label>
+          <label htmlFor={`${id}-link`} className="block text-sm font-semibold text-slate-700">{allowRawPrototypeToken ? 'Or paste the raw prototype token or connection link' : 'Or paste the connection link'}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input id={`${id}-link`} type="text" inputMode="url" autoComplete="off" spellCheck={false} value={manualLink} onChange={e => setManualLink(e.target.value)} placeholder="https://…/connect-sub#…" className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            <input id={`${id}-link`} type="text" inputMode="url" autoComplete="off" spellCheck={false} value={manualLink} onChange={e => setManualLink(e.target.value)} placeholder={allowRawPrototypeToken ? '43-character raw token or connection link' : 'https://…/connect-sub#…'} className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500" />
             <button type="button" disabled={loading || !manualLink} onClick={() => void acceptValue(manualLink)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Look up</button>
           </div>
-          <p className="text-xs text-slate-500">Camera access requires HTTPS and permission. Links are checked locally and never opened.</p>
+          <p className="text-xs text-slate-500">{allowRawPrototypeToken ? 'Camera access requires HTTPS and permission. Tokens and links are checked locally and never opened.' : 'Camera access requires HTTPS and permission. Links are checked locally and never opened.'}</p>
         </div>
       </>}
 
       {preview && <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review subcontractor</p><p className="mt-1 break-words text-base font-bold text-slate-900">{preview.company.companyName}</p>{preview.company.trade && <p className="mt-1 text-sm text-slate-600">{preview.company.trade}</p>}</div>
-        <p className="text-sm text-slate-600">This company and trade are self-reported, not independently verified. Confirm the company before recording a test relationship. No live link or COI sharing will be created.</p>
+        <p className="text-sm text-slate-600">{reviewDescription ?? 'This company and trade are self-reported, not independently verified. Confirm the company before recording a test relationship. No live link or COI sharing will be created.'}</p>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void confirm()} disabled={confirming} className="min-h-11 rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">{confirming ? 'Recording…' : 'Confirm test relationship'}</button>
+          <button type="button" onClick={() => void confirm()} disabled={confirming} className="min-h-11 rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">{confirming ? 'Recording…' : (confirmLabel ?? 'Confirm test relationship')}</button>
           <button type="button" disabled={confirming} onClick={() => { setPreview(null); setError(null) }} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Scan another</button>
         </div>
       </div>}
