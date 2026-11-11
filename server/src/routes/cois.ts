@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { storeFile, getFileViewUrl } from '../services/storage.ts'
 import { requireAuth } from '../middleware/auth.ts'
+import { isSimulatedCarrierCOI, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -26,17 +27,14 @@ coisRouter.get('/', requireAuth, async (req, res) => {
       sql += ' AND c.subcontractor_id = ?'
       params.push(sub_id)
     }
-    if (status && status !== 'all') {
-      sql += ' AND c.status = ?'
-      params.push(status)
-    }
     sql += ' ORDER BY c.expiration_date ASC'
-    const rows = await dbAll(sql, params)
+    const allRows = (await dbAll(sql, params)).map(labelSimulatedCarrierCOI)
+    const rows = status && status !== 'all' ? allRows.filter((c) => c.status === status) : allRows
     const enriched = await Promise.all(
       rows.map(async (c) => {
         const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [c.id])
         const viewUrl = c.certificate_key ? await getFileViewUrl(c.certificate_key, c.certificate_url) : null
-        return { ...c, coverages, certificate_url: viewUrl || c.certificate_url }
+        return { ...labelSimulatedCarrierCOI(c), coverages, certificate_url: viewUrl || c.certificate_url }
       })
     )
     res.json({ cois: enriched })
@@ -62,7 +60,7 @@ coisRouter.get('/alerts/expiring', requireAuth, async (req, res) => {
        ORDER BY c.expiration_date ASC`,
       [todayStr, horizonStr]
     )
-    res.json({ alerts: rows, window_days: days })
+    res.json({ alerts: rows.map(labelSimulatedCarrierCOI), window_days: days })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -80,7 +78,7 @@ coisRouter.get('/:id', requireAuth, async (req, res) => {
     if (!coi) return res.status(404).json({ error: 'COI not found' })
     const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     const viewUrl = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null
-    res.json({ coi: { ...coi, coverages, certificate_url: viewUrl || coi.certificate_url } })
+    res.json({ coi: { ...labelSimulatedCarrierCOI(coi), coverages, certificate_url: viewUrl || coi.certificate_url } })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -158,7 +156,7 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
     }
 
     const created = await dbGet('SELECT * FROM cois WHERE id = ?', [id])
-    res.status(201).json({ coi: created })
+    res.status(201).json({ coi: labelSimulatedCarrierCOI(created) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -169,6 +167,7 @@ coisRouter.put('/:id', requireAuth, upload.single('certificate'), async (req, re
     const existing = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
     if (!existing) return res.status(404).json({ error: 'COI not found' })
 
+    if (isSimulatedCarrierCOI(existing)) return res.status(409).json({ error: 'Simulated records cannot be edited or approved. Upload a real certificate for review.' })
     const { carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes } = req.body || {}
     let stored
     if (req.file) {
@@ -198,7 +197,7 @@ coisRouter.put('/:id', requireAuth, upload.single('certificate'), async (req, re
       ]
     )
     const updated = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
-    res.json({ coi: updated })
+    res.json({ coi: labelSimulatedCarrierCOI(updated) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -213,6 +212,7 @@ coisRouter.put('/:id/review', requireAuth, async (req, res) => {
     const existing = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
     if (!existing) return res.status(404).json({ error: 'COI not found' })
 
+    if (isSimulatedCarrierCOI(existing)) return res.status(409).json({ error: 'Simulated records cannot be edited or approved. Upload a real certificate for review.' })
     const now = new Date().toISOString()
     await dbRun(
       `UPDATE cois
@@ -221,7 +221,7 @@ coisRouter.put('/:id/review', requireAuth, async (req, res) => {
       [status, reviewer_notes ?? existing.reviewer_notes, now, now, req.params.id]
     )
     const updated = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
-    res.json({ coi: updated })
+    res.json({ coi: labelSimulatedCarrierCOI(updated) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

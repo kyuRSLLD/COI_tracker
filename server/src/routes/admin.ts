@@ -23,8 +23,12 @@ adminRouter.get('/overview', requireAdmin, async (_req, res) => {
     const subsRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM subcontractors')
     const coisRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM cois')
     const sharesRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM client_share_links')
-    const pendingCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'pending_review'")
-    const verifiedCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'verified'")
+    const pendingCoisRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM cois
+      WHERE status = 'pending_review' OR certificate_url = 'carrier-connect://verified'
+        OR reviewer_notes = 'Instant verification via simulated carrier connect'`)
+    const verifiedCoisRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM cois
+      WHERE status = 'verified' AND COALESCE(certificate_url, '') != 'carrier-connect://verified'
+        AND COALESCE(reviewer_notes, '') != 'Instant verification via simulated carrier connect'`)
 
     const mrrRow = await dbGet<{ total: number }>("SELECT COALESCE(SUM(mrr), 0) AS total FROM companies WHERE status = 'active'")
     const payingRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM companies WHERE status = 'active' AND mrr > 0")

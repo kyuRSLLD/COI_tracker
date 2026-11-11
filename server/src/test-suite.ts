@@ -308,9 +308,9 @@ const carrierConn = await request(app, {
   headers: subAuth,
   body: { carrier: 'Travelers', policy_number: 'TRV-PKG-TEST-01' },
 })
-assert('Carrier connect simulation creates a verified COI', carrierConn.status === 200 && carrierConn.json?.verified === true && carrierConn.json?.coi?.carrier === 'Travelers')
+assert('Carrier connect is unavailable and does not verify', carrierConn.status === 503 && /unavailable/i.test(carrierConn.json?.error) && !carrierConn.json?.verified && !carrierConn.json?.coi)
 const subMe2 = await request(app, { url: '/api/sub/my', headers: subAuth })
-assert('Sub now has one more COI on file', subMe2.json.cois.length >= subMe.json.cois.length + 1)
+assert('Carrier connect creates no COI', subMe2.json.cois.length === subMe.json.cois.length)
 const pubView = await request(app, { url: `/api/sub/public/${subMe.json.subcontractor.id}` })
 assert('Public sub COI view works without authentication', pubView.status === 200 && pubView.json?.subcontractor?.id === subMe.json.subcontractor.id && pubView.json?.coi !== undefined)
 const quickUpload = await request(app, {

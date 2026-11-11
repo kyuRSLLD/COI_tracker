@@ -234,7 +234,7 @@ export function SubcontractorDashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">My certificates on file</h3>
-              <p className="text-xs text-slate-500">Every COI you've uploaded or connected, newest first.</p>
+              <p className="text-xs text-slate-500">Every COI on file, newest first.</p>
             </div>
             <span className="text-xs text-slate-400">{cois.length} on file</span>
           </div>
@@ -267,9 +267,9 @@ export function SubcontractorDashboardPage() {
                         {coi.am_best_rating && (
                           <span className="text-[11px] text-slate-400">AM Best: {coi.am_best_rating}</span>
                         )}
-                        <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${badge.cls}`}>
+                        {!coi.simulated_carrier_connect && <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${badge.cls}`}>
                           {badge.label}
-                        </span>
+                        </span>}
                         <span className="px-2 py-0.5 rounded-full border text-[11px] font-medium capitalize text-slate-600 bg-slate-50 border-slate-200">
                           {coi.status ? coi.status.replace(/_/g, ' ') : 'Status not reported'}
                         </span>
@@ -292,11 +292,14 @@ export function SubcontractorDashboardPage() {
                         )}
                       </div>
                     )}
-                    {coi.reviewer_notes && (
+                    {coi.simulated_carrier_connect && (
+                      <p className="mt-2 text-amber-800 font-semibold">Simulated carrier connection — not verified. Upload a real certificate for review.</p>
+                    )}
+                    {coi.reviewer_notes && !coi.simulated_carrier_connect && (
                       <p className="text-[11px] text-slate-500 mt-2 italic">{coi.reviewer_notes}</p>
                     )}
 
-                    {cois && (
+                    {!coi.simulated_carrier_connect && (
                       <div className="mt-3 flex flex-wrap gap-1.5">
                         {(coi.coverages || []).map((cv) => (
                           <span
@@ -310,7 +313,7 @@ export function SubcontractorDashboardPage() {
                       </div>
                     )}
 
-                    {coi.certificate_url && (
+                    {coi.certificate_url && !coi.simulated_carrier_connect && (
                       <div className="mt-3 text-[11px]">
                         <a
                           href={coi.certificate_url}

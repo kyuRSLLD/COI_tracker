@@ -107,6 +107,7 @@ export function PrintableReport({ open, onClose, payload }: Props) {
                         {coi ? (
                           <>
                             <div className="font-semibold text-slate-800">{coi.carrier}</div>
+                            {coi.simulated_carrier_connect && <div className="text-amber-800 font-semibold">Simulated — not verified</div>}
                             <div className="text-[11px] text-slate-400 font-['JetBrains_Mono']">{coi.policy_number || '—'}</div>
                           </>
                         ) : (

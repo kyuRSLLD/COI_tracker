@@ -14,6 +14,7 @@ import sharp from 'sharp'
 import jwt from 'jsonwebtoken'
 import type { NextFunction, Response } from 'express'
 import { sendEmail, buildCOIShareEmail } from '../services/email.ts'
+import { isSimulatedCarrierCOI, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -122,7 +123,7 @@ subPortalRouter.get('/my', requireAuth, requireSub, async (req: AuthRequest, res
     )
     res.json({
       subcontractor: sub,
-      cois,
+      cois: cois.map(labelSimulatedCarrierCOI),
       requests,
       connected_gcs: gcs,
       public_share_url: `/sub/share/${sub.id}`,
@@ -228,13 +229,20 @@ subPortalRouter.get('/public/:subId', async (req, res) => {
     )
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
     const coi = await dbGet(
-      `SELECT id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at
+      `SELECT id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at, certificate_url, reviewer_notes
        FROM cois WHERE subcontractor_id = ? ORDER BY created_at DESC LIMIT 1`,
       [sub.id]
     )
     if (coi) {
       coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     }
+    if (coi && isSimulatedCarrierCOI(coi)) {
+      coi.status = 'pending_review'
+      coi.simulated_carrier_connect = true
+      coi.coverages = []
+    }
+    // These fields are only used to identify the former simulation.
+    if (coi) { delete coi.certificate_url; delete coi.reviewer_notes }
     res.json({ subcontractor: sub, coi })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -357,6 +365,9 @@ subPortalRouter.post('/send-coi-email', requireAuth, requireSub, async (req: Aut
     }
     if (!coi) {
       return res.status(400).json({ error: 'You don\'t have any insurance certificates on file yet. Upload one first.' })
+    }
+    if (isSimulatedCarrierCOI(coi)) {
+      return res.status(409).json({ error: 'This record was created by a simulation and is not verified. Upload a real certificate before sharing.' })
     }
     const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
     const baseUrl = (process.env.CLIENT_URL || 'https://safecoi.com').replace(/\/$/, '')

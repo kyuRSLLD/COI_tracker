@@ -179,7 +179,7 @@ export function UploadPortalPage() {
                       <div className="font-bold">{c.carrier} · #{c.policy_number}</div>
                       <div className="text-[11px] text-slate-400">{c.effective_date} → {c.expiration_date}</div>
                     </div>
-                    <span className="font-semibold text-slate-600">{c.status}</span>
+                    <span className="font-semibold text-slate-600">{c.simulated_carrier_connect ? 'Simulated — not verified' : c.status}</span>
                   </div>
                 ))}
               </div>

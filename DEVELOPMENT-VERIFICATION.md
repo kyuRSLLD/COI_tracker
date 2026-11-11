@@ -9,6 +9,7 @@ This branch is a development build, **not production-ready**. It must not be mer
 - When AWS S3 and Textract are configured, a request-driven asynchronous Textract analysis can return lines and cautious, sourced field proposals. Those proposals are unverified and may be unavailable. No real AWS job has been tested. The caller must poll the status endpoint.
 - General contractors can enter project requirements, and a separate rules engine compares structured observations to those requirements while treating ambiguous or missing evidence as needing review. A passing comparison is not insurance verification, an endorsement check, or approval.
 - Admin sign-in has an authenticator-app TOTP enrollment and challenge implemented in code, with encrypted secrets and server-side session enforcement. This has been tested in an isolated SQLite environment only. It is **not live or enabled** and does not provide SMS or backup/recovery codes.
+- Historic carrier simulations with either original marker are labeled as simulated and treated as pending rather than compliant; their generated coverage is excluded from public reports and project evidence comparisons, and edits or approval are blocked. Stored rows are not rewritten. If both original markers were previously removed, these records cannot reliably be identified and need separate investigation.
 
 ## Important gaps
 
@@ -28,7 +29,8 @@ Run the focused tests with no production environment variables; each creates dis
 for f in server/test/phone.test.ts server/test/admin-mfa.test.ts server/test/ocr-extract.test.ts server/test/verification.test.ts server/test/sub-documents.test.ts server/test/draft-review.test.ts; do
   env -i PATH="$PATH" HOME=/tmp AWS_EC2_METADATA_DISABLED=true node --experimental-strip-types --test "$f" || exit 1
 done
-npm run build
+env -i PATH="$PATH" HOME=/tmp AWS_EC2_METADATA_DISABLED=true node --experimental-strip-types --test server/test/carrier-connect.test.ts
+env -i PATH="$PATH" HOME=/tmp AWS_EC2_METADATA_DISABLED=true npm run build
 ```
 
 Mocked tests are not a substitute for testing a private S3 bucket, Textract, approved insurance integrations, Railway Postgres, and full multi-tenant access controls.

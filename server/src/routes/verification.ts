@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { dbAll, dbGet } from '../db/db.ts'
 import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
 import { evaluateRequirements, getRequirements, legacyCoverageEvidence, saveRequirements } from '../services/verificationRules.ts'
+import { isSimulatedCarrierCOI, labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 export const verificationRouter = express.Router()
 
@@ -85,7 +86,7 @@ verificationRouter.get('/projects/:projectId/evidence', async (req, res, next) =
     const requirements = await getRequirements(projectId)
     const subs = await dbAll(`SELECT s.id, s.company_name FROM project_subcontractors ps
       JOIN subcontractors s ON s.id = ps.subcontractor_id WHERE ps.project_id = ? ORDER BY s.company_name, s.id`, [projectId])
-    const certificates = await dbAll(`SELECT c.id, c.subcontractor_id, c.carrier, c.effective_date, c.expiration_date, c.status, c.updated_at
+    const certificates = await dbAll(`SELECT c.id, c.subcontractor_id, c.carrier, c.effective_date, c.expiration_date, c.status, c.updated_at, c.certificate_url, c.reviewer_notes
       FROM project_subcontractors ps JOIN cois c ON c.subcontractor_id = ps.subcontractor_id
       WHERE ps.project_id = ? ORDER BY c.expiration_date DESC, c.id`, [projectId])
     const coverages = await dbAll(`SELECT cv.coi_id, cv.type, cv.per_occurrence_limit, cv.aggregate_limit
@@ -94,8 +95,10 @@ verificationRouter.get('/projects/:projectId/evidence', async (req, res, next) =
     const subcontractors = subs.map(sub => ({
       id: sub.id, company_name: sub.company_name,
       certificates: certificates.filter(c => c.subcontractor_id === sub.id).map(c => {
-        const evidence = legacyCoverageEvidence(coverages.filter(cv => cv.coi_id === c.id))
-        return { ...c, evidence, evaluation: evaluateRequirements(requirements, evidence) }
+        const simulated = isSimulatedCarrierCOI(c)
+        const evidence = legacyCoverageEvidence(simulated ? [] : coverages.filter(cv => cv.coi_id === c.id))
+        const { certificate_url, reviewer_notes, ...safeCertificate } = labelSimulatedCarrierCOI(c)
+        return { ...safeCertificate, evidence, evaluation: evaluateRequirements(requirements, evidence) }
       }),
     }))
     res.json({ requirements_version: requirements?.version ?? null, evidence_source: 'existing_coverage_rows_unverified', subcontractors, disclaimer: 'Existing values may be defaults or simulated; no OCR or carrier verification is performed. Dates and endorsements require human review.' })

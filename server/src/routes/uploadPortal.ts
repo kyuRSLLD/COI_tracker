@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { storeFile } from '../services/storage.ts'
 import { sendEmail } from '../services/email.ts'
+import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -197,7 +198,7 @@ uploadPortalRouter.get('/my/:token', async (req, res) => {
     )
     const enriched = await Promise.all(
       cois.map(async (c) => ({
-        ...c,
+        ...labelSimulatedCarrierCOI(c),
         coverages: await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [c.id]),
       }))
     )

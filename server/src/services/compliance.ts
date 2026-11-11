@@ -16,6 +16,19 @@ export interface COIRecord {
   [key: string]: any
 }
 
+// The former simulation wrote these markers. They do not prove coverage exists.
+export function isSimulatedCarrierCOI(coi: COIRecord | null | undefined): boolean {
+  return Boolean(coi && (coi.certificate_url === 'carrier-connect://verified' ||
+    coi.reviewer_notes === 'Instant verification via simulated carrier connect' ||
+    coi.simulated_carrier_connect === true))
+}
+
+export function labelSimulatedCarrierCOI<T extends COIRecord>(coi: T): T {
+  return isSimulatedCarrierCOI(coi)
+    ? { ...coi, status: 'pending_review', simulated_carrier_connect: true }
+    : coi
+}
+
 export function computeExpirationStatus(expirationDate: string | null | undefined, warningDays = 30): ComplianceStatus {
   if (!expirationDate) return 'missing'
   const exp = parseISO(expirationDate)
@@ -49,7 +62,7 @@ export function computeSubcontractorStatus(sub: any, cois: COIRecord[], warningD
 } {
   const latest = bestCOI(cois)
   if (!latest) return { status: 'missing', bestCOI: null, daysLeft: null }
-  if (latest.status === 'pending_review') {
+  if (isSimulatedCarrierCOI(latest) || latest.status === 'pending_review') {
     return { status: 'pending_review', bestCOI: latest, daysLeft: daysUntil(latest.expiration_date) }
   }
   if (latest.status === 'rejected' || latest.status === 'needs_revision') {

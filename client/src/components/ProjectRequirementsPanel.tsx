@@ -12,7 +12,7 @@ type RequirementsInput = {
 type Requirements = RequirementsInput & { project_id: string; version: number; updated_at: string }
 type Criterion = { key: string; status: 'meet' | 'does_not_meet' | 'unknown'; required: number | boolean; observed: number | boolean | null; reason: string }
 type Evaluation = { status: 'meet' | 'does_not_meet' | 'needs_review'; criteria: Criterion[]; disclaimer: string }
-type Certificate = { id: string; carrier: string; effective_date: string; expiration_date: string; status: string; evaluation: Evaluation }
+type Certificate = { id: string; carrier: string; effective_date: string; expiration_date: string; status: string; simulated_carrier_connect?: boolean; evaluation: Evaluation }
 type EvidenceResult = { requirements_version: number | null; disclaimer: string; subcontractors: Array<{ id: string; company_name: string; certificates: Certificate[] }> }
 type AmountKey = 'gl_per_occurrence_min' | 'gl_aggregate_min' | 'auto_limit_min' | 'umbrella_limit_min'
 type FormState = Record<AmountKey, string> & Pick<RequirementsInput, 'workers_comp_required' | 'additional_insured_required'>
@@ -119,6 +119,7 @@ export function ProjectRequirementsPanel({ projectId }: { projectId: string }) {
         {sub.certificates.length === 0 && <p className="text-xs text-slate-500">No certificate record. Evidence needs review.</p>}
         {sub.certificates.map(cert => <div key={cert.id} className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
           <div className="text-xs font-semibold">{cert.carrier} · {cert.effective_date} to {cert.expiration_date} · record: {cert.status}</div>
+          {cert.simulated_carrier_connect && <p className="text-xs font-semibold text-amber-800">Simulated — not verified. The generated coverage is not used as evidence.</p>}
           <div className="text-xs font-bold text-amber-800">Comparison: {cert.evaluation.status.replace(/_/g, ' ')}</div>
           {cert.evaluation.criteria.length === 0 && <p className="text-xs text-slate-500">No requirements configured; no passing result.</p>}
           {cert.evaluation.criteria.map(c => <div key={c.key} className="text-xs text-slate-700"><strong>{labels[c.key] || c.key}:</strong> {c.status.replace(/_/g, ' ')} · {c.reason}{c.observed !== null && <> Recorded value: {typeof c.observed === 'number' ? `$${c.observed.toLocaleString()}` : String(c.observed)}.</>}</div>)}
