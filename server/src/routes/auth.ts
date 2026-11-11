@@ -20,6 +20,9 @@ export function normalizePhone(raw: string | undefined | null): string | null {
 authRouter.post('/register', async (req, res) => {
   try {
     const { email, password, name, first_name, last_name, phone, company_name, role } = req.body || {}
+    if (role !== undefined && role !== 'gc' && role !== 'sub') {
+      return res.status(400).json({ error: 'Public registration is only available for general contractors and subcontractors. Existing administrators should sign in.' })
+    }
     const fn = (first_name || '').trim()
     const ln = (last_name || '').trim()
     const fullName = [fn, ln].filter(Boolean).join(' ') || (name || '').trim()
@@ -33,7 +36,7 @@ authRouter.post('/register', async (req, res) => {
     if ((fn || ln) && (!fn || !ln)) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' })
     }
-    const finalRole = role === 'admin' ? 'admin' : role === 'sub' ? 'sub' : 'gc'
+    const finalRole = role === 'sub' ? 'sub' : 'gc'
     const phoneFormatted = normalizePhone(phone)
     const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email.toLowerCase()])
     if (existing) {

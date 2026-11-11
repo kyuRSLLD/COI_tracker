@@ -68,7 +68,7 @@ export async function apiLogin(email: string, password: string): Promise<{ token
   return data
 }
 
-export async function apiRegister(body: { email: string; password: string; name?: string; first_name?: string; last_name?: string; phone?: string; company_name?: string; role?: 'gc' | 'sub' | 'admin' }): Promise<{ token: string; user: User }> {
+export async function apiRegister(body: { email: string; password: string; name?: string; first_name?: string; last_name?: string; phone?: string; company_name?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
   const data = await request<{ token: string; user: User }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(body),

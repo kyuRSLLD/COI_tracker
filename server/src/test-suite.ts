@@ -1,5 +1,6 @@
 import { createApp } from './app.ts'
 import { seed } from './seed.ts'
+import { dbGet } from './db/db.ts'
 import { IncomingMessage, ServerResponse } from 'http'
 import { Socket } from 'net'
 
@@ -76,14 +77,46 @@ const reg = await request(app, {
   url: '/api/auth/register',
   body: { email: `qa-${Date.now()}@example.com`, password: 'password123', name: 'QA Tester', company_name: 'QA Builders' },
 })
-assert('User registration succeeds and returns JWT', reg.status === 200 && Boolean(reg.json?.token))
-// 2b. Admin registration
+assert('Registration without a role defaults to GC and returns JWT', reg.status === 200 && reg.json?.user?.role === 'gc' && Boolean(reg.json?.token))
+// Public registration must not issue a token or create an account for admin requests.
+const rejectedAdminEmail = `admin-${Date.now()}@example.com`
 const regAdmin = await request(app, {
   method: 'POST',
   url: '/api/auth/register',
-  body: { email: `admin-${Date.now()}@example.com`, password: 'password123', first_name: 'Super', last_name: 'Admin', phone: '3125550259', role: 'admin' },
+  body: { email: rejectedAdminEmail, password: 'password123', first_name: 'Super', last_name: 'Admin', phone: '3125550259', role: 'admin' },
 })
-assert('Admin registration succeeds and sets admin role', regAdmin.status === 200 && regAdmin.json?.user?.role === 'admin')
+assert('Public admin registration is explicitly rejected without a token', regAdmin.status === 400 && Boolean(regAdmin.json?.error) && !regAdmin.json?.token && !regAdmin.json?.user)
+const rejectedAdminUser = await dbGet('SELECT id FROM users WHERE email = ?', [rejectedAdminEmail])
+const rejectedAdminSub = await dbGet('SELECT id FROM subcontractors WHERE email = ?', [rejectedAdminEmail])
+assert('Rejected admin registration creates no user or subcontractor record', !rejectedAdminUser && !rejectedAdminSub)
+const rejectedAdminLogin = await request(app, {
+  method: 'POST', url: '/api/auth/login', body: { email: rejectedAdminEmail, password: 'password123' },
+})
+assert('Rejected admin signup cannot sign in', rejectedAdminLogin.status === 401 && !rejectedAdminLogin.json?.token)
+const invalidRole = await request(app, {
+  method: 'POST', url: '/api/auth/register',
+  body: { email: `invalid-${Date.now()}@example.com`, password: 'password123', name: 'Invalid Role', role: 'ADMIN' },
+})
+assert('Unsupported registration roles are rejected rather than downgraded', invalidRole.status === 400 && !invalidRole.json?.token)
+
+const regGc = await request(app, {
+  method: 'POST', url: '/api/auth/register',
+  body: { email: `gc-${Date.now()}@example.com`, password: 'password123', first_name: 'Grace', last_name: 'Contractor', phone: '3125550198', role: 'gc' },
+})
+assert('Explicit GC registration succeeds with a GC token', regGc.status === 200 && regGc.json?.user?.role === 'gc' && Boolean(regGc.json?.token))
+const regSubPublic = await request(app, {
+  method: 'POST', url: '/api/auth/register',
+  body: { email: `sub-${Date.now()}@example.com`, password: 'password123', first_name: 'Sam', last_name: 'Trade', phone: '3125550197', company_name: 'Sam Trade Co', role: 'sub' },
+})
+assert('Subcontractor registration succeeds with a linked profile and token', regSubPublic.status === 200 && regSubPublic.json?.user?.role === 'sub' && Boolean(regSubPublic.json?.user?.subcontractor_id) && Boolean(regSubPublic.json?.token))
+const registeredSubProfile = await request(app, { url: '/api/sub/my', headers: { authorization: `Bearer ${regSubPublic.json?.token}` } })
+assert('New subcontractor can access their profile', registeredSubProfile.status === 200 && registeredSubProfile.json?.subcontractor?.id === regSubPublic.json?.user?.subcontractor_id)
+for (const [role, result] of [['GC', regGc], ['subcontractor', regSubPublic]] as const) {
+  for (const path of ['/api/admin/overview', '/api/staff/overview']) {
+    const response = await request(app, { url: path, headers: { authorization: `Bearer ${result.json?.token}` } })
+    assert(`New ${role} cannot access ${path}`, response.status === 403)
+  }
+}
 
 // 3. Login
 const login = await request(app, {
@@ -163,6 +196,8 @@ assert('Email audit log contains simulated entries', emailLogs.status === 200 &&
 // 13. Admin dashboard security and endpoints
 const adminNoAuth = await request(app, { url: '/api/admin/overview' })
 assert('Admin overview requires authentication', adminNoAuth.status === 401)
+const staffNoAuth = await request(app, { url: '/api/staff/overview' })
+assert('Staff overview requires authentication', staffNoAuth.status === 401)
 const adminNonAdmin = await request(app, { url: '/api/admin/overview', headers: auth })
 assert('Admin overview forbidden for non-admin GC user', adminNonAdmin.status === 403)
 const adminLogin = await request(app, {
@@ -172,6 +207,8 @@ const adminLogin = await request(app, {
 })
 assert('Admin seeded account logs in', adminLogin.status === 200 && adminLogin.json?.user?.role === 'admin')
 const adminAuth = { authorization: `Bearer ${adminLogin.json.token}` }
+const adminMe = await request(app, { url: '/api/auth/me', headers: adminAuth })
+assert('Existing admin session retains admin role', adminMe.status === 200 && adminMe.json?.user?.role === 'admin')
 const overview = await request(app, { url: '/api/admin/overview', headers: adminAuth })
 assert('Admin overview returns user counts, revenue MRR, and platform KPIs',
   overview.status === 200 && overview.json?.users?.total >= 2 && typeof overview.json?.revenue?.mrr === 'number' && overview.json?.platform?.companies >= 1)
