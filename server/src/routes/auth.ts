@@ -5,8 +5,41 @@ import { v4 as uuidv4 } from 'uuid'
 import { dbGet, dbRun, dbAll } from '../db/db.ts'
 import { signToken, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
+import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail, requestIp } from '../services/loginRateLimit.ts'
 
 export const authRouter = Router()
+
+const REGISTRATION_LIMIT = 10
+const REGISTRATION_WINDOW_MS = 60 * 60 * 1000
+const RATE_LIMIT_MAX_ENTRIES = 10_000
+
+type RateLimitEntry = { count: number; windowStartedAt: number }
+
+const registrations = new Map<string, RateLimitEntry>()
+
+function pruneRateLimitMap(map: Map<string, RateLimitEntry>, now: number, windowMs: number): void {
+  for (const [key, entry] of map) {
+    if (now - entry.windowStartedAt >= windowMs) map.delete(key)
+  }
+  while (map.size >= RATE_LIMIT_MAX_ENTRIES) {
+    const oldestKey = map.keys().next().value as string | undefined
+    if (oldestKey === undefined) break
+    map.delete(oldestKey)
+  }
+}
+
+function consumeRateLimit(map: Map<string, RateLimitEntry>, key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now()
+  pruneRateLimitMap(map, now, windowMs)
+  const current = map.get(key)
+  if (!current || now - current.windowStartedAt >= windowMs) {
+    map.set(key, { count: 1, windowStartedAt: now })
+    return true
+  }
+  if (current.count >= limit) return false
+  current.count += 1
+  return true
+}
 
 // Return a normalized US number, or null for missing or invalid input.
 export function normalizePhone(raw: string | undefined | null): string | null {
@@ -20,6 +53,9 @@ export function normalizePhone(raw: string | undefined | null): string | null {
 
 authRouter.post('/register', async (req, res) => {
   try {
+    if (!consumeRateLimit(registrations, requestIp(req), REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS)) {
+      return res.status(429).json({ error: 'Too many requests' })
+    }
     const { email, password, name, first_name, last_name, phone, company_name, role } = req.body || {}
     if (role !== undefined && role !== 'gc' && role !== 'sub') {
       return res.status(400).json({ error: 'Public registration is only available for general contractors and subcontractors. Existing administrators should sign in.' })
@@ -29,6 +65,9 @@ authRouter.post('/register', async (req, res) => {
     const fullName = [fn, ln].filter(Boolean).join(' ') || (name || '').trim()
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' })
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' })
     }
     // New registrations require first name, last name, and phone; legacy single "name" still accepted
     if (!fullName) {
@@ -82,10 +121,14 @@ authRouter.post('/register', async (req, res) => {
 authRouter.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {}
-    if (!email || !password) {
+    if (!email || !password || typeof password !== 'string') {
       return res.status(400).json({ error: 'Email and password are required' })
     }
-    const user = await dbGet('SELECT * FROM users WHERE email = ?', [email.toLowerCase()])
+    const normalizedEmail = normalizeLoginEmail(email)
+    if (!consumeLoginAttempt(req, normalizedEmail)) {
+      return res.status(429).json({ error: 'Too many requests' })
+    }
+    const user = await dbGet('SELECT * FROM users WHERE email = ?', [normalizedEmail])
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
@@ -93,6 +136,7 @@ authRouter.post('/login', async (req, res) => {
     if (!ok) {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
+    clearLoginAttempts(req, normalizedEmail)
     const payload = { id: user.id, email: user.email, role: user.role, name: user.name, subcontractor_id: user.subcontractor_id || null }
     const token = signToken(payload)
     res.json({ token, user: { ...payload, first_name: user.first_name || null, last_name: user.last_name || null, phone: user.phone || null, company_name: user.company_name } })

@@ -21,8 +21,12 @@ statsRouter.get('/', requireAuth, requireCurrentGC, async (req: AuthRequest, res
 
     for (const sub of subs) {
       const cois = await dbAll(
-        'SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY expiration_date DESC',
-        [sub.id]
+        `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+         WHERE c.subcontractor_id = ? AND EXISTS
+           (SELECT 1 FROM gc_sub_connections x WHERE x.gc_user_id = ? AND x.subcontractor_id = s.id)
+         AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
+         ORDER BY c.expiration_date DESC`,
+        [sub.id, req.user!.id, req.user!.id]
       )
       const computed = computeSubcontractorStatus(sub, cois, warningDays)
       if (computed.status === 'compliant') compliant++

@@ -115,8 +115,8 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     // to false would do. It is not exposed through HTTP or environment configuration.
     normal = await start(await createApp({ maintenanceMode: false }))
     const publicSub = await fetch(`${normal.base}/api/sub/public/private-sub`)
-    assert.equal(publicSub.status, 200)
-    assert.match(await publicSub.text(), /SENSITIVE TEST COMPANY/)
+    assert.equal(publicSub.status, 410)
+    assert.doesNotMatch(await publicSub.text(), /SENSITIVE TEST COMPANY/)
     const upload = await fetch(`${normal.base}/uploads/${markerName}`)
     assert.equal(upload.status, 200)
     assert.equal(await upload.text(), 'PRIVATE TEST UPLOAD')
@@ -127,7 +127,7 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     // source switch whether the switch is enabled now or disabled in a rollback.
     deployedDefault = await start(defaultApp ?? await createApp())
     const defaultPublicSub = await fetch(`${deployedDefault.base}/api/sub/public/private-sub`)
-    assert.equal(defaultPublicSub.status, MAINTENANCE_MODE ? 503 : 200)
+    assert.equal(defaultPublicSub.status, MAINTENANCE_MODE ? 503 : 410)
   } finally {
     if (deployedDefault) await stop(deployedDefault.server)
     if (normal) await stop(normal.server)

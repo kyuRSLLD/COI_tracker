@@ -27,8 +27,9 @@ async function connectedCoi(gcId: string, coiId: string) {
   return dbGet(
     `SELECT c.*, s.company_name, s.email, s.contact_person FROM cois c
      JOIN subcontractors s ON s.id = c.subcontractor_id
-     WHERE c.id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections x WHERE x.gc_user_id = ? AND x.subcontractor_id = s.id)`,
-    [coiId, gcId]
+     WHERE c.id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections x WHERE x.gc_user_id = ? AND x.subcontractor_id = s.id)
+       AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`,
+    [coiId, gcId, gcId]
   )
 }
 
@@ -131,9 +132,11 @@ emailsRouter.post('/batch-reminders', requireAuth, async (req: AuthRequest, res)
     const today = now.toISOString().slice(0, 10)
     const horizon = new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10)
     const expiring = await dbAll(
-      `SELECT c.id AS coi_id FROM cois c WHERE c.expiration_date >= ? AND c.expiration_date <= ? AND c.status != 'rejected'
-       AND EXISTS (SELECT 1 FROM gc_sub_connections x WHERE x.gc_user_id = ? AND x.subcontractor_id = c.subcontractor_id)`,
-      [today, horizon, gc.id]
+      `SELECT c.id AS coi_id FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+       WHERE c.expiration_date >= ? AND c.expiration_date <= ? AND c.status != 'rejected'
+       AND EXISTS (SELECT 1 FROM gc_sub_connections x WHERE x.gc_user_id = ? AND x.subcontractor_id = s.id)
+       AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`,
+      [today, horizon, gc.id, gc.id]
     )
     let sent = 0, simulated = 0, failed = 0
     for (const row of expiring) {

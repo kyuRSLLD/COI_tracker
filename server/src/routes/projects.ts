@@ -24,6 +24,20 @@ async function connectedLinks(projectId: string, userId: string) {
     WHERE ps.project_id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections c WHERE c.gc_user_id = ? AND c.subcontractor_id = s.id)`, [projectId, userId])
 }
+async function visibleSub(subId: string, userId: string) {
+  // A sole current connection does not prove ownership of legacy global notes.
+  return dbGet(`SELECT s.id, s.user_id, s.company_name, s.trade, s.contact_person,
+    s.phone, s.email, s.address, NULL AS notes, s.website, s.status, s.created_at, s.updated_at FROM subcontractors s
+    WHERE s.id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`,
+    [subId, userId])
+}
+async function visibleCois(subId: string, userId: string) {
+  return dbAll(`SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+    WHERE c.subcontractor_id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.gc_user_id = ? AND g.subcontractor_id = s.id)
+    AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
+    ORDER BY c.expiration_date DESC`, [subId, userId, userId])
+}
 
 export const projectsRouter = Router()
 projectsRouter.use(requireAuth, requireCurrentGC)
@@ -36,9 +50,9 @@ projectsRouter.get('/', async (req: AuthRequest, res) => {
         const subLinks = await connectedLinks(p.id, req.user!.id)
         const subRows = await Promise.all(
           subLinks.map(async (l) => {
-            const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [l.subcontractor_id])
+            const sub = await visibleSub(l.subcontractor_id, req.user!.id)
             const cois = sub
-              ? await dbAll('SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY expiration_date DESC', [sub.id])
+              ? await visibleCois(sub.id, req.user!.id)
               : []
             return { sub, cois }
           })
@@ -62,12 +76,9 @@ projectsRouter.get('/:id', async (req: AuthRequest, res) => {
     const subLinks = await connectedLinks(project.id, req.user!.id)
     const subs = await Promise.all(
       subLinks.map(async (l) => {
-        const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [l.subcontractor_id])
+        const sub = await visibleSub(l.subcontractor_id, req.user!.id)
         if (!sub) return null
-        const cois = await dbAll(
-          'SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY expiration_date DESC',
-          [sub.id]
-        )
+        const cois = await visibleCois(sub.id, req.user!.id)
         const computed = computeSubcontractorStatus(sub, cois, 30)
         return {
           ...sub,

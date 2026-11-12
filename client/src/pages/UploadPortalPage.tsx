@@ -19,12 +19,6 @@ export function UploadPortalPage() {
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState(1)
 
-  // sub info edits
-  const [contactPerson, setContactPerson] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [address, setAddress] = useState('')
-
   // policy
   const [carrier, setCarrier] = useState('')
   const [amBest, setAmBest] = useState('')
@@ -47,11 +41,6 @@ export function UploadPortalPage() {
     apiUploadPortal.validate(token)
       .then((payload) => {
         setData(payload)
-        const s = payload.subcontractor
-        setContactPerson(s.contact_person || '')
-        setPhone(s.phone || '')
-        setEmail(s.email || '')
-        setAddress(s.address || '')
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -67,10 +56,6 @@ export function UploadPortalPage() {
       fd.append('policy_number', policyNumber.trim())
       fd.append('effective_date', effective)
       fd.append('expiration_date', expiration)
-      fd.append('contact_person', contactPerson.trim())
-      fd.append('phone', phone.trim())
-      fd.append('email', email.trim())
-      fd.append('address', address.trim())
       fd.append(
         'coverages',
         JSON.stringify(
@@ -140,7 +125,7 @@ export function UploadPortalPage() {
 
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-2 text-xs font-semibold">
-          {['1 · Your details', '2 · Policy info', '3 · Certificate file', '4 · Review & submit'].map((l, i) => (
+          {['1 · Company details', '2 · Policy info', '3 · Certificate file', '4 · Review & submit'].map((l, i) => (
             <span
               key={l}
               className={`px-3 py-1.5 rounded-full ${
@@ -193,8 +178,8 @@ export function UploadPortalPage() {
               {step === 1 && (
                 <div className="space-y-4">
                   <div>
-                    <h2 className="text-lg font-bold text-slate-900">Confirm your company details</h2>
-                    <p className="text-xs text-slate-500">We pre-filled what {gc.company_name} has on file — correct anything that's changed.</p>
+                    <h2 className="text-lg font-bold text-slate-900">Company details</h2>
+                    <p className="text-xs text-slate-500">These details are shown for reference only. This upload link saves certificate information, not subcontractor profile or contact changes.</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div className="sm:col-span-2">
@@ -204,22 +189,6 @@ export function UploadPortalPage() {
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">Trade</label>
                       <input readOnly value={subcontractor.trade} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-slate-100 text-slate-600" />
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Contact person</label>
-                      <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="Elena Ramos" />
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Phone</label>
-                      <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="(312) 555-0321" />
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Email</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="elena@company.com" />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block font-semibold text-slate-700 mb-1">Address</label>
-                      <input value={address} onChange={(e) => setAddress(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white" placeholder="1420 W Grand Ave, Chicago, IL" />
                     </div>
                   </div>
                   <div className="flex justify-end pt-2">

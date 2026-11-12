@@ -7,6 +7,11 @@ import { getFileViewUrl } from '../services/storage.ts'
 
 export const subcontractorsRouter = Router()
 
+// Connection history cannot establish who wrote legacy global notes, even if
+// only one GC is currently connected. Never select them for a GC response.
+const gcSubSelect = `s.id, s.user_id, s.company_name, s.trade, s.contact_person,
+  s.phone, s.email, s.address, NULL AS notes, s.website, s.status, s.created_at, s.updated_at`
+
 // Verify the current database role so a role change cannot leave GC access
 // usable merely because an old token has not expired.
 subcontractorsRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
@@ -31,7 +36,7 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
       expiring_days?: string
     }
 
-    let sql = `SELECT s.* FROM subcontractors s
+    let sql = `SELECT ${gcSubSelect} FROM subcontractors s
       WHERE EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`
     const params: any[] = [req.user!.id]
 
@@ -52,10 +57,12 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
     const enriched = await Promise.all(
       rows.map(async (sub) => {
         const cois = await dbAll(
-          `SELECT c.* FROM cois c WHERE c.subcontractor_id = ? AND EXISTS
+          `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+            WHERE c.subcontractor_id = ? AND EXISTS
             (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
+            AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
             ORDER BY c.expiration_date DESC`,
-          [sub.id, req.user!.id]
+          [sub.id, req.user!.id, req.user!.id]
         )
         const computed = computeSubcontractorStatus(sub, cois, warningDays)
         return {
@@ -80,20 +87,24 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
 
 subcontractorsRouter.get('/:id', async (req: AuthRequest, res) => {
   try {
-    const sub = await dbGet(`SELECT s.* FROM subcontractors s WHERE s.id = ? AND EXISTS
+    const sub = await dbGet(`SELECT ${gcSubSelect} FROM subcontractors s WHERE s.id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
     const cois = await dbAll(
-      `SELECT c.* FROM cois c WHERE c.subcontractor_id = ? AND EXISTS
+      `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+        WHERE c.subcontractor_id = ? AND EXISTS
         (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
+        AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
         ORDER BY c.expiration_date DESC`,
-      [sub.id, req.user!.id]
+      [sub.id, req.user!.id, req.user!.id]
     )
     const enrichedCois = await Promise.all(
       cois.map(async (c) => {
         const coverages = await dbAll(`SELECT cv.* FROM coi_coverages cv JOIN cois c ON c.id = cv.coi_id
+          JOIN subcontractors s ON s.id = c.subcontractor_id
           WHERE cv.coi_id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g
-            WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [c.id, req.user!.id])
+            WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
+          AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`, [c.id, req.user!.id, req.user!.id])
         const viewUrl = c.certificate_key ? await getFileViewUrl(c.certificate_key, c.certificate_url) : null
         const { certificate_key: _key, ...publicFields } = c
         return { ...labelSimulatedCarrierCOI(publicFields), coverages, certificate_url: viewUrl }
@@ -126,6 +137,7 @@ subcontractorsRouter.get('/:id', async (req: AuthRequest, res) => {
 subcontractorsRouter.post('/', async (req: AuthRequest, res) => {
   try {
     const { company_name, trade, contact_person, phone, email, address, notes, status } = req.body || {}
+    if (notes != null) return res.status(403).json({ error: 'Subcontractor notes cannot be saved by a general contractor' })
     if (!company_name || !trade) {
       return res.status(400).json({ error: 'Company name and trade are required' })
     }
@@ -134,9 +146,9 @@ subcontractorsRouter.post('/', async (req: AuthRequest, res) => {
     // Check that the connection table exists before creating a legacy row.
     await dbGet('SELECT gc_user_id FROM gc_sub_connections WHERE gc_user_id = ? LIMIT 1', [req.user!.id])
     await dbRun(
-      `INSERT INTO subcontractors (id, company_name, trade, contact_person, phone, email, address, notes, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, company_name, trade, contact_person || null, phone || null, email || null, address || null, notes || null, status || 'pending_review', now, now]
+      `INSERT INTO subcontractors (id, company_name, trade, contact_person, phone, email, address, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, company_name, trade, contact_person || null, phone || null, email || null, address || null, status || 'pending_review', now, now]
     )
     try {
       await dbRun('INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?)', [req.user!.id, id, now])
@@ -151,7 +163,7 @@ subcontractorsRouter.post('/', async (req: AuthRequest, res) => {
       }
       throw err
     }
-    const sub = await dbGet(`SELECT s.* FROM subcontractors s WHERE s.id = ? AND EXISTS
+    const sub = await dbGet(`SELECT ${gcSubSelect} FROM subcontractors s WHERE s.id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [id, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
     res.status(201).json({ subcontractor: sub })
@@ -163,14 +175,17 @@ subcontractorsRouter.post('/', async (req: AuthRequest, res) => {
 subcontractorsRouter.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { company_name, trade, contact_person, phone, email, address, notes, status } = req.body || {}
-    const sub = await dbGet(`SELECT s.* FROM subcontractors s WHERE s.id = ? AND EXISTS
+    const sub = await dbGet(`SELECT ${gcSubSelect} FROM subcontractors s WHERE s.id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
+    if (notes != null) return res.status(403).json({ error: 'Subcontractor notes cannot be saved by a general contractor' })
     const now = new Date().toISOString()
     const result = await dbRun(
       `UPDATE subcontractors
-       SET company_name = ?, trade = ?, contact_person = ?, phone = ?, email = ?, address = ?, notes = ?, status = ?, updated_at = ?
-       WHERE id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = subcontractors.id AND g.gc_user_id = ?)`,
+       SET company_name = ?, trade = ?, contact_person = ?, phone = ?, email = ?, address = ?, status = ?, updated_at = ?
+       WHERE id = ? AND user_id IS NULL
+       AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = subcontractors.id AND g.gc_user_id = ?)
+       AND NOT EXISTS (SELECT 1 FROM gc_sub_connections other WHERE other.subcontractor_id = subcontractors.id AND other.gc_user_id <> ?)`,
       [
         company_name ?? sub.company_name,
         trade ?? sub.trade,
@@ -178,15 +193,15 @@ subcontractorsRouter.put('/:id', async (req: AuthRequest, res) => {
         phone ?? sub.phone,
         email ?? sub.email,
         address ?? sub.address,
-        notes ?? sub.notes,
         status ?? sub.status,
         now,
         req.params.id,
         req.user!.id,
+        req.user!.id,
       ]
     )
-    if (!result.changes) return res.status(404).json({ error: 'Subcontractor not found' })
-    const updated = await dbGet(`SELECT s.* FROM subcontractors s WHERE s.id = ? AND EXISTS
+    if (!result.changes) return res.status(403).json({ error: 'Shared or account-owned profiles cannot be edited by a general contractor' })
+    const updated = await dbGet(`SELECT ${gcSubSelect} FROM subcontractors s WHERE s.id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!updated) return res.status(404).json({ error: 'Subcontractor not found' })
     res.json({ subcontractor: updated })

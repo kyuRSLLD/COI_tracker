@@ -20,6 +20,24 @@ export const isPostgres = Boolean(DATABASE_URL && !DATABASE_URL.includes('your_'
 
 let pgPool: pg.Pool | null = null
 let sqliteDb: sqlite3.Database | null = null
+// Keep an entire SQLite transaction exclusive on the shared connection, even
+// across awaited calls. This also supports a :memory: database in tests.
+let sqliteQueue: Promise<void> = Promise.resolve()
+
+function withSqliteLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sqliteQueue.then(operation)
+  sqliteQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
+function sqliteRun(db: sqlite3.Database, sql: string, params: any[] = []): Promise<{ lastID?: number; changes?: number }> {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) return reject(err)
+      resolve({ lastID: this.lastID, changes: this.changes })
+    })
+  })
+}
 
 export const PLAN_PRICES: Record<string, number> = {
   'Free Demo': 0,
@@ -68,13 +86,7 @@ export async function dbRun(sql: string, params: any[] = []): Promise<{ lastID?:
     const res = await getPgPool().query(toPgSql(sql), params)
     return { changes: res.rowCount ?? 0 }
   }
-  const db = await getSqlite()
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) return reject(err)
-      resolve({ lastID: this.lastID, changes: this.changes })
-    })
-  })
+  return withSqliteLock(async () => sqliteRun(await getSqlite(), sql, params))
 }
 
 export async function dbGet<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
@@ -82,11 +94,13 @@ export async function dbGet<T = any>(sql: string, params: any[] = []): Promise<T
     const res = await getPgPool().query(toPgSql(sql), params)
     return res.rows[0] as T | undefined
   }
-  const db = await getSqlite()
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) return reject(err)
-      resolve(row as T | undefined)
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    return new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(err)
+        resolve(row as T | undefined)
+      })
     })
   })
 }
@@ -96,11 +110,13 @@ export async function dbAll<T = any>(sql: string, params: any[] = []): Promise<T
     const res = await getPgPool().query(toPgSql(sql), params)
     return res.rows as T[]
   }
-  const db = await getSqlite()
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) return reject(err)
-      resolve((rows || []) as T[])
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    return new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => {
+        if (err) return reject(err)
+        resolve((rows || []) as T[])
+      })
     })
   })
 }
@@ -110,9 +126,47 @@ export async function dbExec(sql: string): Promise<void> {
     await getPgPool().query(sql)
     return
   }
-  const db = await getSqlite()
-  return new Promise((resolve, reject) => {
-    db.exec(sql, (err) => (err ? reject(err) : resolve()))
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    return new Promise((resolve, reject) => {
+      db.exec(sql, (err) => (err ? reject(err) : resolve()))
+    })
+  })
+}
+
+// Delete the parent and its coverages together. The authorization predicate
+// is part of the DELETE itself, not a check made before the write.
+export async function deleteOwnedGcCOI(id: string, gcUserId: string): Promise<boolean> {
+  const deleteSql = `DELETE FROM cois WHERE id = ? AND owner_gc_user_id = ?
+    AND owner_sub_user_id IS NULL AND EXISTS (SELECT 1 FROM gc_sub_connections g
+      WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ?)`
+  if (isPostgres) {
+    const client = await getPgPool().connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(toPgSql(deleteSql), [id, gcUserId, gcUserId])
+      if (result.rowCount) await client.query('DELETE FROM coi_coverages WHERE coi_id = $1', [id])
+      await client.query('COMMIT')
+      return Boolean(result.rowCount)
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    await sqliteRun(db, 'BEGIN IMMEDIATE')
+    try {
+      const result = await sqliteRun(db, deleteSql, [id, gcUserId, gcUserId])
+      if (result.changes) await sqliteRun(db, 'DELETE FROM coi_coverages WHERE coi_id = ?', [id])
+      await sqliteRun(db, 'COMMIT')
+      return Boolean(result.changes)
+    } catch (error) {
+      await sqliteRun(db, 'ROLLBACK')
+      throw error
+    }
   })
 }
 
@@ -171,6 +225,8 @@ export async function initDatabase(): Promise<void> {
     CREATE TABLE IF NOT EXISTS cois (
       id TEXT PRIMARY KEY,
       subcontractor_id TEXT NOT NULL,
+      owner_gc_user_id TEXT,
+      owner_sub_user_id TEXT,
       carrier TEXT NOT NULL,
       am_best_rating TEXT,
       policy_number TEXT,
@@ -298,6 +354,26 @@ export async function initDatabase(): Promise<void> {
 
   await dbExec(schema)
   console.log('[db] Schema initialized successfully')
+
+  // A connection alone does not establish ownership. In particular, leave
+  // existing rows unowned rather than guessing which user created them.
+  for (const column of ['owner_gc_user_id', 'owner_sub_user_id']) {
+    if (isPostgres) {
+      await dbRun(`ALTER TABLE cois ADD COLUMN IF NOT EXISTS ${column} TEXT`)
+    } else {
+      const columns = await dbAll<{ name: string }>('PRAGMA table_info(cois)')
+      if (!columns.some((entry) => entry.name === column)) {
+        try {
+          await dbRun(`ALTER TABLE cois ADD COLUMN ${column} TEXT`)
+        } catch (error) {
+          // Another process may have completed the same migration. Do not
+          // suppress unrelated schema or database errors.
+          const current = await dbAll<{ name: string }>('PRAGMA table_info(cois)')
+          if (!current.some((entry) => entry.name === column)) throw error
+        }
+      }
+    }
+  }
 
   try {
     await dbRun('ALTER TABLE users ADD COLUMN subcontractor_id TEXT')

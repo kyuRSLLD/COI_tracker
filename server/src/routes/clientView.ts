@@ -16,20 +16,27 @@ function safeLimit(value: unknown): string | null {
 function safeDate(value: unknown): string | null {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null
 }
+function safeTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? new Date(time).toISOString() : null
+}
 function publicStatus(value: unknown): string {
   return typeof value === 'string' && ['compliant', 'expiring_soon', 'expired', 'missing', 'pending_review', 'needs_revision', 'rejected'].includes(value) ? value : 'pending_review'
 }
 function publicLabel(value: unknown, fallback: string): string {
   if (typeof value !== 'string' || !value.trim()) return fallback
   const text = value.trim()
-  const contactPattern = /(?:https?:\/\/|www\.|mailto:|tel:|\b[^\s@]+@[^\s@]+\b|\b[a-z0-9-]+\.[a-z]{2,63}\b)/i
+  const contactPattern = /(?:https?:|www\.|mailto:|tel:|file:|data:|[/\\@]|\b[a-z0-9-]+\.[a-z]{2,63}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b)/i
+  const streetAddress = /\b\d{1,6}\s+[\p{L}\d. -]{1,70}\s+(?:street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|drive|dr|court|ct|way)\b/iu
   const phoneLike = text.match(/\+?\d[\d\s().-]{7,}\d/g) || []
-  if (contactPattern.test(text) || phoneLike.some((part) => part.replace(/\D/g, '').length >= 10)) return fallback
+  if (contactPattern.test(text) || streetAddress.test(text) || phoneLike.some((part) => part.replace(/\D/g, '').length >= 10)) return fallback
   return text
 }
 
 // Public: possession of an unexpired share grants only a minimal report.
 clientViewRouter.get('/:token', async (req, res) => {
+  res.set('Cache-Control', 'no-store')
   try {
     if (!/^[a-f0-9]{48}$/.test(req.params.token)) return res.status(404).json({ error: 'Share link not found or invalid' })
     const share = await dbGet('SELECT * FROM client_share_links WHERE token = ?', [req.params.token])
@@ -45,12 +52,20 @@ clientViewRouter.get('/:token', async (req, res) => {
       JOIN project_subcontractors ps ON ps.subcontractor_id = s.id
       WHERE ps.project_id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections c
         WHERE c.gc_user_id = ? AND c.subcontractor_id = s.id)`, [project.id, project.user_id])
-    const rows = await Promise.all(subs.map(async (sub) => {
-      const cois = await dbAll('SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY expiration_date DESC', [sub.id])
+    const rows = await Promise.all(subs.map(async (sub, index) => {
+      const cois = await dbAll(`SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+        WHERE c.subcontractor_id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g
+          WHERE g.gc_user_id = ? AND g.subcontractor_id = s.id)
+        AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
+        ORDER BY c.expiration_date DESC`, [sub.id, project.user_id, project.user_id])
       const computed = computeSubcontractorStatus(sub, cois, 30)
       const summaries = await Promise.all(cois.map(async (coi) => {
         const simulated = isSimulatedCarrierCOI(coi)
-        const rawCoverages = simulated ? [] : await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
+        const rawCoverages = simulated ? [] : await dbAll(`SELECT cv.* FROM coi_coverages cv
+          JOIN cois c ON c.id = cv.coi_id JOIN subcontractors s ON s.id = c.subcontractor_id
+          WHERE cv.coi_id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.gc_user_id = ? AND g.subcontractor_id = s.id)
+          AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`,
+          [coi.id, project.user_id, project.user_id])
         return {
           effective_date: safeDate(coi.effective_date),
           expiration_date: safeDate(coi.expiration_date),
@@ -70,8 +85,8 @@ clientViewRouter.get('/:token', async (req, res) => {
         publicSub: {
           // An opaque alias is scoped to this share, not an API-accessible sub ID.
           id: crypto.createHmac('sha256', share.token).update(sub.id).digest('hex'),
-          company_name: publicLabel(sub.company_name, 'Company name withheld'),
-          trade: publicLabel(sub.trade, 'Trade withheld'),
+          company_name: `Subcontractor ${index + 1}`,
+          trade: 'Trade withheld',
           computed_status: computed.status,
           days_left: computed.daysLeft,
           best_coi: summaries[0] || null,
@@ -83,19 +98,17 @@ clientViewRouter.get('/:token', async (req, res) => {
     res.set('Cache-Control', 'no-store')
     res.json({
       project: {
-        name: project.name, code: project.code, address: project.address,
-        client_name: project.client_name, start_date: project.start_date, end_date: project.end_date,
+        name: publicLabel(project.name, 'Project name withheld'),
+        code: publicLabel(project.code, ''),
+        client_name: publicLabel(project.client_name, ''),
+        start_date: safeDate(project.start_date), end_date: safeDate(project.end_date),
       },
       contractor: {
-        company_name: gcSettings.company_name || 'General Contractor',
-        license_number: gcSettings.license_number,
-        phone: gcSettings.phone,
-        email: gcSettings.email,
-        address: gcSettings.address,
+        company_name: publicLabel(gcSettings.company_name, 'General Contractor'),
       },
       scorecard: projectComplianceScore(rows.map((row) => row.scoreRow)),
       subcontractors: rows.map((row) => row.publicSub),
-      share: { expires_at: share.expires_at, created_at: share.created_at },
+      share: { expires_at: safeTimestamp(share.expires_at), created_at: safeTimestamp(share.created_at) },
       generated_at: new Date().toISOString(),
     })
   } catch {

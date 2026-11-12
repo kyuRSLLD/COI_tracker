@@ -72,6 +72,7 @@ uploadPortalRouter.get('/validate/:token', async (req, res) => {
     const sub = await dbGet('SELECT id, company_name, trade, contact_person, phone, email, address FROM subcontractors WHERE id = ?', [request.subcontractor_id])
     if (!sub) return res.status(404).json({ error: 'Invalid upload link' })
     const gcSettings = context.settings
+    res.set('Cache-Control', 'no-store')
     res.json({
       subcontractor: sub,
       gc: {
@@ -98,7 +99,7 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
     const sub = await dbGet('SELECT id, company_name, email FROM subcontractors WHERE id = ?', [request.subcontractor_id])
     if (!sub) return res.status(404).json({ error: 'Invalid upload link' })
     const { carrier, am_best_rating, policy_number, effective_date, expiration_date,
-      contact_person, phone, email, address, coverages: coveragesRaw } = req.body || {}
+      email, coverages: coveragesRaw } = req.body || {}
     if (!carrier || !effective_date || !expiration_date)
       return res.status(400).json({ error: 'Carrier, effective date, and expiration date are required' })
     let coverages: any[] = []
@@ -120,17 +121,14 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
     )
     if (claim.changes !== 1) return res.status(410).json({ error: 'This upload link is no longer available. Please ask for a new link.' })
 
-    await dbRun(
-      `UPDATE subcontractors SET contact_person = COALESCE(?, contact_person), phone = COALESCE(?, phone),
-       email = COALESCE(?, email), address = COALESCE(?, address), status = 'pending_review', updated_at = ? WHERE id = ?`,
-      [contact_person || null, phone || null, email || null, address || null, now, sub.id]
-    )
+    // A GC-issued bearer link permits COI submission, not profile changes.
+    // The submitted email is used only as a confirmation destination below.
     const stored = req.file ? await storeFile(req.file) : null
     const coiId = uuidv4()
     await dbRun(
-      `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?)`,
-      [coiId, sub.id, carrier, am_best_rating || null, policy_number || null, effective_date, expiration_date,
+      `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?)`,
+      [coiId, sub.id, context.gc.id, carrier, am_best_rating || null, policy_number || null, effective_date, expiration_date,
         stored ? stored.url : null, stored ? stored.key : null, stored ? stored.filename : null,
         stored ? stored.size : null, stored ? stored.mime : null, now, now]
     )
@@ -153,7 +151,12 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
           type: 'general' })
       } catch { /* Do not treat a logging failure as a failed upload. */ }
     }
-    const created = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
+    // The upload link is a public bearer capability, not a certificate download
+    // grant. Never return a storage key, URL, or internal reviewer fields here.
+    const created = await dbGet(`SELECT id, subcontractor_id, carrier, am_best_rating, policy_number,
+      effective_date, expiration_date, status, certificate_name, certificate_size, certificate_mime,
+      created_at, updated_at FROM cois WHERE id = ?`, [coiId])
+    res.set('Cache-Control', 'no-store')
     res.json({ success: true, coi: created, email: confirmation,
       email_delivered: confirmation?.status === 'sent' })
   } catch {
@@ -165,16 +168,31 @@ uploadPortalRouter.get('/my/:token', async (req, res) => {
   try {
     const checked = await validRequest(req.params.token)
     if ('error' in checked) return res.status(checked.status ?? 404).json({ error: checked.error })
-    // Internal reviewer notes and storage keys are not public history fields.
+    // A bearer link may expose only this GC's submissions and COIs owned by
+    // the actual sub account on this profile, never another GC or legacy rows.
+    // GC ownership takes precedence if malformed data has both owners set.
     const cois = await dbAll(
-      `SELECT id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, created_at, updated_at
-       FROM cois WHERE subcontractor_id = ? ORDER BY expiration_date DESC`,
-      [checked.request.subcontractor_id]
+      `SELECT c.id, c.subcontractor_id, c.carrier, c.am_best_rating, c.policy_number,
+        c.effective_date, c.expiration_date, c.status, c.created_at, c.updated_at,
+        CASE WHEN c.certificate_url = 'carrier-connect://verified'
+          OR c.reviewer_notes = 'Instant verification via simulated carrier connect'
+          THEN 1 ELSE 0 END AS simulation_marker
+       FROM cois c WHERE c.subcontractor_id = ? AND (
+        c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND EXISTS (
+          SELECT 1 FROM subcontractors s JOIN users u ON u.id = s.user_id AND u.role = 'sub'
+          WHERE s.id = c.subcontractor_id AND s.user_id = c.owner_sub_user_id
+        ))
+       ) ORDER BY c.expiration_date DESC`,
+      [checked.request.subcontractor_id, checked.context.gc.id]
     )
-    const enriched = await Promise.all(cois.map(async (c) => ({
-      ...labelSimulatedCarrierCOI(c),
-      coverages: await dbAll('SELECT id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation FROM coi_coverages WHERE coi_id = ?', [c.id]),
-    })))
+    const enriched = await Promise.all(cois.map(async (c) => {
+      const { simulation_marker, ...publicFields } = c
+      return {
+        ...labelSimulatedCarrierCOI(simulation_marker ? { ...publicFields, simulated_carrier_connect: true } : publicFields),
+        coverages: await dbAll('SELECT id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation FROM coi_coverages WHERE coi_id = ?', [c.id]),
+      }
+    }))
+    res.set('Cache-Control', 'no-store')
     res.json({ cois: enriched })
   } catch {
     res.status(500).json({ error: 'Unable to load submissions' })

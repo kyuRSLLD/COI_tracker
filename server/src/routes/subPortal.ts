@@ -9,6 +9,7 @@ import { requireAuth, signToken } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
+import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail } from '../services/loginRateLimit.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -77,13 +78,25 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const cois = await dbAll(
-      `SELECT * FROM cois WHERE subcontractor_id = ? ORDER BY created_at DESC`,
-      [sub.id]
+      `SELECT c.* FROM cois c WHERE c.subcontractor_id = ? AND (
+        (c.owner_gc_user_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM gc_sub_connections g
+          WHERE g.gc_user_id = c.owner_gc_user_id AND g.subcontractor_id = c.subcontractor_id
+        )) OR
+        (c.owner_gc_user_id IS NULL AND c.owner_sub_user_id = ?)
+       ) ORDER BY c.created_at DESC`,
+      [sub.id, req.user!.id]
     )
     for (const coi of cois) {
       coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
+      for (const coverage of coi.coverages) delete coverage.notes
+      // The stored URL may be a legacy simulation marker, so label it before
+      // replacing the stored URL with a safe view URL.
+      Object.assign(coi, labelSimulatedCarrierCOI(coi))
       coi.certificate_url = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null
       delete coi.certificate_key
+      delete coi.reviewer_notes
+      delete coi.review_date
     }
     const requests = await dbAll(
       `SELECT ur.*, NULL AS gc_company_name, NULL AS gc_phone
@@ -134,11 +147,12 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
     const coiId = uuidv4()
     const now = new Date().toISOString()
     await dbRun(
-      `INSERT INTO cois (id, subcontractor_id, carrier, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO cois (id, subcontractor_id, owner_sub_user_id, carrier, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         coiId,
         sub.id,
+        req.user!.id,
         req.body?.carrier || 'Not provided',
         req.body?.policy_number || null,
         eff,
@@ -155,6 +169,11 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
     )
     const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
     coi.coverages = []
+    coi.certificate_url = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null
+    delete coi.certificate_key
+    delete coi.reviewer_notes
+    delete coi.review_date
+    res.set('Cache-Control', 'no-store')
     res.json(coi)
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -240,15 +259,18 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     }
 
     const { email, password, name, company_name, trade, contact_person, phone } = req.body || {}
-    if (!email || !password) {
+    if (!email || !password || typeof password !== 'string') {
       return res.status(400).json({ error: 'Email and password are required' })
     }
+    const normalizedEmail = normalizeLoginEmail(email)
 
     // Branch B: existing account - "if they already have an account that link will just connect to GC"
-    const existingUser = await dbGet('SELECT * FROM users WHERE LOWER(email) = ?', [email.toLowerCase()])
+    const existingUser = await dbGet('SELECT * FROM users WHERE LOWER(email) = ?', [normalizedEmail])
     if (existingUser) {
+      if (!consumeLoginAttempt(req, normalizedEmail)) return res.status(429).json({ error: 'Too many requests' })
       const ok = await bcrypt.compare(password, existingUser.password_hash)
       if (!ok) return res.status(401).json({ error: 'Invalid credentials for existing account' })
+      clearLoginAttempts(req, normalizedEmail)
       if (existingUser.role !== 'sub') return res.status(403).json({ error: 'Subcontractor account required' })
       const sub = await resolveSubProfile(existingUser)
       await linkSubToGc(sub)
@@ -258,6 +280,7 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     }
 
     // Branch C: new subcontractor sign-up - "Upon signing up, they will be linked"
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
     if (!name) return res.status(400).json({ error: 'Name is required for new accounts' })
     const hash = await bcrypt.hash(password, 10)
     const userId = uuidv4()
@@ -265,16 +288,16 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     await dbRun(
       `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [subId, userId, company_name || name, trade || 'Trade to be specified', contact_person || name, phone || null, email.toLowerCase(), now, now]
+      [subId, userId, company_name || name, trade || 'Trade to be specified', contact_person || name, phone || null, normalizedEmail, now, now]
     )
     await dbRun(
       `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
        VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
-      [userId, email.toLowerCase(), hash, name, company_name || name, now, subId]
+      [userId, normalizedEmail, hash, name, company_name || name, now, subId]
     )
     const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [subId])
     await linkSubToGc(sub)
-    const user = { id: userId, email: email.toLowerCase(), role: 'sub', name, subcontractor_id: subId }
+    const user = { id: userId, email: normalizedEmail, role: 'sub', name, subcontractor_id: subId }
     const token = signToken(user)
     return res.json({ token, user, linked: true, mode: 'new', subcontractor: sub, gc_company_name: gc.company_name })
   } catch (err: any) {

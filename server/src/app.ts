@@ -19,9 +19,9 @@ import { subPortalRouter } from './routes/subPortal.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// Deployment switch: keep true until an approved security fix is ready.
+// Deployment switch. Set true and redeploy if protected routes must be paused.
 // Changing this requires a code deployment; no environment variable can disable it.
-export const MAINTENANCE_MODE = true
+export const MAINTENANCE_MODE = false
 
 export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { maintenanceMode?: boolean } = {}) {
   // Existing initialization includes schema changes and a backfill. Do not run it
