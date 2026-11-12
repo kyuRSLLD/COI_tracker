@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { randomBytes } from 'crypto'
 import { fileURLToPath } from 'url'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
@@ -9,32 +10,32 @@ dotenv.config()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const LOCAL_UPLOADS = path.resolve(__dirname, '../../uploads')
+const PRODUCTION = process.env.NODE_ENV === 'production'
+const REGION = (process.env.AWS_REGION || '').trim()
+const BUCKET = (process.env.AWS_S3_BUCKET || '').trim()
+const MAX_FILE_BYTES = 25 * 1024 * 1024
+const VIEW_URL_SECONDS = 300
 
-const REGION = process.env.AWS_REGION || 'us-east-1'
-const BUCKET = process.env.AWS_S3_BUCKET || ''
-const KEY_ID = process.env.AWS_ACCESS_KEY_ID || ''
-const SECRET = process.env.AWS_SECRET_ACCESS_KEY || ''
-const ENDPOINT = process.env.AWS_S3_ENDPOINT || undefined
+// Limit the endpoint to AWS's regional S3 service in the commercial/GovCloud
+// partition. In particular, do not honor S3-compatible or endpoint URL env vars.
+const validRegion = /^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/.test(REGION)
+const validBucket = /^(?=.{3,63}$)[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(BUCKET) &&
+  !BUCKET.includes('..') && !/^\d+\.\d+\.\d+\.\d+$/.test(BUCKET) &&
+  !BUCKET.startsWith('your-')
 
-export const isS3Configured = Boolean(
-  BUCKET &&
-  KEY_ID &&
-  SECRET &&
-  !KEY_ID.startsWith('your-') &&
-  !SECRET.startsWith('your-')
-)
+// This means bucket and region are syntactically configured, not that AWS
+// credentials exist or that the bucket, encryption, or permissions are verified.
+export const isS3Configured = validRegion && validBucket
 
 let s3: S3Client | null = null
 function getS3(): S3Client {
+  if (!isS3Configured) throw new Error('Certificate storage is unavailable')
   if (!s3) {
     s3 = new S3Client({
       region: REGION,
-      endpoint: ENDPOINT,
-      forcePathStyle: Boolean(ENDPOINT),
-      credentials: {
-        accessKeyId: KEY_ID,
-        secretAccessKey: SECRET,
-      },
+      endpoint: `https://s3.${REGION}.amazonaws.com`,
+      forcePathStyle: true,
+      // No credentials here: use the AWS SDK default credential provider chain.
     })
   }
   return s3
@@ -48,47 +49,90 @@ export interface StoredFile {
   mime: string
 }
 
+// Magic-byte checks provide a basic format gate, not parsing or malware scanning.
+// The MIME and size reported by the uploader are not trusted.
+function checkedFile(file: Express.Multer.File): { mime: string; size: number; filename: string } {
+  const bytes = file?.buffer
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0 || bytes.length > MAX_FILE_BYTES) {
+    throw new Error('Invalid certificate file')
+  }
+
+  let mime: string
+  if (bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+    mime = 'application/pdf'
+  } else if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    mime = 'image/png'
+  } else if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    mime = 'image/jpeg'
+  } else {
+    throw new Error('Invalid certificate file')
+  }
+
+  const filename = (typeof file.originalname === 'string' ? file.originalname : '')
+    .replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 255) || 'certificate'
+  return { mime, size: bytes.length, filename }
+}
+
 export async function storeFile(file: Express.Multer.File): Promise<StoredFile> {
-  const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  const { mime, size, filename } = checkedFile(file)
 
   if (isS3Configured) {
-    const key = `cois/${safeName}`
-    const client = getS3()
-    await client.send(
-      new PutObjectCommand({
+    // The object identifier does not include an original name or user data.
+    const key = `cois/${randomBytes(32).toString('hex')}`
+    try {
+      await getS3().send(new PutObjectCommand({
         Bucket: BUCKET,
         Key: key,
         Body: file.buffer,
-        ContentType: file.mimetype,
-      })
-    )
-    const url = `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`
-    return { url, key, filename: file.originalname, size: file.size, mime: file.mimetype }
+        ContentType: mime,
+        // Bucket default encryption is required; no public ACL is set.
+      }))
+    } catch {
+      throw new Error('Certificate storage is unavailable')
+    }
+    // Preserve the route API without persisting a public URL or a bearer URL.
+    return { url: '', key, filename, size, mime }
   }
 
-  // Local disk fallback (dev-ready, zero config)
-  fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
-  const destPath = path.join(LOCAL_UPLOADS, safeName)
-  fs.writeFileSync(destPath, file.buffer)
-  return {
-    url: `/uploads/${safeName}`,
-    key: safeName,
-    filename: file.originalname,
-    size: file.size,
-    mime: file.mimetype,
+  // An unavailable or incomplete S3 configuration never falls back in production.
+  if (PRODUCTION) throw new Error('Certificate storage is unavailable')
+
+  const safeName = `${Date.now()}-${randomBytes(8).toString('hex')}-${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  try {
+    fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
+    fs.writeFileSync(path.join(LOCAL_UPLOADS, safeName), file.buffer)
+  } catch {
+    throw new Error('Certificate storage is unavailable')
   }
+  return { url: `/uploads/${safeName}`, key: safeName, filename, size, mime }
 }
 
+// Authorization is the caller's responsibility: call only after checking the
+// requesting principal's permission for the specific certificate. Signed URLs
+// are bearer credentials; never persist or log them.
 export async function getFileViewUrl(key: string, storedUrl?: string): Promise<string> {
   if (!isS3Configured) {
+    if (PRODUCTION) throw new Error('Certificate storage is unavailable')
     return storedUrl || `/uploads/${key}`
   }
-  const client = getS3()
+
+  // Accept keys generated by this service, including legacy S3 keys. Never turn
+  // a legacy local path, URL, or arbitrary bucket key into a signed URL.
+  if (typeof key !== 'string' || !/^cois\/[a-zA-Z0-9._-]+$/.test(key)) {
+    throw new Error('Certificate storage is unavailable')
+  }
   try {
-    const command = new GetObjectCommand({ Bucket: BUCKET, Key: key })
-    return await getSignedUrl(client, command, { expiresIn: 3600 })
+    const command = new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      // Downloads rather than rendering untrusted uploads inline.
+      ResponseContentDisposition: 'attachment',
+      ResponseContentType: 'application/octet-stream',
+    })
+    return await getSignedUrl(getS3(), command, { expiresIn: VIEW_URL_SECONDS })
   } catch {
-    return storedUrl || '#'
+    // Never return the stored URL when signing fails.
+    throw new Error('Certificate storage is unavailable')
   }
 }
 

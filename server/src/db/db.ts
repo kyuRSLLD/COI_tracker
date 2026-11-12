@@ -154,10 +154,19 @@ export async function initDatabase(): Promise<void> {
       email TEXT,
       address TEXT,
       notes TEXT,
+      website TEXT,
       status TEXT DEFAULT 'pending_review',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS gc_sub_connections (
+      gc_user_id TEXT NOT NULL,
+      subcontractor_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(gc_user_id, subcontractor_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gc_sub_connections_sub ON gc_sub_connections(subcontractor_id);
 
     CREATE TABLE IF NOT EXISTS cois (
       id TEXT PRIMARY KEY,
@@ -245,6 +254,12 @@ export async function initDatabase(): Promise<void> {
       sent_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS sub_email_logs (
+      email_log_id TEXT PRIMARY KEY,
+      subcontractor_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sub_email_logs_sub ON sub_email_logs(subcontractor_id);
+
     CREATE TABLE IF NOT EXISTS gc_settings (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -298,6 +313,9 @@ export async function initDatabase(): Promise<void> {
   } catch {}
   try {
     await dbRun('ALTER TABLE gc_settings ADD COLUMN invite_code TEXT')
+  } catch {}
+  try {
+    await dbRun('ALTER TABLE subcontractors ADD COLUMN website TEXT')
   } catch {}
 
   try {

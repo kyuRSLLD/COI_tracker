@@ -12,6 +12,7 @@ export function JoinPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
+  const [sharingConsent, setSharingConsent] = useState(false)
 
   // tabs
   const [tab, setTab] = useState<'new' | 'existing'>('new')
@@ -33,7 +34,8 @@ export function JoinPage() {
   const hasSession = Boolean(getToken() && currentUser)
 
   useEffect(() => {
-    (async () => {
+    setSharingConsent(false)
+    ;(async () => {
       try {
         setError(null)
         const res = await apiSub.joinInfo(inviteCode)
@@ -49,6 +51,7 @@ export function JoinPage() {
   const gcName = info?.gc.company_name || 'the general contractor'
 
   const handleAuthenticatedJoin = async () => {
+    if (!sharingConsent) return
     setWorking(true)
     setError(null)
     try {
@@ -63,6 +66,7 @@ export function JoinPage() {
 
   const handleNewSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!sharingConsent) return
     setWorking(true)
     setError(null)
     try {
@@ -89,6 +93,7 @@ export function JoinPage() {
 
   const handleExistingConnect = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!sharingConsent) return
     setWorking(true)
     setError(null)
     try {
@@ -171,9 +176,19 @@ export function JoinPage() {
               <div className="rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-3 flex items-start gap-2.5 text-xs text-emerald-900">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                 <p>
-                  <span className="font-semibold">Free for your first month.</span> Upload or connect your COI in under two minutes — after 30 days it's just a $2 one-time fee to keep your certificate hosted.
+                  <span className="font-semibold">Free for your first month.</span> Upload your COI in under two minutes — after 30 days it's just a $2 one-time fee to keep your certificate hosted.
                 </p>
               </div>
+
+              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={sharingConsent}
+                  onChange={(e) => setSharingConsent(e.target.checked)}
+                  className="mt-0.5 shrink-0"
+                />
+                <span>I understand that joining lets {gcName} view my company profile and certificates on file.</span>
+              </label>
 
               {/* Already authenticated branch */}
               {hasSession && (
@@ -184,7 +199,7 @@ export function JoinPage() {
                   <button
                     type="button"
                     onClick={handleAuthenticatedJoin}
-                    disabled={working}
+                    disabled={working || !sharingConsent}
                     className="w-full text-xs font-semibold py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -306,7 +321,7 @@ export function JoinPage() {
                       </div>
                       <button
                         type="submit"
-                        disabled={working}
+                        disabled={working || !sharingConsent}
                         className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
                       >
                         {working ? 'Creating account…' : 'Start free & link to ' + gcName}
@@ -340,7 +355,7 @@ export function JoinPage() {
                       </div>
                       <button
                         type="submit"
-                        disabled={working}
+                        disabled={working || !sharingConsent}
                         className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
                       >
                         {working ? 'Connecting…' : 'Sign in & link to ' + gcName}

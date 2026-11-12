@@ -1,21 +1,24 @@
 import express from 'express'; const Router = express.Router
 import { v4 as uuidv4 } from 'uuid'
+import crypto from 'crypto'
 import { dbGet, dbRun } from '../db/db.ts'
 import { requireAuth } from '../middleware/auth.ts'; import type { AuthRequest } from '../middleware/auth.ts'
 
+import { requireCurrentGC } from './projects.ts'
 export const settingsRouter = Router()
+settingsRouter.use(requireAuth, requireCurrentGC)
 
-settingsRouter.get('/', requireAuth, async (_req, res) => {
+settingsRouter.get('/', async (req: AuthRequest, res) => {
   try {
-    let s = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    let s = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     if (!s) {
       const id = uuidv4()
       await dbRun(
-        `INSERT INTO gc_settings (id, company_name, expiration_warning_days, updated_at)
-         VALUES (?, 'Your Company', 30, ?)`,
-        [id, new Date().toISOString()]
+        `INSERT INTO gc_settings (id, user_id, company_name, expiration_warning_days, updated_at)
+         VALUES (?, ?, 'Your Company', 30, ?)`,
+        [id, req.user!.id, new Date().toISOString()]
       )
-      s = await dbGet('SELECT * FROM gc_settings WHERE id = ?', [id])
+      s = await dbGet('SELECT * FROM gc_settings WHERE id = ? AND user_id = ?', [id, req.user!.id])
     }
     res.json({ settings: s })
   } catch (err: any) {
@@ -23,7 +26,7 @@ settingsRouter.get('/', requireAuth, async (_req, res) => {
   }
 })
 
-settingsRouter.put('/', requireAuth, async (req, res) => {
+settingsRouter.put('/', async (req: AuthRequest, res) => {
   try {
     const {
       company_name,
@@ -40,20 +43,20 @@ settingsRouter.put('/', requireAuth, async (req, res) => {
       expiration_warning_days,
     } = req.body || {}
 
-    const existing = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    const existing = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     const now = new Date().toISOString()
     if (!existing) {
       const id = uuidv4()
       await dbRun(
-        `INSERT INTO gc_settings (id, company_name, license_number, address, phone, email, logo_url, additional_insured_wording, required_gl_limit, required_auto_limit, required_wc_limit, required_umbrella_limit, expiration_warning_days, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, company_name || null, license_number || null, address || null, phone || null, email || null, logo_url || null, additional_insured_wording || null, required_gl_limit || null, required_auto_limit || null, required_wc_limit || null, required_umbrella_limit || null, expiration_warning_days ?? 30, now]
+        `INSERT INTO gc_settings (id, user_id, company_name, license_number, address, phone, email, logo_url, additional_insured_wording, required_gl_limit, required_auto_limit, required_wc_limit, required_umbrella_limit, expiration_warning_days, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, req.user!.id, company_name || null, license_number || null, address || null, phone || null, email || null, logo_url || null, additional_insured_wording || null, required_gl_limit || null, required_auto_limit || null, required_wc_limit || null, required_umbrella_limit || null, expiration_warning_days ?? 30, now]
       )
     } else {
       await dbRun(
         `UPDATE gc_settings
          SET company_name = ?, license_number = ?, address = ?, phone = ?, email = ?, logo_url = ?, additional_insured_wording = ?, required_gl_limit = ?, required_auto_limit = ?, required_wc_limit = ?, required_umbrella_limit = ?, expiration_warning_days = ?, updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND user_id = ?`,
         [
           company_name ?? existing.company_name,
           license_number ?? existing.license_number,
@@ -69,10 +72,11 @@ settingsRouter.put('/', requireAuth, async (req, res) => {
           expiration_warning_days ?? existing.expiration_warning_days,
           now,
           existing.id,
+          req.user!.id,
         ]
       )
     }
-    const updated = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    const updated = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     res.json({ settings: updated })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -80,14 +84,15 @@ settingsRouter.put('/', requireAuth, async (req, res) => {
 })
 
 // Subcontractor onboarding QR invite endpoints
-settingsRouter.get('/qr-invite', requireAuth, async (req: AuthRequest, res) => {
+settingsRouter.get('/qr-invite', async (req: AuthRequest, res) => {
   try {
-    let s = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    let s = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     if (!s) return res.status(404).json({ error: 'Company settings not found' })
-    if (!s.invite_code) {
-      const code = 'join-' + uuidv4().slice(0, 6)
-      await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ?', [code, s.id])
-      s.invite_code = code
+    if (!/^join-[0-9a-f]{36}$/.test(s.invite_code || '')) {
+      const code = 'join-' + crypto.randomBytes(18).toString('hex')
+      await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ? AND user_id = ? AND (invite_code IS NULL OR invite_code = ?)', [code, s.id, req.user!.id, s.invite_code ?? null])
+      s = await dbGet('SELECT * FROM gc_settings WHERE id = ? AND user_id = ?', [s.id, req.user!.id])
+      if (!s) return res.status(404).json({ error: 'Company settings not found' })
     }
     const origin = process.env.CLIENT_URL || 'https://safecoi.com'
     res.json({
@@ -100,12 +105,12 @@ settingsRouter.get('/qr-invite', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
-settingsRouter.post('/qr-invite/regenerate', requireAuth, async (_req, res) => {
+settingsRouter.post('/qr-invite/regenerate', async (req: AuthRequest, res) => {
   try {
-    const s = await dbGet('SELECT * FROM gc_settings LIMIT 1')
+    const s = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     if (!s) return res.status(404).json({ error: 'Company settings not found' })
-    const code = 'join-' + uuidv4().slice(0, 6)
-    await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ?', [code, s.id])
+    const code = 'join-' + crypto.randomBytes(18).toString('hex')
+    await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ? AND user_id = ?', [code, s.id, req.user!.id])
     const origin = process.env.CLIENT_URL || 'https://safecoi.com'
     res.json({
       invite_code: code,

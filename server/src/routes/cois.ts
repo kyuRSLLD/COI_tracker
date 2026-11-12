@@ -3,7 +3,7 @@ import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { storeFile, getFileViewUrl } from '../services/storage.ts'
-import { requireAuth } from '../middleware/auth.ts'
+import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
@@ -13,16 +13,29 @@ const upload = multer({
 
 export const coisRouter = Router()
 
-coisRouter.get('/', requireAuth, async (req, res) => {
+coisRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
+  if (req.user?.role !== 'gc' || typeof req.user.id !== 'string' || !req.user.id) {
+    return res.status(403).json({ error: 'GC access required' })
+  }
+  try {
+    const user = await dbGet('SELECT id FROM users WHERE id = ? AND role = ?', [req.user.id, 'gc'])
+    if (!user) return res.status(403).json({ error: 'GC access required' })
+    next()
+  } catch {
+    res.status(500).json({ error: 'Unable to verify access' })
+  }
+})
+
+coisRouter.get('/', async (req: AuthRequest, res) => {
   try {
     const { sub_id, status } = req.query as { sub_id?: string; status?: string }
     let sql = `
       SELECT c.*, s.company_name, s.trade, s.contact_person
       FROM cois c
       JOIN subcontractors s ON s.id = c.subcontractor_id
-      WHERE 1=1
+      WHERE EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
     `
-    const params: any[] = []
+    const params: any[] = [req.user!.id]
     if (sub_id) {
       sql += ' AND c.subcontractor_id = ?'
       params.push(sub_id)
@@ -43,7 +56,7 @@ coisRouter.get('/', requireAuth, async (req, res) => {
   }
 })
 
-coisRouter.get('/alerts/expiring', requireAuth, async (req, res) => {
+coisRouter.get('/alerts/expiring', async (req: AuthRequest, res) => {
   try {
     const days = Number(req.query.days) || 30
     const today = new Date()
@@ -57,8 +70,9 @@ coisRouter.get('/alerts/expiring', requireAuth, async (req, res) => {
        FROM cois c
        JOIN subcontractors s ON s.id = c.subcontractor_id
        WHERE c.expiration_date >= ? AND c.expiration_date <= ? AND c.status != 'rejected'
+         AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
        ORDER BY c.expiration_date ASC`,
-      [todayStr, horizonStr]
+      [todayStr, horizonStr, req.user!.id]
     )
     res.json({ alerts: rows.map(labelSimulatedCarrierCOI), window_days: days })
   } catch (err: any) {
@@ -66,14 +80,15 @@ coisRouter.get('/alerts/expiring', requireAuth, async (req, res) => {
   }
 })
 
-coisRouter.get('/:id', requireAuth, async (req, res) => {
+coisRouter.get('/:id', async (req: AuthRequest, res) => {
   try {
     const coi = await dbGet(
-      `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person
+       `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person
        FROM cois c
        JOIN subcontractors s ON s.id = c.subcontractor_id
-       WHERE c.id = ?`,
-      [req.params.id]
+       WHERE c.id = ? AND EXISTS
+         (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`,
+      [req.params.id, req.user!.id]
     )
     if (!coi) return res.status(404).json({ error: 'COI not found' })
     const coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
@@ -84,7 +99,7 @@ coisRouter.get('/:id', requireAuth, async (req, res) => {
   }
 })
 
-coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res) => {
+coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res) => {
   try {
     const {
       subcontractor_id,
@@ -101,6 +116,10 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
       return res.status(400).json({ error: 'subcontractor_id, carrier, effective_date, and expiration_date are required' })
     }
 
+    const sub = await dbGet(`SELECT s.id FROM subcontractors s WHERE s.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [subcontractor_id, req.user!.id])
+    if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
+
     let stored
     if (req.file) {
       stored = await storeFile(req.file)
@@ -108,9 +127,11 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
 
     const id = uuidv4()
     const now = new Date().toISOString()
-    await dbRun(
+    const inserted = await dbRun(
       `INSERT INTO cois (id, subcontractor_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM gc_sub_connections g JOIN subcontractors s ON s.id = g.subcontractor_id
+         WHERE g.subcontractor_id = ? AND g.gc_user_id = ?)`,
       [
         id,
         subcontractor_id,
@@ -128,8 +149,11 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
         stored ? stored.mime : null,
         now,
         now,
+        subcontractor_id,
+        req.user!.id,
       ]
     )
+    if (!inserted.changes) return res.status(404).json({ error: 'Subcontractor not found' })
 
     // parse coverages JSON if provided
     let coverages: any[] = []
@@ -141,7 +165,9 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
     for (const cv of coverages) {
       await dbRun(
         `INSERT INTO coi_coverages (id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS
+           (SELECT 1 FROM cois c JOIN gc_sub_connections g ON g.subcontractor_id = c.subcontractor_id
+            WHERE c.id = ? AND g.gc_user_id = ?)`,
         [
           uuidv4(),
           id,
@@ -151,20 +177,25 @@ coisRouter.post('/', requireAuth, upload.single('certificate'), async (req, res)
           cv.additional_insured ? 1 : 0,
           cv.waiver_of_subrogation ? 1 : 0,
           cv.notes || null,
+          id,
+          req.user!.id,
         ]
       )
     }
 
-    const created = await dbGet('SELECT * FROM cois WHERE id = ?', [id])
+    const created = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [id, req.user!.id])
+    if (!created) return res.status(404).json({ error: 'COI not found' })
     res.status(201).json({ coi: created })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
 })
 
-coisRouter.put('/:id', requireAuth, upload.single('certificate'), async (req, res) => {
+coisRouter.put('/:id', upload.single('certificate'), async (req: AuthRequest, res) => {
   try {
-    const existing = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
+    const existing = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!existing) return res.status(404).json({ error: 'COI not found' })
 
     const { carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes } = req.body || {}
@@ -174,10 +205,10 @@ coisRouter.put('/:id', requireAuth, upload.single('certificate'), async (req, re
     }
 
     const now = new Date().toISOString()
-    await dbRun(
+    const result = await dbRun(
       `UPDATE cois
        SET carrier = ?, am_best_rating = ?, policy_number = ?, effective_date = ?, expiration_date = ?, status = ?, reviewer_notes = ?, certificate_url = ?, certificate_key = ?, certificate_name = ?, certificate_size = ?, certificate_mime = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ?)`,
       [
         carrier ?? existing.carrier,
         am_best_rating ?? existing.am_best_rating,
@@ -193,42 +224,57 @@ coisRouter.put('/:id', requireAuth, upload.single('certificate'), async (req, re
         stored ? stored.mime : existing.certificate_mime,
         now,
         req.params.id,
+        req.user!.id,
       ]
     )
-    const updated = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
+    if (!result.changes) return res.status(404).json({ error: 'COI not found' })
+    const updated = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+    if (!updated) return res.status(404).json({ error: 'COI not found' })
     res.json({ coi: labelSimulatedCarrierCOI(updated) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
 })
 
-coisRouter.put('/:id/review', requireAuth, async (req, res) => {
+coisRouter.put('/:id/review', async (req: AuthRequest, res) => {
   try {
     const { status, reviewer_notes } = req.body || {}
     if (!status || !['compliant', 'needs_revision', 'rejected', 'pending_review'].includes(status)) {
       return res.status(400).json({ error: 'Valid status required: compliant, needs_revision, rejected, pending_review' })
     }
-    const existing = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
+    const existing = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!existing) return res.status(404).json({ error: 'COI not found' })
 
     const now = new Date().toISOString()
-    await dbRun(
+    const result = await dbRun(
       `UPDATE cois
        SET status = ?, reviewer_notes = ?, review_date = ?, updated_at = ?
-       WHERE id = ?`,
-      [status, reviewer_notes ?? existing.reviewer_notes, now, now, req.params.id]
+       WHERE id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ?)`,
+      [status, reviewer_notes ?? existing.reviewer_notes, now, now, req.params.id, req.user!.id]
     )
-    const updated = await dbGet('SELECT * FROM cois WHERE id = ?', [req.params.id])
+    if (!result.changes) return res.status(404).json({ error: 'COI not found' })
+    const updated = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+    if (!updated) return res.status(404).json({ error: 'COI not found' })
     res.json({ coi: labelSimulatedCarrierCOI(updated) })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
 })
 
-coisRouter.delete('/:id', requireAuth, async (req, res) => {
+coisRouter.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    await dbRun('DELETE FROM coi_coverages WHERE coi_id = ?', [req.params.id])
-    await dbRun('DELETE FROM cois WHERE id = ?', [req.params.id])
+    const existing = await dbGet(`SELECT c.id FROM cois c WHERE c.id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+    if (!existing) return res.status(404).json({ error: 'COI not found' })
+    await dbRun(`DELETE FROM coi_coverages WHERE coi_id = ? AND EXISTS
+      (SELECT 1 FROM cois c JOIN gc_sub_connections g ON g.subcontractor_id = c.subcontractor_id
+       WHERE c.id = coi_coverages.coi_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+    const result = await dbRun(`DELETE FROM cois WHERE id = ? AND EXISTS
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+    if (!result.changes) return res.status(404).json({ error: 'COI not found' })
     res.json({ success: true })
   } catch (err: any) {
     res.status(500).json({ error: err.message })

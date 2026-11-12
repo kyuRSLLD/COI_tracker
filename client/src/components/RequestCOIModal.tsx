@@ -59,6 +59,9 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
             <p className="text-xs text-slate-500 mt-1">
               Generates a secure, personalized upload link. The subcontractor opens it, fills in their policy info, and attaches the certificate — no account required.
             </p>
+            <p className="text-xs text-amber-800 mt-2">
+              Email delivery is not configured. After generating the link, copy and share it manually with the subcontractor.
+            </p>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
@@ -79,11 +82,6 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
                 </option>
               ))}
             </select>
-            {sub?.email && (
-              <p className="text-[11px] text-slate-400 mt-1">
-                Will also send a simulated email to {sub.email}
-              </p>
-            )}
           </div>
 
           <div>
@@ -109,6 +107,7 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
               placeholder="e.g. Please provide your renewed COI before mobilization on June 15."
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
+            <p className="text-[11px] text-slate-500 mt-1">Include this note when you share the link manually.</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -125,7 +124,7 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm"
             >
               <Send className="w-3.5 h-3.5" />
-              {loading ? 'Creating…' : 'Generate & Send Request'}
+              {loading ? 'Creating…' : 'Generate Request Link'}
             </button>
           </div>
         </form>
@@ -149,7 +148,7 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
               </button>
             </div>
             <p className="text-[11px] text-brand-800/80 mt-2">
-              Copy and text or email this link to {sub?.company_name}. A copy was also simulated in your Email Log.
+              Copy and text or email this link to {sub?.company_name} yourself. No email was sent.
             </p>
           </div>
         )}

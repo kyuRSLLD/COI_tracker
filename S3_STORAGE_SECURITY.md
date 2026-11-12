@@ -1,0 +1,21 @@
+# Private certificate storage: deployment prerequisites
+
+This is a storage-layer change, not an authorization, deployment, malware-scanning, or migration solution. Keep the application in maintenance until the complete application security review and deployment checks are finished.
+
+## Configuration
+
+- Set `NODE_ENV=production`, `AWS_REGION`, and `AWS_S3_BUCKET`. The region must be an AWS commercial or GovCloud regional identifier; the service uses `https://s3.<region>.amazonaws.com` and does not use `AWS_S3_ENDPOINT` or other custom endpoint settings. China-partition endpoints are not supported.
+- Provide a real AWS identity through the AWS SDK default credential provider chain, preferably short-lived role credentials. Configuring Railway environment variables for region and bucket alone does **not** give Railway an AWS identity or establish access. Configure an appropriate secure identity integration before enabling uploads. Do not put credentials into source control.
+- Configure an existing S3 general-purpose bucket with Block Public Access, bucket-owner-enforced ownership, default server-side encryption (SSE-S3 or SSE-KMS), TLS-only access, and a least-privilege identity allowed to `s3:PutObject` and `s3:GetObject` only under the bucket's `cois/` prefix. If using SSE-KMS, grant the necessary KMS permissions and configure the bucket/key policies accordingly. This code does not create or verify the bucket, policy, encryption, identity, or permissions. AWS connectivity was not tested.
+- `isS3Configured` only reflects whether the bucket and region values are syntactically configured; it is not a readiness, credentials, privacy, or connectivity check. Existing health/startup output can incorrectly report local storage in production when configuration is missing, even though certificate writes and signing fail closed. Correct health reporting separately before production.
+- Existing `.env.example` text about production fallback and S3-compatible endpoints is outdated; do not use those instructions as a security or deployment guide.
+
+## Access contract and behavior
+
+In production an uploaded object is given a random key under `cois/`; its original name and contents are not included in the key. The upload result's `url` is deliberately an empty string: no public object URL or presigned bearer URL is persisted. Authorized route code must request a new view URL using `getFileViewUrl` **only after** checking that the current principal is authorized for that specific certificate. A signature expires after five minutes (or sooner if its credentials expire). Do not log or store signed URLs, and use `Cache-Control: no-store` on responses containing them. Signed downloads are returned as attachments and may not display in the existing inline viewer.
+
+The storage service has no knowledge of users, owners, tokens, or tenant boundaries: it cannot establish route authorization. All routes must be reviewed to ensure they do not emit old `certificate_url` values, sign before object-level authorization, or expose records to an unauthorized user. The existing application also mounts `/uploads` as static content; block or remove that production route separately, and investigate existing local files. Existing local file paths and legacy public URLs are not migrated or used as fallbacks by this service. Legacy S3 objects under `cois/` may be signed using their old key after authorization, but their old keys may contain filenames. Plan a controlled migration and access review for legacy data.
+
+Uploads are limited to 25 MiB based on buffer length and must begin with a PDF, PNG, or JPEG signature. The service derives the MIME type and size from the bytes rather than trusting the multipart headers. These signatures do not prove that a file is well formed or safe, and there is **no malware scanner**. Do not treat an accepted upload as scanned or verified. Existing Multer middleware also limits request file size; rejection errors from the storage layer currently surface through legacy route error handling and may be reported as HTTP 500.
+
+Development may use the existing local storage behavior when S3 is not configured; those local files are not private. No upload or download is permitted as a production fallback if configuration, credentials, or S3 access fail.

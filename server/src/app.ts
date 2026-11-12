@@ -53,7 +53,9 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
 
   app.use(express.json({ limit: '10mb' }))
   if (!maintenanceMode) fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
-  app.use('/uploads', express.static(LOCAL_UPLOADS))
+  // Local files are for development only. Production certificates live in S3
+  // and are served only after an authorized route issues a short-lived URL.
+  if (process.env.NODE_ENV !== 'production') app.use('/uploads', express.static(LOCAL_UPLOADS))
 
   app.use('/api/auth', authRouter)
   app.use('/api/subcontractors', subcontractorsRouter)

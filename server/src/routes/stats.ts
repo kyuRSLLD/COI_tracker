@@ -1,13 +1,15 @@
 import express from 'express'; const Router = express.Router
 import { dbAll } from '../db/db.ts'
-import { computeSubcontractorStatus, daysUntil } from '../services/compliance.ts'
+import { computeSubcontractorStatus } from '../services/compliance.ts'
 import { requireAuth } from '../middleware/auth.ts'
+import type { AuthRequest } from '../middleware/auth.ts'
+import { requireCurrentGC } from './projects.ts'
 
 export const statsRouter = Router()
 
-statsRouter.get('/', requireAuth, async (req, res) => {
+statsRouter.get('/', requireAuth, requireCurrentGC, async (req: AuthRequest, res) => {
   try {
-    const subs = await dbAll('SELECT * FROM subcontractors')
+    const subs = await dbAll(`SELECT s.* FROM subcontractors s WHERE EXISTS (SELECT 1 FROM gc_sub_connections c WHERE c.gc_user_id = ? AND c.subcontractor_id = s.id)`, [req.user!.id])
     const warningDays = 30
     let compliant = 0
     let expiring = 0
@@ -57,8 +59,8 @@ statsRouter.get('/', requireAuth, async (req, res) => {
     const total = subs.length
     const score = total === 0 ? 100 : Math.round((compliant / total) * 100)
 
-    const projects = await dbAll('SELECT id FROM projects')
-    const shares = await dbAll('SELECT id FROM client_share_links')
+    const projects = await dbAll('SELECT id FROM projects WHERE user_id = ?', [req.user!.id])
+    const shares = await dbAll('SELECT sl.id FROM client_share_links sl JOIN projects p ON p.id = sl.project_id WHERE p.user_id = ?', [req.user!.id])
 
     res.json({
       totals: { total, compliant, expiring, expired, missing, pending, score },
