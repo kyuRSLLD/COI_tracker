@@ -266,14 +266,15 @@ coisRouter.put('/:id/review', async (req: AuthRequest, res) => {
 
 coisRouter.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    const existing = await dbGet(`SELECT c.id FROM cois c WHERE c.id = ? AND EXISTS
+    const existing = await dbGet(`SELECT c.id, s.user_id AS sub_user_id FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id WHERE c.id = ? AND EXISTS
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!existing) return res.status(404).json({ error: 'COI not found' })
+    if (existing.sub_user_id) return res.status(403).json({ error: 'Certificates owned by subcontractor accounts cannot be deleted by a general contractor' })
     await dbRun(`DELETE FROM coi_coverages WHERE coi_id = ? AND EXISTS
-      (SELECT 1 FROM cois c JOIN gc_sub_connections g ON g.subcontractor_id = c.subcontractor_id
-       WHERE c.id = coi_coverages.coi_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+      (SELECT 1 FROM cois c JOIN gc_sub_connections g ON g.subcontractor_id = c.subcontractor_id JOIN subcontractors s ON s.id = c.subcontractor_id
+       WHERE c.id = coi_coverages.coi_id AND g.gc_user_id = ? AND s.user_id IS NULL)`, [req.params.id, req.user!.id])
     const result = await dbRun(`DELETE FROM cois WHERE id = ? AND EXISTS
-      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
+      (SELECT 1 FROM gc_sub_connections g JOIN subcontractors s ON s.id = g.subcontractor_id WHERE g.subcontractor_id = cois.subcontractor_id AND g.gc_user_id = ? AND s.user_id IS NULL)`, [req.params.id, req.user!.id])
     if (!result.changes) return res.status(404).json({ error: 'COI not found' })
     res.json({ success: true })
   } catch (err: any) {
