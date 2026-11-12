@@ -5,6 +5,7 @@ Vite with no proxy; every nonlocal request is blocked and all APIs are mocked.
 import json
 import base64
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -103,7 +104,7 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.context.add_init_script('''(() => {
           Object.defineProperty(navigator, 'mediaDevices', {configurable:true, value:undefined});
         })();''' if not supported else '''(() => {
-          const mock = window.cameraMock = {calls:[], streams:[], mode:'ok', frame:null};
+          const mock = window.cameraMock = {calls:[], streams:[], mode:'ok', playMode:'ok', plays:0, playResolves:0, frame:null, frameReads:0, fileClicks:0, photos:0};
           mock.makeStream = () => {
             const track = new EventTarget();
             track.stops = 0;
@@ -132,10 +133,23 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
             videoWidth: {configurable:true, get() { return 400; }},
             videoHeight: {configurable:true, get() { return 400; }}
           });
-          HTMLVideoElement.prototype.play = function() { return Promise.resolve(); };
+          HTMLVideoElement.prototype.play = function() {
+            mock.plays++;
+            if (mock.playMode === 'pending') return new Promise(resolve => { mock.resolvePlay = () => { mock.playResolves++; resolve(); }; });
+            return Promise.resolve();
+          };
+          const inputClick = HTMLInputElement.prototype.click;
+          HTMLInputElement.prototype.click = function() {
+            if (this.type === 'file') mock.fileClicks++;
+            return inputClick.call(this);
+          };
+          window.ImageCapture = class {
+            takePhoto() { mock.photos++; return Promise.reject(new Error('Still photos must not be requested')); }
+          };
           const drawImage = CanvasRenderingContext2D.prototype.drawImage;
           CanvasRenderingContext2D.prototype.drawImage = function(source, ...args) {
             if (!(source instanceof HTMLVideoElement)) return drawImage.call(this, source, ...args);
+            mock.frameReads++;
             if (mock.frame) return drawImage.call(this, mock.frame, ...args);
             this.fillStyle = 'white'; this.fillRect(0, 0, this.canvas.width, this.canvas.height);
           };
@@ -150,21 +164,45 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.page.get_by_role('button', name='Scan QR code', exact=True).click()
         self.page.get_by_role('region', name='Camera QR scanner').wait_for()
 
-    def start_camera(self):
-        self.page.get_by_role('button', name='Start camera', exact=True).click()
-        self.page.wait_for_function('window.cameraMock.streams.length === 1')
+    def assert_camera_started(self):
+        # No further interaction: selecting Scan QR code must request the camera.
+        self.page.wait_for_function('window.cameraMock.calls.length === 1', timeout=3000)
+        self.page.wait_for_function('window.cameraMock.streams.length === 1', timeout=3000)
         self.page.get_by_text('Point the camera', exact=False).wait_for()
 
     def assert_camera_stopped(self):
         self.page.wait_for_function('window.cameraMock.streams[0].track.stops === 1')
         self.assertFalse(self.redeems)
 
+    def track_intervals(self):
+        self.page.evaluate('''() => {
+          const set = window.setInterval.bind(window), clear = window.clearInterval.bind(window);
+          window.testIntervals = new Set();
+          window.setInterval = (fn, delay, ...args) => {
+            const id = set(fn, delay, ...args); window.testIntervals.add(id); return id;
+          };
+          window.clearInterval = id => { window.testIntervals.delete(id); clear(id); };
+        }''')
+
     def test_camera_real_qr_requires_explicit_connect(self):
         self.install_camera_mock()
         self.load_gc_subs()
+        choosers = []
+        self.page.on('filechooser', lambda chooser: choosers.append(chooser))
         self.open_camera()
-        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 0, 'Opening the scanner must not request camera access')
-        self.start_camera()
+        self.assert_camera_started()
+        scanner = self.page.get_by_role('region', name='Camera QR scanner')
+        self.assertTrue(scanner.get_by_label('Camera preview').is_visible())
+        self.assertEqual(scanner.get_by_role('button', name='Start camera', exact=True).count(), 0)
+        self.assertEqual(scanner.get_by_role('button', name=re.compile(r'\b(?:take|capture)\b.*\b(?:photo|picture)\b', re.I)).count(), 0)
+        self.assertEqual(scanner.get_by_text(re.compile(r'\b(?:take|capture)\b.*\b(?:photo|picture)\b', re.I)).count(), 0)
+        self.assertEqual(scanner.locator('input[type="file"][capture]').count(), 0)
+        # Several video frames are consumed without a shutter or additional click.
+        self.page.wait_for_function('window.cameraMock.frameReads >= 2', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
+        self.assertEqual(self.page.evaluate('window.cameraMock.fileClicks'), 0)
+        self.assertEqual(self.page.evaluate('window.cameraMock.photos'), 0)
+        self.assertFalse(choosers)
         self.assertEqual(self.page.evaluate('window.cameraMock.calls[0]'), {'audio': False, 'video': {'facingMode': {'ideal': 'environment'}}})
         self.camera_frame('https://evil.example/connect-sub#' + CODE)
         self.page.get_by_text('not a SafeCOI subcontractor connection code', exact=False).wait_for()
@@ -173,6 +211,10 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.camera_frame('https://safecoi.com/connect-sub#' + CODE)
         self.page.get_by_text('Connect to add or link this subcontractor', exact=False).wait_for()
         self.assert_camera_stopped()
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
+        self.assertEqual(self.page.evaluate('window.cameraMock.fileClicks'), 0)
+        self.assertEqual(self.page.evaluate('window.cameraMock.photos'), 0)
+        self.assertFalse(choosers)
         self.page.get_by_role('button', name='Connect subcontractor', exact=True).click()
         self.page.get_by_role('status').get_by_text('Sample Plumbing').wait_for()
         self.assertEqual(self.redeems, [{'method': 'POST', 'body': {'token': CODE}, 'auth': 'Bearer ' + AUTH}])
@@ -183,7 +225,7 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
             with self.subTest(action=action):
                 self.load_gc_subs()
                 self.open_camera()
-                self.start_camera()
+                self.assert_camera_started()
                 if action == 'email':
                     self.page.get_by_role('button', name='Invite by email', exact=True).click()
                     self.page.get_by_label('Subcontractor email').wait_for()
@@ -201,7 +243,7 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.install_camera_mock()
         self.load_gc_subs()
         self.open_camera()
-        self.start_camera()
+        self.assert_camera_started()
         self.upload(self.qr_png('https://safecoi.com/connect-sub#' + CODE))
         self.assert_camera_stopped()
         self.page.get_by_text('Connect to add or link this subcontractor', exact=False).wait_for()
@@ -211,20 +253,21 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.install_camera_mock()
         self.load_gc_subs()
         self.open_camera()
-        self.start_camera()
+        self.assert_camera_started()
         self.page.evaluate('''() => {
           localStorage.setItem('coi_token', 'second-gc-session');
           window.dispatchEvent(new StorageEvent('storage', {key:'coi_token', storageArea:localStorage}));
         }''')
         self.assert_camera_stopped()
-        self.assertFalse(self.page.get_by_role('region', name='Camera QR scanner').is_visible())
+        # The track may stop just before React commits removal of the scanner.
+        self.page.get_by_role('region', name='Camera QR scanner').wait_for(state='hidden')
         self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
 
     def test_camera_decoded_after_silent_token_change_is_not_staged(self):
         self.install_camera_mock()
         self.load_gc_subs()
         self.open_camera()
-        self.start_camera()
+        self.assert_camera_started()
         # No storage event: the decoder callback itself must notice the new token.
         self.page.evaluate("localStorage.setItem('coi_token', 'second-gc-session')")
         self.camera_frame('https://safecoi.com/connect-sub#' + CODE)
@@ -233,11 +276,28 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
         self.assertFalse(self.redeems)
 
+    def test_camera_silent_session_change_mid_scan_stops_without_a_qr(self):
+        self.install_camera_mock()
+        self.load_gc_subs()
+        self.open_camera()
+        self.assert_camera_started()
+        self.page.wait_for_function('window.cameraMock.frameReads >= 2')
+        # No storage event and no QR in the frame: validity is checked every loop.
+        reads = self.page.evaluate('''() => {
+          localStorage.setItem('coi_token', 'second-gc-session');
+          return window.cameraMock.frameReads;
+        }''')
+        self.assert_camera_stopped()
+        self.page.get_by_role('region', name='Camera QR scanner').wait_for(state='hidden')
+        self.assertEqual(self.page.evaluate('window.cameraMock.frameReads'), reads)
+        self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
+        self.assertFalse(self.redeems)
+
     def test_camera_staged_code_cannot_redeem_after_token_change(self):
         self.install_camera_mock()
         self.load_gc_subs()
         self.open_camera()
-        self.start_camera()
+        self.assert_camera_started()
         self.camera_frame('https://safecoi.com/connect-sub#' + CODE)
         self.page.get_by_role('button', name='Connect subcontractor', exact=True).wait_for()
         self.assert_camera_stopped()
@@ -249,10 +309,10 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
     def test_camera_permission_denied_can_retry(self):
         self.install_camera_mock()
         self.load_gc_subs()
-        self.open_camera()
         self.page.evaluate("window.cameraMock.mode = 'denied'")
-        self.page.get_by_role('button', name='Start camera', exact=True).click()
+        self.open_camera()
         self.page.get_by_role('alert').get_by_text('permission was denied', exact=False).wait_for()
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
         self.assertEqual(self.page.evaluate('window.cameraMock.streams.length'), 0)
         self.assertFalse(self.redeems)
         self.page.evaluate("window.cameraMock.mode = 'ok'")
@@ -261,6 +321,20 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
         self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 2)
         self.page.get_by_role('button', name='Close scanner', exact=True).click()
         self.assert_camera_stopped()
+
+    def test_camera_retry_checks_silent_session_change_before_request(self):
+        self.install_camera_mock()
+        self.load_gc_subs()
+        self.page.evaluate("window.cameraMock.mode = 'denied'")
+        self.open_camera()
+        self.page.get_by_role('alert').get_by_text('permission was denied', exact=False).wait_for()
+        self.page.evaluate("localStorage.setItem('coi_token', 'second-gc-session')")
+        self.page.get_by_role('button', name='Try camera again', exact=True).click()
+        self.page.get_by_role('region', name='Camera QR scanner').wait_for(state='hidden')
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
+        self.assertEqual(self.page.evaluate('window.cameraMock.streams.length'), 0)
+        self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
+        self.assertFalse(self.redeems)
 
     def test_camera_unavailable_shows_upload_fallback(self):
         self.install_camera_mock(supported=False)
@@ -274,22 +348,98 @@ const s=await createServer({configFile:false,root:process.cwd(),plugins:[react()
     def test_camera_late_permission_result_is_stopped_after_close(self):
         self.install_camera_mock()
         self.load_gc_subs()
-        self.open_camera()
         self.page.evaluate("window.cameraMock.mode = 'pending'")
-        self.page.get_by_role('button', name='Start camera', exact=True).click()
-        self.page.wait_for_function('typeof window.cameraMock.resolvePending === "function"')
+        self.open_camera()
+        self.page.wait_for_function('typeof window.cameraMock.resolvePending === "function"', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
         self.page.get_by_role('button', name='Close scanner', exact=True).click()
         self.page.evaluate('window.cameraMock.resolvePending()')
         self.assert_camera_stopped()
         self.assertFalse(self.page.get_by_role('region', name='Camera QR scanner').is_visible())
 
+    def test_camera_late_permission_result_stops_after_silent_session_change(self):
+        self.install_camera_mock()
+        self.load_gc_subs()
+        self.page.evaluate("window.cameraMock.mode = 'pending'")
+        self.open_camera()
+        self.page.wait_for_function('typeof window.cameraMock.resolvePending === "function"', timeout=3000)
+        self.camera_frame('https://safecoi.com/connect-sub#' + CODE)
+        # Change the token without an event while permission is pending.
+        self.page.evaluate('''() => {
+          localStorage.setItem('coi_token', 'second-gc-session');
+          window.cameraMock.resolvePending();
+        }''')
+        self.assert_camera_stopped()
+        self.page.get_by_role('region', name='Camera QR scanner').wait_for(state='hidden')
+        self.assertEqual(self.page.evaluate('window.cameraMock.plays'), 0)
+        self.assertEqual(self.page.evaluate('window.cameraMock.frameReads'), 0)
+        self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
+        self.assertFalse(self.redeems)
+
+    def test_camera_pending_play_stops_after_silent_session_change(self):
+        self.install_camera_mock()
+        self.load_gc_subs()
+        self.track_intervals()
+        self.page.evaluate('''() => {
+          window.cameraMock.playMode = 'pending';
+          window.sessionChanges = 0;
+          window.addEventListener('coi-session-changed', () => window.sessionChanges++);
+        }''')
+        self.open_camera()
+        self.page.wait_for_function('typeof window.cameraMock.resolvePlay === "function"', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.cameraMock.streams[0].track.stops'), 0)
+        # No storage event and playback never resolves: the live stream must still stop.
+        self.page.evaluate("localStorage.setItem('coi_token', 'second-gc-session')")
+        self.page.wait_for_function('window.cameraMock.streams[0].track.stops === 1', timeout=3000)
+        self.page.get_by_role('region', name='Camera QR scanner').wait_for(state='hidden')
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 0)
+        self.assertEqual(self.page.evaluate('window.cameraMock.playResolves'), 0)
+        self.assertEqual(self.page.evaluate('window.sessionChanges'), 1)
+        self.assertEqual(self.page.evaluate('window.cameraMock.frameReads'), 0)
+        self.assertEqual(self.page.get_by_role('button', name='Connect subcontractor', exact=True).count(), 0)
+        self.assertFalse(self.redeems)
+
+    def test_camera_session_monitor_cleanup_and_restart(self):
+        self.install_camera_mock()
+        self.load_gc_subs()
+        self.track_intervals()
+        self.page.evaluate("window.cameraMock.playMode = 'pending'")
+        self.open_camera()
+        self.page.wait_for_function('typeof window.cameraMock.resolvePlay === "function"', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 1)
+        self.page.evaluate('() => { window.oldResolvePlay = window.cameraMock.resolvePlay; }')
+        self.page.get_by_role('button', name='Close scanner', exact=True).click()
+        self.assert_camera_stopped()
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 0)
+
+        # A late completion from the old playback cannot stop or start the new scan.
+        self.open_camera()
+        self.page.wait_for_function('window.cameraMock.streams.length === 2 && window.cameraMock.plays === 2', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 1)
+        self.assertFalse(self.page.evaluate('window.oldResolvePlay === window.cameraMock.resolvePlay'))
+        self.assertEqual(self.page.evaluate('window.cameraMock.frameReads'), 0)
+        self.page.evaluate('window.oldResolvePlay()')
+        self.page.wait_for_timeout(350)
+        self.assertEqual(self.page.evaluate('window.cameraMock.streams.map(s => s.track.stops)'), [1, 0])
+        self.assertEqual(self.page.evaluate('window.cameraMock.frameReads'), 0)
+        self.page.evaluate('window.cameraMock.resolvePlay()')
+        self.page.get_by_text('Point the camera', exact=False).wait_for()
+        self.page.wait_for_function('window.cameraMock.frameReads >= 2', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.cameraMock.streams[1].track.stops'), 0)
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 1)
+        # Closing the modal unmounts the scanner and clears its timer too.
+        self.page.get_by_role('button', name='Close', exact=True).click()
+        self.page.wait_for_function('window.cameraMock.streams[1].track.stops === 1', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.testIntervals.size'), 0)
+        self.assertFalse(self.redeems)
+
     def test_camera_late_permission_result_is_stopped_after_session_change(self):
         self.install_camera_mock()
         self.load_gc_subs()
-        self.open_camera()
         self.page.evaluate("window.cameraMock.mode = 'pending'")
-        self.page.get_by_role('button', name='Start camera', exact=True).click()
-        self.page.wait_for_function('typeof window.cameraMock.resolvePending === "function"')
+        self.open_camera()
+        self.page.wait_for_function('typeof window.cameraMock.resolvePending === "function"', timeout=3000)
+        self.assertEqual(self.page.evaluate('window.cameraMock.calls.length'), 1)
         self.page.evaluate('''() => {
           localStorage.setItem('coi_token', 'second-gc-session');
           window.dispatchEvent(new StorageEvent('storage', {key:'coi_token', storageArea:localStorage}));

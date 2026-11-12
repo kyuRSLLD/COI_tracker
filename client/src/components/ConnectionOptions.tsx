@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import jsQR from 'jsqr'
 import { ApiError, apiConnectionQr, apiQrInvite, getToken, SESSION_CHANGED_EVENT } from '../api'
-import { CameraQrScanner } from './CameraQrScanner'
+import { CameraQrScanner, type CameraQrScannerHandle } from './CameraQrScanner'
 
 export const ConnectionSession = createContext<{ role: string | null; token: string | null }>({ role: null, token: null })
 // Unlike $, this end assertion cannot match before a trailing newline.
@@ -70,6 +71,7 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
   const [invite, setInvite] = useState<{ invite_url: string; company_name: string } | null>(null)
   const active = useRef(true)
   const fileInput = useRef<HTMLInputElement>(null)
+  const camera = useRef<CameraQrScannerHandle>(null)
   const decodeVersion = useRef(0)
   const source = useRef<'image' | 'camera' | null>('image')
   const [cameraVersion, setCameraVersion] = useState(0)
@@ -80,6 +82,7 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
   useEffect(() => {
     const checkSession = () => {
       if (getToken() === sessionToken) return
+      camera.current?.stop()
       source.current = null
       decodeVersion.current++
       setMode('qr'); setQrToken(null); setDecoding(false); setConnectedName(null); setError(null); setInvite(null)
@@ -95,6 +98,20 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
   const resetQrState = () => {
     decodeVersion.current++
     setQrToken(null); setDecoding(false); setConnectedName(null); setError(null); setInvite(null)
+  }
+
+  const cameraSessionValid = (version: number) => active.current && source.current === 'camera' &&
+    version === decodeVersion.current && getToken() === sessionToken
+
+  const cameraSessionInvalid = (version: number) => {
+    // An old scanner must not invalidate a newer selection or an unmounted parent.
+    if (!active.current || source.current !== 'camera' || version !== decodeVersion.current) return
+    source.current = null
+    resetQrState()
+    setMode('qr')
+    try {
+      if (getToken() !== sessionToken) window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
+    } catch { /* The scanner has already stopped if storage is unavailable. */ }
   }
 
   const selectImage = async (file?: File) => {
@@ -175,20 +192,25 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
   return <div className="mt-4 border-t border-slate-200 pt-4 space-y-3">
     <div className="flex flex-wrap gap-2 text-xs" aria-label="Add subcontractor method">
       <button type="button" disabled={working} aria-pressed={mode === 'camera'} onClick={() => {
+        if (getToken() !== sessionToken) { camera.current?.stop(); source.current = null; setMode('qr'); window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)); return }
+        if (mode === 'camera' && source.current === 'camera') return
         source.current = 'camera'; resetQrState()
-        if (getToken() !== sessionToken) { source.current = null; setMode('qr'); window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)); return }
-        setCameraVersion(decodeVersion.current); setMode('camera')
+        // Commit the scanner first, including StrictMode's setup/cleanup cycle, then
+        // request permission in this same user gesture rather than in an effect.
+        flushSync(() => { setCameraVersion(decodeVersion.current); setMode('camera') })
+        camera.current?.start()
       }} className={`rounded-lg px-3 py-2 font-semibold disabled:opacity-50 ${mode === 'camera' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Scan QR code</button>
       <button type="button" disabled={working} onClick={() => {
+        camera.current?.stop()
         source.current = 'image'; resetQrState(); setMode('qr')
         if (getToken() !== sessionToken) { source.current = null; window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)); return }
         fileInput.current?.click()
       }} className="rounded-lg px-3 py-2 font-semibold bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">Upload sub QR</button>
-      <button type="button" disabled={working} aria-pressed={mode === 'email'} onClick={() => { source.current = null; resetQrState(); setMode('email') }} className={`rounded-lg px-3 py-2 font-semibold disabled:opacity-50 ${mode === 'email' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Invite by email</button>
-      <button type="button" disabled={working} onClick={() => { source.current = null; resetQrState(); setMode('qr'); onManual() }} className="rounded-lg px-3 py-2 font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50">Enter manually</button>
+      <button type="button" disabled={working} aria-pressed={mode === 'email'} onClick={() => { camera.current?.stop(); source.current = null; resetQrState(); setMode('email') }} className={`rounded-lg px-3 py-2 font-semibold disabled:opacity-50 ${mode === 'email' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Invite by email</button>
+      <button type="button" disabled={working} onClick={() => { camera.current?.stop(); source.current = null; resetQrState(); setMode('qr'); onManual() }} className="rounded-lg px-3 py-2 font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50">Enter manually</button>
     </div>
     {error && <p role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</p>}
-    {mode === 'camera' && <CameraQrScanner key={cameraVersion} sessionKey={sessionToken} onDecoded={value => cameraDecoded(value, cameraVersion)} onClose={() => {
+    {mode === 'camera' && <CameraQrScanner ref={camera} key={cameraVersion} sessionKey={sessionToken} isSessionValid={() => cameraSessionValid(cameraVersion)} onSessionInvalid={() => cameraSessionInvalid(cameraVersion)} onDecoded={value => cameraDecoded(value, cameraVersion)} onClose={() => {
       if (source.current !== 'camera' || cameraVersion !== decodeVersion.current) return
       source.current = 'image'; resetQrState(); setMode('qr')
     }} />}

@@ -1,12 +1,19 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 
 export type CameraQrScannerProps = {
   /** Change this whenever the verified parent session changes; never include it in the decoded result. */
   sessionKey: string | null
+  isSessionValid: () => boolean
+  onSessionInvalid: () => void
   /** Receives the complete validated SafeCOI connection URL, not just its token. */
   onDecoded: (value: string) => void
   onClose: () => void
+}
+
+export type CameraQrScannerHandle = {
+  start: () => void
+  stop: () => void
 }
 
 type ScannerStatus = 'idle' | 'requesting' | 'scanning' | 'decoded' | 'error'
@@ -14,6 +21,7 @@ type ScannerStatus = 'idle' | 'requesting' | 'scanning' | 'decoded' | 'error'
 // Keep this in sync with tokenFromQr in ConnectionOptions. Never navigate to a QR URL.
 const SAFE_COI_LINK = /^https:\/\/(?:www\.)?safecoi\.com\/connect-sub#[A-Za-z0-9_-]{43}(?![\s\S])/
 const SCAN_INTERVAL_MS = 150
+const SESSION_CHECK_INTERVAL_MS = 150
 const MAX_FRAME_DIMENSION = 1280
 
 function cameraErrorMessage(error: unknown): string {
@@ -30,19 +38,20 @@ function cameraErrorMessage(error: unknown): string {
   return 'Could not use the camera. Please try again or upload a screenshot instead.'
 }
 
-/** A local-only QR reader. Mount it for the current session and supply a new sessionKey on session changes. */
-export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScannerProps) {
+/** A local-only QR reader. Start it only from an explicit user gesture. */
+export const CameraQrScanner = forwardRef<CameraQrScannerHandle, CameraQrScannerProps>(function CameraQrScanner({ sessionKey, isSessionValid, onSessionInvalid, onDecoded, onClose }, ref) {
   const [status, setStatus] = useState<ScannerStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [invalidCode, setInvalidCode] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
+  const sessionTimerRef = useRef<number | null>(null)
   const detachTracksRef = useRef<(() => void) | null>(null)
   const generationRef = useRef(0)
   const startingRef = useRef(false)
-  const callbacksRef = useRef({ onDecoded, onClose })
-  callbacksRef.current = { onDecoded, onClose }
+  const callbacksRef = useRef({ isSessionValid, onSessionInvalid, onDecoded, onClose })
+  callbacksRef.current = { isSessionValid, onSessionInvalid, onDecoded, onClose }
 
   const supported = typeof window !== 'undefined' && window.isSecureContext &&
     typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
@@ -53,11 +62,25 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
     startingRef.current = false
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     frameRef.current = null
+    if (sessionTimerRef.current !== null) window.clearInterval(sessionTimerRef.current)
+    sessionTimerRef.current = null
     detachTracksRef.current?.()
     detachTracksRef.current = null
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
+  }
+
+  const ensureSessionValid = () => {
+    let valid = false
+    try { valid = callbacksRef.current.isSessionValid() } catch { /* Fail closed if the session cannot be checked. */ }
+    if (valid) return true
+    stop()
+    setStatus('idle')
+    setError(null)
+    setInvalidCode(false)
+    callbacksRef.current.onSessionInvalid()
+    return false
   }
 
   // Layout cleanup makes a committed session change invalidate the old camera before paint.
@@ -78,6 +101,7 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
 
   const start = async () => {
     if (!supported || !sessionKey || startingRef.current || streamRef.current) return
+    if (!ensureSessionValid()) return
     startingRef.current = true
     const generation = ++generationRef.current
     setStatus('requesting')
@@ -93,8 +117,15 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
         return
       }
       streamRef.current = stream
+      if (!ensureSessionValid()) return
+      // Playback can remain pending indefinitely, and animation frames can be
+      // suspended. Monitor for as long as this generation owns the live stream.
+      sessionTimerRef.current = window.setInterval(() => {
+        if (generation === generationRef.current && streamRef.current === stream) ensureSessionValid()
+      }, SESSION_CHECK_INTERVAL_MS)
       const cameraEnded = () => {
         if (generation !== generationRef.current) return
+        if (!ensureSessionValid()) return
         stop()
         setStatus('error')
         setError('Camera access ended. Please try again or upload a screenshot instead.')
@@ -107,6 +138,7 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
       video.srcObject = stream
       await video.play()
       if (generation !== generationRef.current) return
+      if (!ensureSessionValid()) return
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d', { willReadFrequently: true })
       if (!context) throw new Error('Canvas unavailable')
@@ -116,6 +148,7 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
       let showedInvalid = false
       const scan = (timestamp: number) => {
         if (generation !== generationRef.current) return
+        if (!ensureSessionValid()) return
         if (timestamp - lastScan >= SCAN_INTERVAL_MS && video.readyState >= 2 && video.videoWidth && video.videoHeight) {
           lastScan = timestamp
           let decodedValue: string | null = null
@@ -134,12 +167,14 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
             }
           } catch {
             if (generation !== generationRef.current) return
+            if (!ensureSessionValid()) return
             stop()
             setStatus('error')
             setError('Could not read camera frames. Please try again or upload a screenshot instead.')
             return
           }
           if (decodedValue !== null) {
+            if (!ensureSessionValid()) return
             stop()
             setStatus('decoded')
             setInvalidCode(false)
@@ -152,11 +187,14 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
       frameRef.current = requestAnimationFrame(scan)
     } catch (err) {
       if (generation !== generationRef.current) return
+      if (!ensureSessionValid()) return
       stop()
       setStatus('error')
       setError(cameraErrorMessage(err))
     }
   }
+
+  useImperativeHandle(ref, () => ({ start: () => { void start() }, stop }))
 
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 p-3 text-xs text-slate-700" aria-label="Camera QR scanner">
@@ -170,16 +208,16 @@ export function CameraQrScanner({ sessionKey, onDecoded, onClose }: CameraQrScan
         <p role="status">A verified session is required before using the camera.</p>
       ) : (
         <>
-          <p>The camera starts only when you choose Start camera. Video is processed on this device and is not uploaded.</p>
+          <p>Video is processed on this device and is not uploaded.</p>
           <video ref={videoRef} autoPlay muted playsInline aria-label="Camera preview" className={`w-full max-w-md rounded-lg bg-slate-900 ${status === 'scanning' || status === 'requesting' ? 'block' : 'hidden'}`} />
           {status === 'requesting' && <p role="status">Waiting for camera access…</p>}
           {status === 'scanning' && <p role="status">Point the camera at the subcontractor’s SafeCOI connection QR code.</p>}
           {status === 'decoded' && <p role="status">Connection QR detected. Camera stopped.</p>}
           {invalidCode && status === 'scanning' && <p role="status">That QR code is not a SafeCOI subcontractor connection code. Try another.</p>}
           {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-800">{error}</p>}
-          {(status === 'idle' || status === 'error' || status === 'decoded') && <button type="button" onClick={() => void start()} className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800">{status === 'idle' ? 'Start camera' : 'Try camera again'}</button>}
+          {(status === 'error' || status === 'decoded') && <button type="button" onClick={() => void start()} className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800">Try camera again</button>}
         </>
       )}
     </section>
   )
-}
+})
