@@ -82,6 +82,7 @@ export function createGcSubConnectionsV2Router(options: ConnectionsV2Options): e
 
   router.get('/consent', route('either', async () => ({ version: CONSENT_V2, qrText: QR_CONSENT_V2_TEXT, invitationText: INVITE_CONSENT_V2_TEXT })))
   router.get('/profile', route('sub', async (_req, p) => options.service.getOwnProfile(p.credential)))
+  router.get('/general-contractors', route('sub', async (_req, p) => ({ generalContractors: await options.service.listOwnGrantedGcs(p.credential) })))
   router.post('/qr', route('sub', async (req, p) => {
     if (!bodyHas(req, ['profileId', 'consentVersion', 'affirmative']) || !validId(req.body.profileId) || req.body.consentVersion !== CONSENT_V2 || req.body.affirmative !== true) return bad()
     return options.service.issueSubQr(p.credential, req.body.profileId, req.body.consentVersion)

@@ -38,6 +38,7 @@ export interface SecureV2Env {
   readonly SECURE_V2_SES_REGION?: string
   readonly SECURE_V2_SES_FROM?: string
   readonly SECURE_V2_SES_TIMEOUT_MS?: string
+  readonly SECURE_V2_LOGIN_ACCOUNT_HMAC_KEY?: string
   readonly SECURE_V2_METADATA?: string
   readonly SECURE_V2_FILES?: string
   readonly SECURE_V2_FILE_S3_BUCKET?: string
@@ -51,7 +52,7 @@ export interface SecureV2ProductionDependencies {
   env: SecureV2Env
   pool: pg.Pool
   // Must be shared, atomic, bounded and fail-closed across every instance.
-  limiter: { allow(input: SecureV2LimitInput): Promise<boolean>; allowRegistration: RegistrationRateLimiter['allow'] }
+  limiter: { allow(input: SecureV2LimitInput): Promise<boolean>; allowRegistration: RegistrationRateLimiter['allow']; allowLoginAccount?(input: { accountHash: string }): Promise<boolean> }
   ses: NonNullable<Parameters<typeof createSesRegistrationDelivery>[1]>
   authorizeRegistrationEmail(input: { email: string }): Promise<boolean>
   authorizeInviteRecipient(input: { gcSubject: string; profileId: string }): Promise<boolean>
@@ -111,7 +112,18 @@ function compose(deps: SecureV2ProductionDependencies) {
   const config = { privateKey, publicKey, issuer: value(env, 'SECURE_V2_JWT_ISSUER'), audience: value(env, 'SECURE_V2_JWT_AUDIENCE') }
   const metadataEnabled = flag(env, 'SECURE_V2_METADATA'), filesEnabled = flag(env, 'SECURE_V2_FILES')
   if (filesEnabled && !metadataEnabled) return invalid()
-  const auth = createV2Auth(deps.pool, config) // Validates RSA type, strength and matching keypair.
+  // The optional control is configured as a pair: no silent downgrade on an
+  // incomplete or malformed opt-in. The key is canonical base64url, 32 bytes.
+  const encodedLoginKey = env.SECURE_V2_LOGIN_ACCOUNT_HMAC_KEY
+  const loginAllow = deps.limiter.allowLoginAccount
+  let loginAccountThrottle: { key: Buffer; allow(input: { accountHash: string }): Promise<boolean> } | undefined
+  if (encodedLoginKey !== undefined || loginAllow !== undefined) {
+    if (typeof encodedLoginKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(encodedLoginKey) || typeof loginAllow !== 'function') return invalid()
+    const key = Buffer.from(encodedLoginKey, 'base64url')
+    if (key.length !== 32 || key.toString('base64url') !== encodedLoginKey) return invalid()
+    loginAccountThrottle = { key, allow: input => loginAllow.call(deps.limiter, input) }
+  }
+  const auth = createV2Auth(deps.pool, config, { loginAccountThrottle }) // Validates RSA type, strength and matching keypair.
   const adapter = createVerifiedPrincipalAdapter(auth.requireAuth)
   const verification = { publicKey: config.publicKey, issuer: config.issuer, audience: config.audience }
   const ses = createSesRegistrationDelivery({ region: value(env, 'SECURE_V2_SES_REGION'), fromEmailAddress: value(env, 'SECURE_V2_SES_FROM'), timeoutMs: positive(value(env, 'SECURE_V2_SES_TIMEOUT_MS'), 15000) }, deps.ses)

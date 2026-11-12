@@ -1,0 +1,23 @@
+# Synthetic pilot browser integration
+
+Run from the repository root:
+
+```bash
+./scripts/test-pilot-e2e.sh
+```
+
+Requirements: Node 22 with project dependencies installed, PostgreSQL 16 binaries (default `/usr/lib/postgresql/16/bin`, override with `PG16_BIN`), OpenSSL, Chromium at `/usr/bin/chromium`, Python with Playwright and Pillow, and `libzbar.so.0`. The runner requires a non-root user able to start PostgreSQL and bind loopback ports. It creates a mode-0700 temporary workspace below `.work`, a new local PostgreSQL cluster and dedicated `pilot_connection_e2e` database, dynamic ports, and a one-day throwaway CA and matching server certificate. All subprocesses inherit a clean environment with a temporary HOME. Cleanup stops the test process groups and database and removes the workspace; if the database refuses to stop, the workspace is preserved and reported for manual cleanup. Start failures are fatal; the harness never falls back to an existing configured database.
+
+## What is real
+
+The existing provisioner creates the base tables and real connection-only migrations in the fresh database. The test installs the actual limiter schema and inserts a randomly generated key fingerprint. It constructs three actual `createPilot` instances: two share the same database/key and one has a mismatched key. Their listeners and the test-only Vite proxy bind to `127.0.0.1` on dynamic ports. Pilot database connections use TLS, validate the throwaway CA and IP certificate SAN, and are checked for actual SSL, expected DB, role, address and port; a pilot without the CA is also rejected. The provisioner itself intentionally uses its existing local plaintext connection. The test uses the database owner role for the app and does **not** validate production application-role privileges.
+
+Playwright drives actual `<V2Shell connectionOnly />` components and actual API requests over the same-origin Vite proxy without mocking API responses. Synthetic `example.test` registration, login, server-issued disclosure and affirmative QR creation, decoding of the rendered QR, manual redemption, replay rejection, disconnected GC isolation, API-only profile revocation and logout/session invalidation are checked. The UI's absence of file and metadata controls and requests, empty browser storage, denied unexposed routes and unauthenticated access are checked. A disallowed mailbox must produce neither delivery nor a registration challenge, a wrong limiter key must fail closed, and six login attempts with case-variant email across the two real pilot instances verify the shared five-per-minute per-account budget. The test checks that those attempts remain within one fixed minute; it does not loosen limits or simulate time.
+
+## What is stubbed or not established
+
+`createPilot` constructs a genuine SES client and its real registration/SES adapter builds each message, but immediately after construction, **before listening**, the harness replaces each returned `ses.send` with a rejecting-by-default in-process stub. It accepts only three exact `example.test` recipients and a correctly formatted synthetic code, writes codes to mode-0600 temporary files, and checks for exactly three deliveries and no unexpected attempts. It never calls AWS or a real mailbox. No real credentials or customer data are used. The synthetic password, names and 555 phone number are test fixtures; generated codes, JWTs and QR capabilities are not intentionally logged and are removed with the temporary workspace.
+
+Browser request routing aborts non-test-origin page requests; service workers are blocked, and browser background-networking features are disabled. **OS-level egress isolation is not enforced by this harness.** In the environment used for this run, `unshare -n` was not permitted; do not represent browser routing as a network firewall. Clean environment, local endpoints and the SES stub prevent any intended cloud calls. The camera is not exercised: the real QR is decoded from the rendered SVG screenshot and manually entered, and scanning/hardware/physical handoff are not established.
+
+This test mounts a **test-only Vite host**, not the deployed same-origin host or ingress. It invokes `createPilot().app.listen()` rather than `pilot-entry.ts`; therefore entry startup readiness/failure checks and the entry's `0.0.0.0` binding are not tested. The separately configured unmodified entry has no SES stub seam and was not started in this non-isolated environment. API revocation is tested, but no revocation UI is claimed. SES delivery, real certificates/CA configuration, production DB role permissions, external proxy/load-balancer controls, AWS, deployment and operational readiness are outside this test.

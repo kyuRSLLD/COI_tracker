@@ -116,6 +116,25 @@ export function gcSubConsentService(pool: pg.Pool, config: { publicKey: string; 
         return { profileId: p.id, evidenceType: 'fresh_self_asserted_email_control_v1' }
       })
     },
+    /** Only live V2 profile recipients of the authenticated owner's fresh profile. */
+    async listOwnGrantedGcs(credential: string) {
+      const sub = subject(credential)
+      return tx(credential, sub, async c => {
+        await lockActors(c, [[sub, 'sub']]); await lockSession(c, credential, sub)
+        const own = await c.query(`SELECT p.id FROM gc_sub_profiles p JOIN gc_sub_fresh_profile_evidence e ON e.profile_id=p.id
+          WHERE p.sub_user_id=$1 AND p.revoked_at IS NULL AND e.evidence_type='fresh_self_asserted_email_control_v1'`, [sub])
+        if (own.rowCount !== 1) unavailable()
+        const p = await profile(c, own.rows[0].id)
+        if (p.sub_user_id !== sub) unavailable()
+        await currentSession(c, credential, sub)
+        const r = await c.query(`SELECT u.id AS gc_user_id, u.name AS gc_name
+          FROM gc_sub_grants g JOIN users u ON u.id=g.gc_user_id AND u.role='gc'
+          JOIN auth_v2_accounts a ON a.user_id=u.id AND a.enabled=true AND a.email_verified_at IS NOT NULL
+          WHERE g.profile_id=$1 AND g.revoked_at IS NULL AND g.consent_version=$2 ORDER BY u.id LIMIT 501`, [p.id, CONSENT_V2])
+        if (r.rows.length > 500) throw new Error('Too many connections')
+        return r.rows.map((row: { gc_user_id: string; gc_name: string | null }) => ({ gc_user_id: row.gc_user_id, gc_name: row.gc_name }))
+      })
+    },
     /** Explicit pre-consent; raw code is returned once to the authenticated sub for QR encoding. */
     async issueSubQr(credential: string, profileId: string, affirmativeConsent: unknown) {
       const sub = subject(credential); validProfile(profileId); consent(affirmativeConsent)

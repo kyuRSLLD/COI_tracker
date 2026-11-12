@@ -1,5 +1,5 @@
 // Disconnected foundation. Nothing imports or mounts this module at application startup.
-import { createHash, createPrivateKey, createPublicKey, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, createPrivateKey, createPublicKey, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import jwt from 'jsonwebtoken'
@@ -8,6 +8,9 @@ import pg from 'pg'
 export type V2Role = 'gc' | 'sub' | 'admin'
 export type V2AuthContext = { subject: string; role: V2Role; credential: string }
 export type V2AuthConfig = { privateKey: string; publicKey: string; issuer: string; audience: string }
+// Trusted server-only dependency. Count attempts atomically across instances for
+// the account, independently of the preauth global/peer budgets. Never log keys.
+export type V2LoginAccountThrottle = { key: Buffer; allow(input: { accountHash: string }): Promise<boolean> }
 const TTL_SECONDS = 15 * 60
 const params = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
 const scrypt = (password: string, salt: Buffer): Promise<Buffer> => new Promise((resolve, reject) => {
@@ -69,8 +72,12 @@ function configKey(config: V2AuthConfig) {
  * /api/v2/auth; use requireAuth on every future v2 route, including before consent calls.
  * Successful middleware sets res.locals.authV2 to {subject, role, credential}.
  */
-export function createV2Auth(pool: pg.Pool, config: V2AuthConfig): { router: express.Router; requireAuth: RequestHandler } {
+export function createV2Auth(pool: pg.Pool, config: V2AuthConfig, options?: { loginAccountThrottle?: V2LoginAccountThrottle }): { router: express.Router; requireAuth: RequestHandler } {
   if (!(pool instanceof pg.Pool)) throw new Error('PostgreSQL pg.Pool required')
+  const throttle = options?.loginAccountThrottle
+  if (throttle !== undefined && (!throttle || !Buffer.isBuffer(throttle.key) || throttle.key.length !== 32 || typeof throttle.allow !== 'function')) throw new Error('Invalid login account throttle')
+  // Snapshot the key; later mutation of the caller's buffer cannot change buckets.
+  const accountKey = throttle ? Buffer.from(throttle.key) : undefined
   const { privateKey, publicKey } = configKey(config)
   const { issuer, audience } = config
   const router = express.Router()
@@ -111,6 +118,17 @@ export function createV2Auth(pool: pg.Pool, config: V2AuthConfig): { router: exp
   router.post('/login', async (req, res) => {
     const email = normalizeEmail(req.body?.email), password = req.body?.password
     if (!email || !passwordInput(password)) { res.status(400).json({ error: 'Invalid request' }); return }
+    if (throttle && accountKey) {
+      // Only a keyed, domain-separated digest is sent to the limiter, never the
+      // email or password. Count successful and unsuccessful login attempts.
+      const accountHash = createHmac('sha256', accountKey).update('secure-v2:login-account:v1\0', 'utf8').update(email, 'utf8').digest('base64url')
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const result = await Promise.race([Promise.resolve().then(() => throttle.allow({ accountHash })), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Unavailable')), 2000) })])
+        if (result !== true) { res.status(result === false ? 429 : 503).json({ error: 'Unavailable' }); return }
+      } catch { res.status(503).json({ error: 'Unavailable' }); return }
+      finally { if (timer) clearTimeout(timer) }
+    }
     try {
       const found = await pool.query(`SELECT a.user_id,a.password_hash FROM auth_v2_accounts a WHERE a.login_email=$1`, [email])
       const account = found.rows[0]

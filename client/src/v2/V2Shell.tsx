@@ -25,7 +25,7 @@ function isIdentity(value: unknown): value is Identity {
 }
 
 /** Unmounted host: the integrating page supplies its normal Tailwind stylesheet. */
-export function V2Shell() {
+export function V2Shell({ connectionOnly = false }: { connectionOnly?: boolean } = {}) {
   const [session, setSession] = useState<Session | null>(null)
   const [verification, setVerification] = useState<Verification>({ state: 'checking' })
   const [section, setSection] = useState<Section>('workflow')
@@ -114,15 +114,16 @@ export function V2Shell() {
 
   if (!session) return <div className="v2-shell-auth">{notice && <p className="v2-shell-notice" role="status">{notice}</p>}<V2Auth onAuthenticated={authenticated} /></div>
   const identity = verification.state === 'ready' ? verification.identity : null
+  const activeSection = connectionOnly ? 'workflow' : section
   return <div className="v2-shell">
     <header className="v2-shell-bar"><div><div className="v2-shell-brand">COI Shield <span>V2</span></div><p>Private account workspace</p></div><button type="button" onClick={logout}>Sign out</button></header>
     {verification.state === 'checking' && <p className="v2-shell-state" role="status">Checking your session…</p>}
     {verification.state === 'unavailable' && <div className="v2-shell-state" role="alert"><p>Session verification is unavailable. Your workspace is hidden until it can be checked.</p><button type="button" onClick={() => setRetry(n => n + 1)}>Retry session check</button></div>}
     {identity?.role === 'admin' && <div className="v2-shell-state" role="alert"><p>This workspace does not support administrator accounts. Sign out to use another account.</p></div>}
     {identity && identity.role !== 'admin' && <>
-      <div className="v2-shell-context"><span>{identity.role === 'gc' ? 'General contractor' : 'Subcontractor'} account</span><p>Profile details and insurance information are self-reported and unverified.</p></div>
-      <nav className="v2-shell-nav" aria-label="Workspace"><button type="button" aria-current={section === 'workflow' ? 'page' : undefined} onClick={() => setSection('workflow')}>{identity.role === 'gc' ? 'Connections' : 'Connections & metadata'}</button><button type="button" aria-current={section === 'files' ? 'page' : undefined} onClick={() => setSection('files')}>{identity.role === 'gc' ? 'Shared files' : 'Private files'}</button></nav>
-      {identity.role === 'gc' ? (section === 'files' ? <GcGrantedFiles key={session.generation} authorizationToken={session.token} /> : <GcConnections key={session.generation} authorizationToken={session.token} />) : section === 'files' ? <PrivateFiles key={session.generation} token={session.token} /> : <SubcontractorWorkflow key={session.generation} token={session.token} hideUnavailableFiles />}
+      <div className="v2-shell-context"><span>{identity.role === 'gc' ? 'General contractor' : 'Subcontractor'} account</span><p>{connectionOnly ? 'Connection-only mode: this interface does not upload or access files or insurance metadata, and does not verify insurance. Existing grants are not changed.' : 'Profile details and insurance information are self-reported and unverified.'}</p></div>
+      <nav className="v2-shell-nav" aria-label="Workspace"><button type="button" aria-current={activeSection === 'workflow' ? 'page' : undefined} onClick={() => setSection('workflow')}>{identity.role === 'gc' || connectionOnly ? 'Connections' : 'Connections & metadata'}</button>{!connectionOnly && <button type="button" aria-current={activeSection === 'files' ? 'page' : undefined} onClick={() => setSection('files')}>{identity.role === 'gc' ? 'Shared files' : 'Private files'}</button>}</nav>
+      {identity.role === 'gc' ? (activeSection === 'files' ? <GcGrantedFiles key={session.generation} authorizationToken={session.token} /> : <GcConnections key={session.generation} authorizationToken={session.token} connectionOnly={connectionOnly} />) : activeSection === 'files' ? <PrivateFiles key={session.generation} token={session.token} /> : <SubcontractorWorkflow key={session.generation} token={session.token} hideUnavailableFiles connectionOnly={connectionOnly} />}
     </>}
   </div>
 }

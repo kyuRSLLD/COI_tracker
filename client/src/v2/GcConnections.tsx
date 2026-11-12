@@ -104,12 +104,12 @@ function CameraScanner({ onScan, onMessage }: { onScan: (raw: string) => void; o
 }
 
 /** Mount with a current GC access token. Do not persist it; replace/unmount on logout. */
-export function GcConnections({ authorizationToken }: { authorizationToken: string }) {
-  // A credential change destroys all previous principal's visible data and outstanding work.
-  return <GcConnectionsSession key={authorizationToken} authorizationToken={authorizationToken} />
+export function GcConnections({ authorizationToken, connectionOnly = false }: { authorizationToken: string; connectionOnly?: boolean }) {
+  // A credential or mode change destroys visible data and aborts outstanding work.
+  return <GcConnectionsSession key={`${authorizationToken}:${connectionOnly}`} authorizationToken={authorizationToken} connectionOnly={connectionOnly} />
 }
 
-function GcConnectionsSession({ authorizationToken }: { authorizationToken: string }) {
+function GcConnectionsSession({ authorizationToken, connectionOnly }: { authorizationToken: string; connectionOnly: boolean }) {
   const instanceId = useId()
   const [subs, setSubs] = useState<Result<Profile[]>>({ state: 'loading' })
   const [metadata, setMetadata] = useState<Result<RecordItem[]>>({ state: 'loading' })
@@ -139,8 +139,8 @@ function GcConnectionsSession({ authorizationToken }: { authorizationToken: stri
       }
     }
     void load(`${CONNECTIONS}/subcontractors`, profiles, setSubs)
-    void load(`${METADATA}/granted`, records, setMetadata)
-  }, [authorizationToken])
+    if (!connectionOnly) void load(`${METADATA}/granted`, records, setMetadata)
+  }, [authorizationToken, connectionOnly])
 
   useEffect(() => {
     alive.current = true
@@ -167,7 +167,7 @@ function GcConnectionsSession({ authorizationToken }: { authorizationToken: stri
       const response = await request(`${CONNECTIONS}/qr/redeem`, authorizationToken, controller.signal, { token: raw })
       if (controller.signal.aborted || !alive.current) return
       if (response.status === 204) {
-        setMessage({ kind: 'status', text: 'Connected. Refreshing your subcontractors and granted metadata.' })
+        setMessage({ kind: 'status', text: connectionOnly ? 'Connected. Refreshing your subcontractors.' : 'Connected. Refreshing your subcontractors and granted metadata.' })
         refresh()
       } else if (response.status === 404) {
         setMessage({ kind: 'alert', text: 'This code is unavailable. It may have expired, already been used, been revoked, or be invalid. Ask the subcontractor for a new code.' })
@@ -184,12 +184,12 @@ function GcConnectionsSession({ authorizationToken }: { authorizationToken: stri
       redeeming.current = false
       if (!controller.signal.aborted && alive.current) setBusy(false)
     }
-  }, [authorizationToken, refresh])
+  }, [authorizationToken, connectionOnly, refresh])
   const cameraMessage = useCallback((text: string) => { setScanning(false); setMessage({ kind: 'alert', text }) }, [])
 
   return <main className="v2gc">
     <header className="v2gc-header">
-      <div><p className="v2gc-eyebrow">GC workflow · V2</p><h1>Subcontractor connections</h1><p>Connect using a subcontractor’s one-time raw QR code. A connection shares a profile only; COI metadata requires a separate explicit grant.</p></div>
+      <div><p className="v2gc-eyebrow">GC workflow · V2</p><h1>Subcontractor connections</h1><p>{connectionOnly ? 'Connect using a subcontractor’s one-time raw QR code. This connection-only interface does not upload or access files or insurance metadata, and does not verify insurance. Existing grants are not changed.' : 'Connect using a subcontractor’s one-time raw QR code. A connection shares a profile only; COI metadata requires a separate explicit grant.'}</p></div>
       <button type="button" className="v2gc-secondary" onClick={refresh} disabled={!authorizationToken}>Refresh list</button>
     </header>
     <section className="v2gc-panel" aria-labelledby={`${instanceId}-connect-heading`}>
@@ -211,7 +211,7 @@ function GcConnectionsSession({ authorizationToken }: { authorizationToken: stri
       {subs.state === 'ready' && subs.value.map(sub => <article className="v2gc-panel v2gc-profile" key={sub.profile_id}>
         <h3>{sub.company_name}</h3><span className="v2gc-badge">SELF-REPORTED</span>
         <dl><div><dt>Trade</dt><dd>{sub.trade}</dd></div><div><dt>Profile ID</dt><dd>{sub.profile_id}</dd></div><div><dt>Evidence</dt><dd>{sub.evidence_type === 'fresh_self_asserted_email_control_v1' ? 'Email control only' : 'Unrecognized evidence type'}</dd></div></dl>
-        <h4>Separately granted COI metadata</h4>
+        {!connectionOnly && <><h4>Separately granted COI metadata</h4>
         {metadata.state === 'loading' && <p role="status">Loading granted metadata…</p>}
         {metadata.state === 'error' && <p role="alert">Granted metadata: {metadata.message}</p>}
         {metadata.state === 'ready' && metadata.value.filter(record => record.profile_id === sub.profile_id).length === 0 && <p>No explicitly granted metadata is currently available for this profile.</p>}
@@ -220,7 +220,7 @@ function GcConnectionsSession({ authorizationToken }: { authorizationToken: stri
           <dl><div><dt>Carrier</dt><dd>{record.carrier}</dd></div><div><dt>Effective date</dt><dd>{record.effective_date}</dd></div><div><dt>Expiration date</dt><dd>{record.expiration_date}</dd></div><div><dt>Record ID</dt><dd>{record.id}</dd></div><div><dt>Reported at</dt><dd>{record.created_at}</dd></div></dl>
           <p>Reported coverage:</p><ul>{record.coverage.map((item, index) => <li key={index}>{item.type}: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(item.limitCents / 100)}</li>)}</ul>
           <p>These details are not proof of coverage. No certificate or document access is provided.</p>
-        </div>)}
+        </div>)}</>}
       </article>)}
     </section>
   </main>

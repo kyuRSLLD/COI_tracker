@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type MutableRefObject } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import './subcontractor.css'
 
@@ -9,16 +9,16 @@ type Coverage = { type: string; limitCents: number }
 type RecordItem = { id: string; profile_id: string; carrier: string; effective_date: string; expiration_date: string; coverage: Coverage[]; created_at: string; reporting_status: string }
 type GC = { gc_user_id: string; gc_name: string | null }
 type Load<T> = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: T }
-type Props = { token: string; hideUnavailableFiles?: boolean }
+type Props = { token: string; hideUnavailableFiles?: boolean; connectionOnly?: boolean }
 
 // All API paths are fixed, same-origin and query-free. Neither credentials nor
 // capabilities are persisted, logged, or sent to third-party QR services.
-async function request<T>(token: string, path: string, body?: object, signal?: AbortSignal): Promise<T> {
+async function request<T>(token: string, path: string, body?: object, signal?: AbortSignal, expectNoContent = false): Promise<T> {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined, signal, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer',
   })
-  if (!response.ok) throw new Error('Request unavailable')
+  if (!response.ok || (expectNoContent && response.status !== 204)) throw new Error('Request unavailable')
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
@@ -42,6 +42,7 @@ const qrConsentValid = (v: any) => text(v?.version) && text(v?.qrText)
 const disclosureValid = (v: any) => text(v?.version) && text(v?.text)
 const recordsValid = (v: any) => Array.isArray(v?.records) && v.records.every((r: any) => text(r?.id) && text(r?.carrier) && text(r?.effective_date) && text(r?.expiration_date) && Array.isArray(r?.coverage) && r.coverage.every((c: any) => text(c?.type) && Number.isSafeInteger(c?.limitCents)))
 const gcsValid = (v: any) => Array.isArray(v?.generalContractors) && v.generalContractors.every((g: any) => text(g?.gc_user_id) && (g.gc_name === null || typeof g.gc_name === 'string'))
+const connectionGcsValid = (v: any) => v && Object.keys(v).length === 1 && Array.isArray(v.generalContractors) && v.generalContractors.length <= 500 && v.generalContractors.every((g: any) => g && Object.keys(g).length === 2 && typeof g.gc_user_id === 'string' && g.gc_user_id.length > 0 && g.gc_user_id.length <= 256 && g.gc_user_id.trim() === g.gc_user_id && !/[\u0000-\u001f\u007f]/.test(g.gc_user_id) && (g.gc_name === null || typeof g.gc_name === 'string')) && new Set(v.generalContractors.map((g: GC) => g.gc_user_id)).size === v.generalContractors.length
 
 function StateNotice<T>({ resource, label }: { resource: ReturnType<typeof useResource<T>>; label: string }) {
   if (resource.value.status === 'loading') return <p role="status">Loading {label}…</p>
@@ -49,7 +50,7 @@ function StateNotice<T>({ resource, label }: { resource: ReturnType<typeof useRe
   return null
 }
 
-function QrConnection({ token, profile }: { token: string; profile: Profile }) {
+function QrConnection({ token, profile, operationLock, operation, setOperation, invalidation }: { token: string; profile: Profile; operationLock: MutableRefObject<boolean>; operation: boolean; setOperation: (v: boolean) => void; invalidation: number }) {
   const consent = useResource<QrDisclosure>(token, '/api/v2/connections/consent', qrConsentValid)
   const [affirm, setAffirm] = useState(false)
   const [qr, setQr] = useState<{ token: string; expiresAt: string } | null>(null)
@@ -64,10 +65,16 @@ function QrConnection({ token, profile }: { token: string; profile: Profile }) {
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => { if (qr && Date.parse(qr.expiresAt) <= now) { setQr(null); setAffirm(false); setExpired(true) } }, [now, qr])
+  useEffect(() => {
+    if (!invalidation) return
+    // Revoke invalidates unspent QRs, but an ambiguous response may leave one live.
+    if (qr) { setBlockedUntil(current => Math.max(current, Date.parse(qr.expiresAt))); setQr(null) }
+    setAffirm(false); setExpired(false); setError('A disconnect was attempted. Any previously displayed QR was hidden; its invalidation may be unconfirmed.')
+  }, [invalidation])
   const available = !qr && now >= blockedUntil
   async function generate() {
-    if (lock.current || !affirm || !available || consent.value.status !== 'ready') return
-    lock.current = true; setPending(true); setError(''); setExpired(false)
+    if (lock.current || operationLock.current || !affirm || !available || consent.value.status !== 'ready') return
+    lock.current = true; operationLock.current = true; setOperation(true); setPending(true); setError(''); setExpired(false)
     try {
       const result = await request<{ token: string; expiresAt: string }>(token, '/api/v2/connections/qr', { profileId: profile.profileId, consentVersion: consent.value.data.version, affirmative: true })
       if (!/^[A-Za-z0-9_-]{43}$/.test(result?.token) || !text(result?.expiresAt) || !Number.isFinite(Date.parse(result.expiresAt)) || Date.parse(result.expiresAt) <= Date.now()) throw new Error('Invalid response')
@@ -76,15 +83,15 @@ function QrConnection({ token, profile }: { token: string; profile: Profile }) {
       // A lost response may still have minted a capability. Do not automatically retry.
       setBlockedUntil(Date.now() + 5 * 60 * 1000); setNow(Date.now()); setAffirm(false)
       setError('The result could not be confirmed. A code may have been created; wait five minutes before trying again.')
-    } finally { lock.current = false; setPending(false) }
+    } finally { lock.current = false; operationLock.current = false; setOperation(false); setPending(false) }
   }
   return <section className="v2-card" aria-labelledby="qr-heading">
     <div className="v2-eyebrow">01 / PROFILE CONNECTION</div><h2 id="qr-heading">Connect with a QR code</h2>
     <p>A one-use code expires after five minutes. Any eligible GC who scans it can connect; this is not targeted to a particular GC. A connection alone does not share COI metadata or files.</p>
     <StateNotice resource={consent} label="connection disclosure" />
     {consent.value.status === 'ready' && <><div className="v2-disclosure"><strong>Connection disclosure from server</strong><p>{consent.value.data.qrText}</p></div>
-      {!qr && <label className="v2-check"><input type="checkbox" checked={affirm} disabled={!available || pending} onChange={e => setAffirm(e.target.checked)} /> I have read and agree to the exact disclosure above.</label>}
-      <button type="button" onClick={generate} disabled={!affirm || pending || !available}>{pending ? 'Generating…' : 'Generate one-use QR'}</button></>}
+      {!qr && <label className="v2-check"><input type="checkbox" checked={affirm} disabled={!available || pending || operation} onChange={e => setAffirm(e.target.checked)} /> I have read and agree to the exact disclosure above.</label>}
+      <button type="button" onClick={generate} disabled={!affirm || pending || operation || !available}>{pending ? 'Generating…' : 'Generate one-use QR'}</button></>}
     {error && <p role="alert">{error}</p>}
     {expired && <p role="status">The QR code expired and is no longer displayed.</p>}
     {!available && !qr && <p role="status">You can try again after {new Date(blockedUntil).toLocaleTimeString()}.</p>}
@@ -169,18 +176,67 @@ function Metadata({ token }: Props) {
   </>
 }
 
-function Workflow({ token, hideUnavailableFiles }: Props) {
+function ProfileConnections({ token, profile, operationLock, operation, setOperation, onAttempt }: { token: string; profile: Profile; operationLock: MutableRefObject<boolean>; operation: boolean; setOperation: (v: boolean) => void; onAttempt: () => void }) {
+  const gcs = useResource<{ generalContractors: GC[] }>(token, '/api/v2/connections/general-contractors', connectionGcsValid)
+  const selectId = useId()
+  const [selected, setSelected] = useState('')
+  const [confirm, setConfirm] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const controller = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort() } }, [])
+  const gc = gcs.value.status === 'ready' ? gcs.value.data.generalContractors.find(g => g.gc_user_id === selected) : undefined
+  async function revoke() {
+    if (!gc || !confirm || operationLock.current) return
+    operationLock.current = true; setOperation(true); setConfirm(false); setNotice(''); setError(''); onAttempt()
+    const abort = new AbortController(); controller.current = abort
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([request<void>(token, '/api/v2/connections/revoke', { profileId: profile.profileId, gcUserId: gc.gc_user_id }, abort.signal, true), new Promise<never>((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new Error('Timed out')) }, 10000) })])
+      if (mounted.current) setNotice('Disconnect request recorded. The list is being refreshed; information already viewed cannot be recalled.')
+    } catch {
+      if (mounted.current) setError('The disconnect outcome could not be confirmed. Refresh the list before deciding whether to try again.')
+    } finally {
+      if (timer) clearTimeout(timer)
+      operationLock.current = false
+      if (mounted.current) { setOperation(false); setSelected(''); gcs.reload() }
+      if (controller.current === abort) controller.current = null
+    }
+  }
+  return <section className="v2-card" aria-labelledby="connected-heading">
+    <div className="v2-eyebrow">02 / PROFILE ACCESS</div><h2 id="connected-heading">Connected GC accounts</h2>
+    <p>These accounts currently have profile access. Account names are self-reported; neither the name nor GC role verifies a business or its authority. Profile connections do not share COIs or files.</p>
+    <StateNotice resource={gcs} label="connected GC accounts" />
+    {gcs.value.status === 'ready' && <>
+      <button type="button" className="secondary" disabled={operation} onClick={() => { setSelected(''); setConfirm(false); setNotice(''); setError(''); gcs.reload() }}>Refresh connected GC accounts</button>
+      {gcs.value.data.generalContractors.length === 0 ? <p>No GC accounts currently have profile access.</p> : <div className="v2-form">
+        <label htmlFor={selectId}>Connected GC account</label><select id={selectId} disabled={operation} value={selected} onChange={e => { setSelected(e.target.value); setConfirm(false); setNotice(''); setError('') }}><option value="">Select a connected GC</option>{gcs.value.data.generalContractors.map(g => <option key={g.gc_user_id} value={g.gc_user_id}>{g.gc_name || 'Unnamed account'} · {g.gc_user_id}</option>)}</select>
+        {gc && !confirm && <button type="button" className="secondary" disabled={operation} onClick={() => setConfirm(true)}>Disconnect selected GC</button>}
+        {gc && confirm && <div className="v2-selection"><p>Disconnect {gc.gc_name || 'Unnamed account'} (ID: {gc.gc_user_id})? This also invalidates unused profile QR codes and pending invitations from this account. Separate record or file grants tied to this connection also end. Previously viewed information cannot be recalled.</p><button type="button" disabled={operation} onClick={revoke}>Confirm disconnect</button> <button type="button" className="secondary" disabled={operation} onClick={() => setConfirm(false)}>Cancel</button></div>}
+      </div>}
+    </>}
+    {operation && <p role="status">A connection operation is in progress…</p>}
+    {notice && <p role="status" className="v2-success">{notice}</p>}{error && <p role="alert">{error}</p>}
+  </section>
+}
+
+function Workflow({ token, hideUnavailableFiles, connectionOnly }: Props) {
   const profile = useResource<Profile>(token, '/api/v2/connections/profile', profileValid)
-  return <main className="sub-v2"><header className="v2-header"><span className="v2-eyebrow">SUBCONTRACTOR WORKSPACE / V2</span><h1>Connections & insurance information</h1><p>Control profile connections and decide exactly which self-reported metadata to share.</p></header>
+  const operationLock = useRef(false)
+  const [operation, setOperation] = useState(false)
+  const [invalidation, setInvalidation] = useState(0)
+  return <main className="sub-v2"><header className="v2-header"><span className="v2-eyebrow">SUBCONTRACTOR WORKSPACE / V2</span><h1>{connectionOnly ? 'Profile connections' : 'Connections & insurance information'}</h1><p>{connectionOnly ? 'Connection-only mode: this interface does not upload or access files or insurance metadata, and does not verify insurance. Disconnecting changes profile access.' : 'Control profile connections and decide exactly which self-reported metadata to share.'}</p></header>
     <section className="v2-card" aria-labelledby="profile-heading"><div className="v2-eyebrow">YOUR PROFILE</div><h2 id="profile-heading">Self-reported, not verified</h2><p>Profile company and trade information is self-reported. Email-control evidence does not verify a business, its authority, or insurance. This API only provides the profile ID and evidence type here.</p><StateNotice resource={profile} label="profile" />{profile.value.status === 'ready' && <p><strong>Profile ID:</strong> {profile.value.data.profileId}<br /><strong>Evidence type:</strong> {profile.value.data.evidenceType}</p>}</section>
-    {profile.value.status === 'ready' && <QrConnection token={token} profile={profile.value.data} />}
-    <Metadata token={token} />
-    {!hideUnavailableFiles && <section className="v2-card" aria-labelledby="file-heading"><div className="v2-eyebrow">DOCUMENTS</div><h2 id="file-heading">File upload</h2><p><strong>Not available yet.</strong> No certificate upload, file access, or file sharing is provided by this interface.</p><button type="button" disabled>Upload not available yet</button></section>}
+    {profile.value.status === 'ready' && <QrConnection token={token} profile={profile.value.data} operationLock={operationLock} operation={operation} setOperation={setOperation} invalidation={invalidation} />}
+    {connectionOnly && profile.value.status === 'ready' && <ProfileConnections token={token} profile={profile.value.data} operationLock={operationLock} operation={operation} setOperation={setOperation} onAttempt={() => setInvalidation(n => n + 1)} />}
+    {!connectionOnly && <Metadata token={token} />}
+    {!connectionOnly && !hideUnavailableFiles && <section className="v2-card" aria-labelledby="file-heading"><div className="v2-eyebrow">DOCUMENTS</div><h2 id="file-heading">File upload</h2><p><strong>Not available yet.</strong> No certificate upload, file access, or file sharing is provided by this interface.</p><button type="button" disabled>Upload not available yet</button></section>}
   </main>
 }
-export function SubcontractorWorkflow({ token, hideUnavailableFiles = false }: Props) {
+export function SubcontractorWorkflow({ token, hideUnavailableFiles = false, connectionOnly = false }: Props) {
   if (!token) return <main className="sub-v2"><p role="alert">An authorization token must be supplied by the host.</p></main>
-  // New credentials reset all transient state, including any QR capability.
-  return <Workflow key={token} token={token} hideUnavailableFiles={hideUnavailableFiles} />
+  // New credentials or a mode change reset all transient state, including any QR capability.
+  return <Workflow key={`${token}:${connectionOnly}`} token={token} hideUnavailableFiles={hideUnavailableFiles} connectionOnly={connectionOnly} />
 }
 export default SubcontractorWorkflow
