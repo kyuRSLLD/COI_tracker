@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ShieldCheck, ArrowRight } from 'lucide-react'
-import { apiLogin, apiRegister } from '../api'
+import { apiLogin, apiRegister, getToken } from '../api'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
+import type { User } from '../types'
 
 const inputClassName = 'w-full min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-700 focus-visible:ring-offset-2'
 const focusClassName = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-700 focus-visible:ring-offset-2'
 
-export function LoginPage({ onLogin }: { onLogin: () => void }) {
+export function LoginPage({ onLogin, getSessionVersion }: { onLogin: (session: { token: string; user: User }, version: number) => Promise<void>; getSessionVersion: () => number }) {
   const navigate = useNavigate()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -24,6 +25,8 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    const startingToken = getToken()
+    const startingVersion = getSessionVersion()
     try {
       const data = mode === 'login'
         ? await apiLogin(email, password)
@@ -37,7 +40,8 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
             company_name: company.trim() || undefined,
             role,
           })
-      onLogin()
+      if (getToken() !== startingToken) throw new Error('Your session changed. Please try signing in again.')
+      await onLogin(data, startingVersion)
       const r = data.user.role
       navigate(r === 'admin' ? '/staff' : r === 'sub' ? '/subcontractor' : '/dashboard')
     } catch (err: any) {

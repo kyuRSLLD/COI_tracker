@@ -3,7 +3,6 @@ import {
   ShieldCheck, Users, FolderKanban, Mail, Settings, Plus, FileText, LogOut, Crown,
 } from 'lucide-react'
 import type { User } from '../types'
-import { apiLogout } from '../api'
 
 interface Props {
   user: User | null
@@ -92,10 +91,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                 <span className="text-slate-400">{user.email}</span>
               </div>
               <button
-                onClick={() => {
-                  apiLogout()
-                  onLogout()
-                }}
+                onClick={onLogout}
                 className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition ml-1"
                 title="Sign out"
               >

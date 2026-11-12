@@ -10,6 +10,7 @@ import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail } from '../services/loginRateLimit.ts'
+import { findNormalizedEmailUsers, getMatchedUser, isValidRegistrationEmail } from '../services/authEmail.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -259,15 +260,20 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     }
 
     const { email, password, name, company_name, trade, contact_person, phone } = req.body || {}
-    if (!email || !password || typeof password !== 'string') {
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       return res.status(400).json({ error: 'Email and password are required' })
     }
     const normalizedEmail = normalizeLoginEmail(email)
+    if (!consumeLoginAttempt(req, normalizedEmail)) return res.status(429).json({ error: 'Too many requests' })
+    const matches = await findNormalizedEmailUsers(normalizedEmail)
+    // Do not fall through to account creation or test passwords against an
+    // arbitrary identity when legacy normalized addresses collide.
+    if (matches.length > 1) return res.status(401).json({ error: 'Invalid credentials for existing account' })
 
     // Branch B: existing account - "if they already have an account that link will just connect to GC"
-    const existingUser = await dbGet('SELECT * FROM users WHERE LOWER(email) = ?', [normalizedEmail])
-    if (existingUser) {
-      if (!consumeLoginAttempt(req, normalizedEmail)) return res.status(429).json({ error: 'Too many requests' })
+    if (matches.length === 1) {
+      const existingUser = await getMatchedUser(matches[0])
+      if (!existingUser) return res.status(401).json({ error: 'Invalid credentials for existing account' })
       const ok = await bcrypt.compare(password, existingUser.password_hash)
       if (!ok) return res.status(401).json({ error: 'Invalid credentials for existing account' })
       clearLoginAttempts(req, normalizedEmail)
@@ -280,6 +286,7 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     }
 
     // Branch C: new subcontractor sign-up - "Upon signing up, they will be linked"
+    if (!isValidRegistrationEmail(normalizedEmail)) return res.status(400).json({ error: 'Please enter a valid email address' })
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
     if (!name) return res.status(400).json({ error: 'Name is required for new accounts' })
     const hash = await bcrypt.hash(password, 10)
@@ -299,9 +306,11 @@ subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequ
     await linkSubToGc(sub)
     const user = { id: userId, email: normalizedEmail, role: 'sub', name, subcontractor_id: subId }
     const token = signToken(user)
+    clearLoginAttempts(req, normalizedEmail)
     return res.json({ token, user, linked: true, mode: 'new', subcontractor: sub, gc_company_name: gc.company_name })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+  } catch {
+    console.error('[auth] Invitation join failed')
+    res.status(500).json({ error: 'Unable to join' })
   }
 })
 

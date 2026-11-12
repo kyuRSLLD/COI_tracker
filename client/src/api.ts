@@ -13,6 +13,15 @@ import type {
 const TOKEN_KEY = 'coi_token'
 const USER_KEY = 'coi_user'
 
+// This is per-tab, and is set only when the corresponding identity is displayed.
+let verifiedToken: string | null = null
+export const SESSION_CHANGED_EVENT = 'coi-session-changed'
+export const SESSION_EXPIRED_EVENT = 'coi-session-expired'
+
+export function setVerifiedToken(token: string | null): void {
+  verifiedToken = token
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
@@ -36,11 +45,23 @@ export function setStoredUser(user: User | null): void {
   else localStorage.removeItem(USER_KEY)
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken()
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}, authenticated = true, expectedToken?: string, verification = false): Promise<T> {
+  const storedToken = getToken()
+  const token = authenticated ? (verification ? expectedToken : verifiedToken) : null
+  if (authenticated && (!token || token !== storedToken || (expectedToken !== undefined && expectedToken !== token))) {
+    if (storedToken !== verifiedToken) window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
+    throw new Error('Your session changed. Please wait for verification and try again.')
+  }
   const headers: Record<string, string> = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...((options.headers as Record<string, string>) || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
@@ -52,7 +73,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const data = await res.json()
       message = data.error || data.message || message
     } catch {}
-    throw new Error(message)
+    // Changing a password can also reject the current password with a 401.
+    // Only the middleware's unambiguous errors mean its bearer token failed.
+    const passwordCredentialError = path === '/api/auth/change-password' &&
+      message !== 'Authentication required' && message !== 'Invalid or expired token'
+    if (authenticated && !verification && token && res.status === 401 && !passwordCredentialError && getToken() === token) {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: token }))
+    }
+    throw new ApiError(message, res.status)
   }
   return res.json()
 }
@@ -62,9 +90,7 @@ export async function apiLogin(email: string, password: string): Promise<{ token
   const data = await request<{ token: string; user: User }>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
-  })
-  setToken(data.token)
-  setStoredUser(data.user)
+  }, false)
   return data
 }
 
@@ -72,16 +98,12 @@ export async function apiRegister(body: { email: string; password: string; name?
   const data = await request<{ token: string; user: User }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(body),
-  })
-  setToken(data.token)
-  setStoredUser(data.user)
+  }, false)
   return data
 }
 
-export async function apiMe(): Promise<{ user: User }> {
-  const data = await request<{ user: User }>('/api/auth/me')
-  setStoredUser(data.user)
-  return data
+export async function apiMe(verificationToken?: string): Promise<{ user: User }> {
+  return request<{ user: User }>('/api/auth/me', {}, true, verificationToken, verificationToken !== undefined)
 }
 
 export function apiLogout(): void {
@@ -156,15 +178,15 @@ export const apiProjects = {
 
 // Client public view
 export const apiClientView = {
-  get: (token: string) => request<ClientSharePayload>(`/api/client/share/${token}`),
+  get: (token: string) => request<ClientSharePayload>(`/api/client/share/${token}`, {}, false),
 }
 
 // Sub upload portal (public)
 export const apiUploadPortal = {
-  validate: (token: string) => request<UploadValidationPayload>(`/api/upload/validate/${token}`),
+  validate: (token: string) => request<UploadValidationPayload>(`/api/upload/validate/${token}`, {}, false),
   submit: (token: string, formData: FormData) =>
-    request<{ success: boolean; coi: COI }>(`/api/upload/submit/${token}`, { method: 'POST', body: formData }),
-  myCOIs: (token: string) => request<{ cois: COI[] }>(`/api/upload/my/${token}`),
+    request<{ success: boolean; coi: COI }>(`/api/upload/submit/${token}`, { method: 'POST', body: formData }, false),
+  myCOIs: (token: string) => request<{ cois: COI[] }>(`/api/upload/my/${token}`, {}, false),
 }
 
 // Stats & emails & settings
@@ -218,13 +240,13 @@ export const apiSub = {
   updateProfile: (body: Partial<import('./types').Subcontractor>) =>
     request<import('./types').Subcontractor>('/api/sub/profile', { method: 'POST', body: JSON.stringify(body) }),
   publicView: (subId: string) =>
-    request<{ subcontractor: import('./types').Subcontractor; coi?: import('./types').COI }>(`/api/sub/public/${subId}`),
-  joinInfo: (inviteCode: string) => request<import('./types').JoinInfo>(`/api/sub/join-info/${inviteCode}`),
-  join: (inviteCode: string, body?: { email?: string; password?: string; name?: string; company_name?: string; trade?: string; contact_person?: string; phone?: string }) =>
+    request<{ subcontractor: import('./types').Subcontractor; coi?: import('./types').COI }>(`/api/sub/public/${subId}`, {}, false),
+  joinInfo: (inviteCode: string) => request<import('./types').JoinInfo>(`/api/sub/join-info/${inviteCode}`, {}, false),
+  join: (inviteCode: string, body?: { email?: string; password?: string; name?: string; company_name?: string; trade?: string; contact_person?: string; phone?: string }, expectedToken?: string) =>
     request<{ token?: string; user?: import('./types').User; linked: boolean; mode?: string; gc_company_name?: string; subcontractor?: import('./types').Subcontractor }>(`/api/sub/join/${inviteCode}`, {
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
-    }),
+    }, !body, expectedToken),
 }
 
 // QR onboarding info for GCs

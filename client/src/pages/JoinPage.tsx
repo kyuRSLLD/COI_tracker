@@ -1,18 +1,37 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ShieldCheck, CheckCircle2, ArrowRight, Sparkles, Building2, Lock, UserPlus, LogIn } from 'lucide-react'
-import { apiSub, apiRegister, apiLogin, setStoredUser, setToken, getStoredUser, getToken } from '../api'
+import { apiSub, getToken } from '../api'
 import type { JoinInfo, User } from '../types'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 
-export function JoinPage() {
+type Props = {
+  user: User | null
+  sessionToken: string | null
+  sessionStatus: 'checking' | 'authenticated' | 'anonymous' | 'error'
+  onSession: (session: { token: string; user: User }) => Promise<void>
+  onSwitchAccount: () => void
+}
+
+export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSession, onSwitchAccount }: Props) {
   const { inviteCode = '' } = useParams<{ inviteCode: string }>()
   const [info, setInfo] = useState<JoinInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [working, setWorking] = useState(false)
-  const [sharingConsent, setSharingConsent] = useState(false)
+  const [success, setSuccess] = useState<{ message: string; token: string } | null>(null)
+  const identityKey = `${sessionStatus}:${sessionToken ?? ''}`
+  const identity = useRef({ key: identityKey, generation: 0 })
+  if (identity.current.key !== identityKey) identity.current = { key: identityKey, generation: identity.current.generation + 1 }
+  const generation = identity.current.generation
+  const [workingFor, setWorkingFor] = useState<number | null>(null)
+  const [consentFor, setConsentFor] = useState<number | null>(null)
+  const working = workingFor === generation
+  const sharingConsent = consentFor === generation
+  const active = useRef(true)
+  useLayoutEffect(() => {
+    active.current = true
+    return () => { active.current = false }
+  }, [])
 
   // tabs
   const [tab, setTab] = useState<'new' | 'existing'>('new')
@@ -30,44 +49,47 @@ export function JoinPage() {
   const [existEmail, setExistEmail] = useState('')
   const [existPassword, setExistPassword] = useState('')
 
-  const currentUser = getStoredUser()
-  const hasSession = Boolean(getToken() && currentUser)
+  const hasSession = sessionStatus === 'authenticated' && !!currentUser
 
   useEffect(() => {
-    setSharingConsent(false)
+    let cancelled = false
     ;(async () => {
       try {
         setError(null)
         const res = await apiSub.joinInfo(inviteCode)
-        setInfo(res)
+        if (!cancelled) setInfo(res)
       } catch (err: any) {
-        setError(err.message || 'Invitation not found')
+        if (!cancelled) setError(err.message || 'Invitation not found')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     })()
+    return () => { cancelled = true }
   }, [inviteCode])
 
   const gcName = info?.gc.company_name || 'the general contractor'
 
   const handleAuthenticatedJoin = async () => {
-    if (!sharingConsent) return
-    setWorking(true)
+    if (!sharingConsent || !sessionToken || !info?.valid) return
+    setWorkingFor(generation)
     setError(null)
+    const token = sessionToken
     try {
-      const res = await apiSub.join(inviteCode)
-      setSuccess(`You're now linked to ${res.gc_company_name || gcName}. Any certificate on file is visible to them automatically.`)
+      const res = await apiSub.join(inviteCode, undefined, token)
+      if (active.current && getToken() === token && identity.current.generation === generation) {
+        setSuccess({ token, message: `You're now linked to ${res.gc_company_name || gcName}. Any certificate on file is visible to them automatically.` })
+      }
     } catch (err: any) {
-      setError(err.message)
+      if (active.current && identity.current.generation === generation) setError(err.message || 'Unable to connect your account')
     } finally {
-      setWorking(false)
+      if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
   }
 
   const handleNewSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sharingConsent) return
-    setWorking(true)
+    if (!sharingConsent || !info?.valid || sessionStatus !== 'anonymous' || getToken()) return
+    setWorkingFor(generation)
     setError(null)
     try {
       const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
@@ -79,37 +101,35 @@ export function JoinPage() {
         trade,
         phone,
       })
-      if (res.token && res.user) {
-        setToken(res.token)
-        setStoredUser(res.user)
-      }
-      setSuccess(`Welcome, ${fullName}! Your account is created and linked to ${res.gc_company_name || gcName}. Upload your insurance paper whenever you're ready.`)
+      if (!active.current || getToken() || identity.current.generation !== generation) return
+      if (!res.token || !res.user) throw new Error('Account linked, but no session was returned. Please sign in to continue.')
+      await onSession({ token: res.token, user: res.user })
+      if (active.current) setSuccess({ token: res.token, message: `Welcome, ${fullName}! Your account is created and linked to ${res.gc_company_name || gcName}. Upload your insurance paper whenever you're ready.` })
     } catch (err: any) {
-      setError(err.message)
+      if (active.current) setError(err.message)
     } finally {
-      setWorking(false)
+      if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
   }
 
   const handleExistingConnect = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sharingConsent) return
-    setWorking(true)
+    if (!sharingConsent || !info?.valid || sessionStatus !== 'anonymous' || getToken()) return
+    setWorkingFor(generation)
     setError(null)
     try {
       const res = await apiSub.join(inviteCode, {
         email: existEmail,
         password: existPassword,
       })
-      if (res.token && res.user) {
-        setToken(res.token)
-        setStoredUser(res.user)
-      }
-      setSuccess(`Connected! Your account is now linked to ${res.gc_company_name || gcName}.`)
+      if (!active.current || getToken() || identity.current.generation !== generation) return
+      if (!res.token || !res.user) throw new Error('Account linked, but no session was returned. Please sign in to continue.')
+      await onSession({ token: res.token, user: res.user })
+      if (active.current) setSuccess({ token: res.token, message: `Connected! Your account is now linked to ${res.gc_company_name || gcName}.` })
     } catch (err: any) {
-      setError(err.message)
+      if (active.current) setError(err.message)
     } finally {
-      setWorking(false)
+      if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
   }
 
@@ -132,15 +152,15 @@ export function JoinPage() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 sm:px-10 rounded-2xl border border-slate-200 shadow-sm space-y-6">
           {error && (
-            <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
+            <div role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
           )}
 
-          {success ? (
+          {success && sessionStatus === 'authenticated' && success.token === sessionToken ? (
             <div className="text-center space-y-4">
               <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center">
                 <CheckCircle2 className="w-7 h-7" />
               </div>
-              <p className="text-xs text-slate-700">{success}</p>
+              <p className="text-xs text-slate-700">{success.message}</p>
               <div className="flex flex-col gap-2 pt-2">
                 <Link
                   to="/subcontractor"
@@ -153,7 +173,7 @@ export function JoinPage() {
                 </Link>
               </div>
             </div>
-          ) : (
+          ) : info?.valid ? (
             <>
               {/* GC invite card */}
               <div className="rounded-xl border border-slate-200 p-4 bg-slate-50 text-xs">
@@ -184,7 +204,7 @@ export function JoinPage() {
                 <input
                   type="checkbox"
                   checked={sharingConsent}
-                  onChange={(e) => setSharingConsent(e.target.checked)}
+                  onChange={(e) => setConsentFor(e.target.checked ? generation : null)}
                   className="mt-0.5 shrink-0"
                 />
                 <span>I understand that joining lets {gcName} view my company profile and certificates on file.</span>
@@ -196,7 +216,7 @@ export function JoinPage() {
                   <p>
                     Signed in as <span className="font-semibold">{currentUser?.email}</span>
                   </p>
-                  <button
+                  {currentUser?.role === 'sub' ? <button
                     type="button"
                     onClick={handleAuthenticatedJoin}
                     disabled={working || !sharingConsent}
@@ -204,15 +224,17 @@ export function JoinPage() {
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {working ? 'Linking…' : `Connect my account to ${gcName}`}
-                  </button>
-                  <p className="text-[11px] text-indigo-700/80">
+                  </button> : <p>Only subcontractor accounts can connect to this invitation.</p>}
+                  {currentUser?.role === 'sub' && <p className="text-[11px] text-indigo-700/80">
                     Already linked? No problem — scanning again is safe and idempotent.
-                  </p>
+                  </p>}
+                  <button type="button" disabled={working} onClick={() => { onSwitchAccount(); setError(null); setConsentFor(null) }} className="underline font-semibold disabled:opacity-40">Switch account</button>
                 </div>
               )}
 
               {/* Two tabs: new vs existing account */}
-              {!hasSession && (
+              {sessionStatus === 'checking' && <p className="text-xs text-slate-500">Checking your session…</p>}
+              {sessionStatus === 'anonymous' && (
                 <>
                   <div className="flex border-b border-slate-200 text-xs">
                     <button
@@ -280,7 +302,7 @@ export function JoinPage() {
                           <input
                             required
                             type="password"
-                            minLength={6}
+                            minLength={8}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
@@ -369,7 +391,7 @@ export function JoinPage() {
                 Scanning a printed QR code on a job site? This page was opened by that code — you're already in the right place.
               </p>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

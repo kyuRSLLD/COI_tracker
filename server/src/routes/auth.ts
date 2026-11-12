@@ -6,6 +6,7 @@ import { dbGet, dbRun, dbAll } from '../db/db.ts'
 import { signToken, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail, requestIp } from '../services/loginRateLimit.ts'
+import { findNormalizedEmailUsers, getMatchedUser, isValidRegistrationEmail } from '../services/authEmail.ts'
 
 export const authRouter = Router()
 
@@ -66,6 +67,11 @@ authRouter.post('/register', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' })
     }
+    if (typeof email !== 'string') return res.status(400).json({ error: 'Please enter a valid email address' })
+    const normalizedEmail = normalizeLoginEmail(email)
+    if (!isValidRegistrationEmail(normalizedEmail)) {
+      return res.status(400).json({ error: 'Please enter a valid email address' })
+    }
     if (typeof password !== 'string' || password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' })
     }
@@ -83,8 +89,8 @@ authRouter.post('/register', async (req, res) => {
     if (!phoneFormatted && (phone != null && phone !== '' || fn || ln)) {
       return res.status(400).json({ error: 'Please enter a valid 10-digit phone number' })
     }
-    const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email.toLowerCase()])
-    if (existing) {
+    // Treat even ambiguous legacy matches as duplicates; do not migrate them.
+    if ((await findNormalizedEmailUsers(normalizedEmail)).length > 0) {
       return res.status(409).json({ error: 'An account with that email already exists' })
     }
     const hash = await bcrypt.hash(password, 10)
@@ -96,13 +102,13 @@ authRouter.post('/register', async (req, res) => {
       await dbRun(
         `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
          VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?, ?)`,
-        [subId, id, company_name || fullName, fullName, phoneFormatted, email.toLowerCase(), now, now]
+        [subId, id, company_name || fullName, fullName, phoneFormatted, normalizedEmail, now, now]
       )
     }
     await dbRun(
       `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, email.toLowerCase(), hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, new Date().toISOString(), subId]
+      [id, normalizedEmail, hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, new Date().toISOString(), subId]
     )
     if (phoneFormatted) {
       await dbRun(
@@ -110,25 +116,27 @@ authRouter.post('/register', async (req, res) => {
         [uuidv4(), id, phoneFormatted, 'mobile', new Date().toISOString()]
       )
     }
-    const user = { id, email: email.toLowerCase(), name: fullName, first_name: fn || null, last_name: ln || null, phone: phoneFormatted, role: finalRole, subcontractor_id: subId }
+    const user = { id, email: normalizedEmail, name: fullName, first_name: fn || null, last_name: ln || null, phone: phoneFormatted, role: finalRole, subcontractor_id: subId }
     const token = signToken(user)
     res.json({ token, user })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+  } catch {
+    console.error('[auth] Registration failed')
+    res.status(500).json({ error: 'Unable to register' })
   }
 })
 
 authRouter.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {}
-    if (!email || !password || typeof password !== 'string') {
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       return res.status(400).json({ error: 'Email and password are required' })
     }
     const normalizedEmail = normalizeLoginEmail(email)
     if (!consumeLoginAttempt(req, normalizedEmail)) {
       return res.status(429).json({ error: 'Too many requests' })
     }
-    const user = await dbGet('SELECT * FROM users WHERE email = ?', [normalizedEmail])
+    const matches = await findNormalizedEmailUsers(normalizedEmail)
+    const user = matches.length === 1 ? await getMatchedUser(matches[0]) : undefined
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
@@ -140,8 +148,9 @@ authRouter.post('/login', async (req, res) => {
     const payload = { id: user.id, email: user.email, role: user.role, name: user.name, subcontractor_id: user.subcontractor_id || null }
     const token = signToken(payload)
     res.json({ token, user: { ...payload, first_name: user.first_name || null, last_name: user.last_name || null, phone: user.phone || null, company_name: user.company_name } })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+  } catch {
+    console.error('[auth] Login failed')
+    res.status(500).json({ error: 'Unable to sign in' })
   }
 })
 
@@ -153,8 +162,9 @@ authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' })
     const phones = await dbAll('SELECT id, phone, label, is_primary, created_at FROM user_phones WHERE user_id = ? ORDER BY is_primary DESC, created_at ASC', [req.user!.id])
     res.json({ user: { ...user, phones } })
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
+  } catch {
+    console.error('[auth] Profile lookup failed')
+    res.status(500).json({ error: 'Unable to load account' })
   }
 })
 
