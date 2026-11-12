@@ -1,13 +1,27 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, FileText, Edit2, Trash2, Shield, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
-import { apiSubcontractors, apiSettings, apiCOIs } from '../api'
+import { apiSubcontractors, apiSettings } from '../api'
 import { ExpirationBadge } from '../components/ExpirationBadge'
 import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { AddCOIModal } from '../components/AddCOIModal'
 import { COIReviewModal } from '../components/COIReviewModal'
 import { CertificateViewer } from '../components/CertificateViewer'
+
+// The authenticated detail endpoint returns only the current GC's owned
+// certificates or the connected subcontractor's own certificates. It includes
+// both owner fields, although they are not part of the shared COI type.
+type DetailCOI = COI & { owner_gc_user_id?: string | null; owner_sub_user_id?: string | null }
+
+function canReviewCertificate(coi: DetailCOI): boolean {
+  // Mirror the review endpoint: malformed dual-owned or unknown rows are not writable.
+  return typeof coi.owner_gc_user_id === 'string' && coi.owner_gc_user_id.length > 0 && coi.owner_sub_user_id === null
+}
+
+function isSubOwnedCertificate(coi: DetailCOI): boolean {
+  return coi.owner_gc_user_id === null && typeof coi.owner_sub_user_id === 'string' && coi.owner_sub_user_id.length > 0
+}
 
 export function SubcontractorsPage() {
   const [subs, setSubs] = useState<Subcontractor[]>([])
@@ -22,9 +36,11 @@ export function SubcontractorsPage() {
   const [requestModal, setRequestModal] = useState(false)
   const [requestSubId, setRequestSubId] = useState<string | undefined>()
   const [addCoiSub, setAddCoiSub] = useState<Subcontractor | null>(null)
+  const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<any>(null)
   const [viewingCertificate, setViewingCertificate] = useState<COI | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const showToast = (m: string) => {
     setToast(m)
@@ -43,10 +59,10 @@ export function SubcontractorsPage() {
       ])
       setSubs(res.subcontractors)
       setGcSettings(cfg.settings)
-      if (selectedSub) {
-        const fresh = res.subcontractors.find((s) => s.id === selectedSub.id)
-        if (fresh) loadDetail(fresh.id)
-      }
+      if (selectedSub) await loadDetail(selectedSub.id)
+      setLoadError(null)
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : 'Unable to refresh subcontractors.')
     } finally {
       setLoading(false)
     }
@@ -97,6 +113,12 @@ export function SubcontractorsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={() => { setAddCoiSub(selectedSub); setAddCoiOpen(true) }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition"
+          >
+            <Upload className="w-3.5 h-3.5" /> Upload COI
+          </button>
+          <button
             onClick={() => { setEditSub(null); setAddSubOpen(true) }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
           >
@@ -104,6 +126,8 @@ export function SubcontractorsPage() {
           </button>
         </div>
       </div>
+
+      {loadError && <div role="alert" className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">Unable to refresh subcontractors: {loadError}</div>}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-card space-y-3">
@@ -210,11 +234,12 @@ export function SubcontractorsPage() {
                           <FileText className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => setAddCoiSub(s)}
-                          title="Add COI directly"
-                          className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100"
+                          onClick={() => { setAddCoiSub(s); setAddCoiOpen(true) }}
+                          title={`Upload COI for ${s.company_name}`}
+                          aria-label={`Upload COI for ${s.company_name}`}
+                          className="inline-flex items-center gap-1 p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 font-semibold"
                         >
-                          <Shield className="w-4 h-4" />
+                          <Upload className="w-4 h-4" /> Upload COI
                         </button>
                         <button
                           onClick={() => { setEditSub(s); setAddSubOpen(true) }}
@@ -275,10 +300,10 @@ export function SubcontractorsPage() {
               <h3 className="text-sm font-bold text-slate-900">Certificates of Insurance on file</h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setAddCoiSub(selectedSub)}
+                  onClick={() => { setAddCoiSub(selectedSub); setAddCoiOpen(true) }}
                   className="text-xs font-semibold text-brand-600 hover:text-brand-700"
                 >
-                  + Add COI directly
+                  Upload COI
                 </button>
                 <span className="text-slate-300">·</span>
                 <button
@@ -304,14 +329,24 @@ export function SubcontractorsPage() {
                       </div>
                       <div className="flex items-center gap-2 self-start sm:self-center">
                         {c.simulated_carrier_connect ? <span className="text-amber-800 font-semibold">Simulated — not verified</span> : <ExpirationBadge status={c.status} showCountdown={false} size="sm" />}
-                        <button
-                          onClick={() => { setReviewCoi({ ...c, company_name: selectedSub.company_name, trade: selectedSub.trade }); }}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
-                        >
-                          Review
-                        </button>
+                        {canReviewCertificate(c) && (
+                          <button
+                            onClick={() => { setReviewCoi({ ...c, company_name: selectedSub.company_name, trade: selectedSub.trade }); }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
+                          >
+                            Review
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {!canReviewCertificate(c) && (
+                      <p className="mt-2 text-[11px] text-slate-600">
+                        {isSubOwnedCertificate(c)
+                          ? 'Uploaded by the subcontractor. You can view the certificate file when available, but GC review is not available yet.'
+                          : 'GC review is unavailable for this certificate.'}
+                      </p>
+                    )}
 
                     {c.certificate_url && !c.simulated_carrier_connect && (
                       <div className="mt-2 text-[11px]">
@@ -342,7 +377,7 @@ export function SubcontractorsPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 italic">No certificates yet. Request a COI to send a self-service upload link.</p>
+              <p className="text-xs text-slate-400 italic">No certificates yet. Upload a COI or request a self-service upload link.</p>
             )}
           </div>
 
@@ -379,12 +414,11 @@ export function SubcontractorsPage() {
         initialSubId={requestSubId}
         onSuccess={() => { showToast('Upload link created'); load() }}
       />
-      <AddCOIModal
+      {addCoiOpen && <AddCOIModal
         subcontractor={addCoiSub}
-        open={Boolean(addCoiSub)}
-        onClose={() => setAddCoiSub(null)}
-        onSaved={() => { showToast('COI added'); load() }}
-      />
+        onClose={() => setAddCoiOpen(false)}
+        onSaved={() => { showToast('COI uploaded — pending manual review'); load() }}
+      />}
       <COIReviewModal
         coi={reviewCoi}
         open={Boolean(reviewCoi)}

@@ -269,6 +269,7 @@ export interface AdminUser {
 export interface SubcontractorDashboardData {
   subcontractor: Subcontractor
   cois: COI[]
+  disconnect_available?: boolean
   requests: Array<{
     id: string
     subcontractor_id: string

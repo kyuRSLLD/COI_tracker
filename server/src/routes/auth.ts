@@ -2,7 +2,7 @@ import express from 'express'
 const Router = express.Router
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
-import { dbGet, dbRun, dbAll } from '../db/db.ts'
+import { dbGet, dbRun, dbAll, withTransaction } from '../db/db.ts'
 import { signToken, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail, requestIp } from '../services/loginRateLimit.ts'
@@ -57,7 +57,7 @@ authRouter.post('/register', async (req, res) => {
     if (!consumeRateLimit(registrations, requestIp(req), REGISTRATION_LIMIT, REGISTRATION_WINDOW_MS)) {
       return res.status(429).json({ error: 'Too many requests' })
     }
-    const { email, password, name, first_name, last_name, phone, company_name, role } = req.body || {}
+    const { email, password, name, first_name, last_name, phone, company_name, trade, role } = req.body || {}
     if (role !== undefined && role !== 'gc' && role !== 'sub') {
       return res.status(400).json({ error: 'Public registration is only available for general contractors and subcontractors. Existing administrators should sign in.' })
     }
@@ -95,27 +95,23 @@ authRouter.post('/register', async (req, res) => {
     }
     const hash = await bcrypt.hash(password, 10)
     const id = uuidv4()
-    let subId: string | null = null
-    if (finalRole === 'sub') {
-      subId = uuidv4()
-      const now = new Date().toISOString()
-      await dbRun(
-        `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
-         VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?, ?)`,
-        [subId, id, company_name || fullName, fullName, phoneFormatted, normalizedEmail, now, now]
-      )
-    }
-    await dbRun(
-      `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, normalizedEmail, hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, new Date().toISOString(), subId]
-    )
-    if (phoneFormatted) {
-      await dbRun(
+    const subId: string | null = finalRole === 'sub' ? uuidv4() : null
+    const now = new Date().toISOString()
+    // Account, profile and optional phone commit together; failed signup must
+    // never leave a profile or a partially created user behind.
+    await withTransaction(async tx => {
+      if (subId) {
+        await tx.run(`INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [subId, id, company_name || fullName, typeof trade === 'string' && trade.trim() ? trade.trim() : 'Trade to be specified', fullName, phoneFormatted, normalizedEmail, now, now])
+      }
+      await tx.run(`INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, normalizedEmail, hash, fullName, fn || null, ln || null, phoneFormatted, company_name || null, finalRole, now, subId])
+      if (phoneFormatted) await tx.run(
         'INSERT INTO user_phones (id, user_id, phone, label, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)',
-        [uuidv4(), id, phoneFormatted, 'mobile', new Date().toISOString()]
-      )
-    }
+        [uuidv4(), id, phoneFormatted, 'mobile', now])
+    })
     const user = { id, email: normalizedEmail, name: fullName, first_name: fn || null, last_name: ln || null, phone: phoneFormatted, role: finalRole, subcontractor_id: subId }
     const token = signToken(user)
     res.json({ token, user })

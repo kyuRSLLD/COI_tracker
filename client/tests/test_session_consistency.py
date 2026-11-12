@@ -28,11 +28,16 @@ class ConsistencyTests(support.LoginSessionTests):
         self.hold_subs_for = set()
         self.held_subs = []
         self.join_status = 200
+        self.intent_reauth = False
+        self.join_reauth = False
         self.password_status = 401
         self.password_error = 'Current password is incorrect'
         self.join_calls = []
         self.hold_join = False
         self.held_join = []
+        self.hold_login = False
+        self.held_login = []
+        self.role = 'sub'
 
     def route(self, route):
         request = route.request
@@ -52,12 +57,25 @@ class ConsistencyTests(support.LoginSessionTests):
                 self.held_invites.append((code, route))
                 return
             return self.reply(route, self.invite(code))
+        if path.startswith('/api/sub/join-intent/'):
+            self.seen.append((request.method, path, auth))
+            if self.intent_reauth:
+                return self.reply(route, {'error': 'Please sign out and sign in again to connect to this invitation.', 'code': 'JOIN_SESSION_REAUTH_REQUIRED'}, 401)
+            return self.reply(route, {'intent': 'fixture-intent'})
+        if path == '/api/auth/register':
+            self.seen.append((request.method, path, auth))
+            return self.reply(route, {'token': TOKEN, 'user': SUB_B})
+        if path == '/api/auth/login' and self.hold_login:
+            self.held_login.append(route)
+            return
         if path.startswith('/api/sub/join/'):
             self.seen.append((request.method, path, auth))
             self.join_calls.append((path, auth))
             if self.hold_join:
                 self.held_join.append(route)
                 return
+            if self.join_reauth:
+                return self.reply(route, {'error': 'Please sign out and sign in again to connect to this invitation.', 'code': 'JOIN_SESSION_REAUTH_REQUIRED'}, 401)
             if self.join_status != 200:
                 return self.reply(route, {'error': 'Unavailable' if self.join_status == 503 else 'Invalid or expired token'}, self.join_status)
             return self.reply(route, {'linked': True, 'gc_company_name': 'GC ' + path.rsplit('/', 1)[1]})
@@ -96,6 +114,68 @@ class ConsistencyTests(support.LoginSessionTests):
         page = self.context.new_page()
         page.goto(self.origin + '/', wait_until='domcontentloaded')
         return page
+
+    def assert_join_disclosure(self):
+        checkbox = self.page.get_by_role('checkbox')
+        disclosure = self.page.locator('#sharing-disclosure')
+        self.assertTrue(disclosure.is_visible())
+        text = ' '.join(disclosure.inner_text().lower().split())
+        for phrase in ('gc a', 'ongoing access to your profile',
+                       'all current and future certificates of insurance (cois) you own',
+                       'anonymized insurance information', 'client reports they share',
+                       'disconnect this general contractor', 'subcontractor dashboard',
+                       'files already downloaded cannot be recalled'):
+            self.assertIn(phrase, text)
+        self.assertTrue(checkbox.evaluate('''el => {
+          const disclosure = document.getElementById(el.getAttribute('aria-describedby'));
+          return !!(disclosure.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }'''))
+        label = checkbox.locator('..').inner_text().lower()
+        for phrase in ('ongoing access', 'all current and future cois i own',
+                       'anonymized insurance information', 'client reports'):
+            self.assertIn(phrase, label)
+        self.assertFalse(checkbox.is_checked())
+
+    def test_anonymous_account_creation_precedes_consent(self):
+        self.page.goto(self.origin + '/join/A')
+        self.page.get_by_role('button', name='Create free account', exact=True).wait_for()
+        self.assertTrue(self.page.get_by_text('First sign in or create an account', exact=False).is_visible())
+        self.assertEqual(self.page.get_by_role('checkbox').count(), 0)
+        self.page.get_by_placeholder('Elena').fill('Test')
+        self.page.get_by_placeholder('Rossi').fill('Sub')
+        self.page.locator('input[type=email]').fill('sub@example.invalid')
+        self.page.locator('input[type=password]').fill('not-a-real-password')
+        self.page.get_by_role('button', name='Create account', exact=True).click()
+        self.page.get_by_text(SUB_B['email'], exact=True).wait_for()
+        self.assertEqual(self.join_calls, [])
+        self.assert_join_disclosure()
+        self.assertTrue(self.page.get_by_role('button', name='Connect my account to GC A').is_disabled())
+
+    def test_rejected_intent_unchecks_consent(self):
+        self.seed(OLD_TOKEN)
+        self.page.goto(self.origin + '/join/A')
+        self.page.get_by_text(SUB_A['email'], exact=True).wait_for()
+        self.page.get_by_role('checkbox').check()
+        self.join_status = 409
+        self.page.get_by_role('button', name='Connect my account to GC A').click()
+        self.page.get_by_role('alert').wait_for()
+        self.wait_until(lambda: not self.page.get_by_role('checkbox').is_checked(), 'consent was not reset')
+        self.assertTrue(self.page.get_by_role('button', name='Connect my account to GC A').is_disabled())
+        self.assertEqual(len(self.join_calls), 1)
+
+    def test_authenticated_join_disclosure_and_consent_gate(self):
+        self.seed(OLD_TOKEN)
+        self.page.goto(self.origin + '/join/A')
+        self.page.get_by_text(SUB_A['email'], exact=True).wait_for()
+        self.assert_join_disclosure()
+        button = self.page.get_by_role('button', name='Connect my account to GC A')
+        self.assertTrue(button.is_disabled())
+        self.assertEqual(self.join_calls, [])
+        self.page.get_by_role('checkbox').check()
+        self.assertTrue(button.is_enabled())
+        button.click()
+        self.page.get_by_text("You're now linked to GC A", exact=False).wait_for()
+        self.assertEqual(self.join_calls, [('/api/sub/join/A', f'Bearer {OLD_TOKEN}')])
 
     def test_two_tabs_revalidate_and_bind_join_to_displayed_identity(self):
         self.seed(OLD_TOKEN)
@@ -186,26 +266,24 @@ class ConsistencyTests(support.LoginSessionTests):
         self.page.get_by_role('button', name='Connect my account to GC B').click()
         self.assertEqual(self.join_calls, [('/api/sub/join/B', f'Bearer {OLD_TOKEN}')])
 
-    def test_delayed_invite_signup_cannot_replace_new_route_session(self):
+    def test_delayed_invite_login_cannot_replace_new_route_session(self):
         self.page.goto(self.origin + '/join/A')
         self.page.get_by_text('GC A', exact=True).first.wait_for()
         self.page.get_by_role('button', name='Existing account').click()
-        self.page.get_by_role('checkbox').check()
         self.page.locator('input[type=email]').fill('old@example.invalid')
         self.page.locator('input[type=password]').fill('not-a-real-password')
-        self.hold_join = True
-        self.page.get_by_role('button', name='Sign in & link to GC A').click()
-        self.wait_until(lambda: bool(self.held_join), 'old credential join missing')
+        self.hold_login = True
+        self.page.get_by_role('button', name='Sign in', exact=True).click()
+        self.wait_until(lambda: bool(self.held_login), 'old login missing')
         self.navigate('/join/B')
         self.page.get_by_text('GC B', exact=True).first.wait_for()
-        for route in self.held_join:
-            self.reply(route, {'linked': True, 'token': OLD_TOKEN, 'user': SUB_A, 'gc_company_name': 'GC A'})
-        self.held_join.clear()
+        for route in self.held_login:
+            self.reply(route, {'token': OLD_TOKEN, 'user': SUB_A})
+        self.held_login.clear()
         self.page.wait_for_timeout(200)
         self.assertIsNone(self.page.evaluate('localStorage.getItem("coi_token")'))
         self.assertEqual(self.page.get_by_text(SUB_A['email'], exact=True).count(), 0)
-        self.assertEqual(self.page.get_by_text('GC A', exact=True).count(), 0)
-        self.assertFalse(self.page.get_by_role('checkbox').is_checked())
+        self.assertEqual(self.page.get_by_role('checkbox').count(), 0)
 
     def test_gc_sub_list_cannot_cross_session(self):
         self.me_users = {OLD_TOKEN: GC_A, TOKEN: GC_B}
@@ -251,14 +329,14 @@ class ConsistencyTests(support.LoginSessionTests):
         self.seed(OLD_TOKEN)
         self.page.goto(self.origin + '/join/A')
         self.page.get_by_text(SUB_A['email'], exact=True).wait_for()
-        self.join_status = 401
+        self.login_status = 401
         result = self.page.evaluate('''async () => {
           const api = await import('/src/api.ts');
-          try { await api.apiSub.join('B', { email: 'no@example.invalid', password: 'bad' }); }
+          try { await api.apiLogin('no@example.invalid', 'bad'); }
           catch(e) { return e.status; }
         }''')
         self.assertEqual(result, 401)
-        self.assertEqual(self.join_calls, [('/api/sub/join/B', '')])
+        self.assertEqual(self.join_calls, [])
         self.assertEqual(self.page.evaluate('localStorage.getItem("coi_token")'), OLD_TOKEN)
         self.assertEqual(self.page.get_by_text(SUB_A['email'], exact=True).count(), 1)
 
@@ -279,10 +357,46 @@ class ConsistencyTests(support.LoginSessionTests):
         self.page.get_by_role('alert').get_by_text('Unavailable').wait_for()
         self.assertEqual(self.page.evaluate('localStorage.getItem("coi_token")'), OLD_TOKEN)
         self.join_status = 401
+        self.page.get_by_role('checkbox').check()
         self.page.get_by_role('button', name='Connect my account to GC A').click()
         self.page.get_by_text('Your session has expired.', exact=False).wait_for()
         self.assertIsNone(self.page.evaluate('localStorage.getItem("coi_token")'))
         self.assertEqual(self.page.get_by_text(SUB_A['email'], exact=True).count(), 0)
+
+    def test_legacy_join_intent_prompts_sign_in_without_expiring_portal_session(self):
+        self.intent_reauth = True
+        self.seed(OLD_TOKEN)
+        self.page.goto(self.origin + '/join/A')
+        self.page.get_by_role('alert').get_by_text('Please sign out and sign in again', exact=False).wait_for()
+        self.assertEqual(self.page.evaluate('localStorage.getItem("coi_token")'), OLD_TOKEN)
+        self.assertTrue(self.page.get_by_role('checkbox').is_disabled())
+        self.assertTrue(self.page.get_by_role('button', name='Connect my account to GC A').is_disabled())
+        self.assertEqual(self.join_calls, [])
+        self.assertEqual(self.page.get_by_role('button', name='Refresh connection request').count(), 0)
+        self.page.get_by_role('button', name='Sign out and sign in again').click()
+        self.page.get_by_role('button', name='Sign in', exact=True).wait_for()
+        self.assertIsNone(self.page.evaluate('localStorage.getItem("coi_token")'))
+        self.intent_reauth = False
+        self.page.locator('input[type=email]').fill('sub@example.invalid')
+        self.page.locator('input[type=password]').fill('not-a-real-password')
+        self.page.get_by_role('button', name='Sign in', exact=True).click()
+        self.page.get_by_role('checkbox').check()
+        self.page.get_by_role('button', name='Connect my account to GC A').click()
+        self.page.get_by_text("You're now linked to GC A", exact=False).wait_for()
+        self.assertEqual(self.join_calls, [('/api/sub/join/A', f'Bearer {TOKEN}')])
+
+    def test_legacy_join_consumption_error_resets_consent_without_signing_out(self):
+        self.seed(OLD_TOKEN)
+        self.page.goto(self.origin + '/join/A')
+        self.page.get_by_text(SUB_A['email'], exact=True).wait_for()
+        self.page.get_by_role('checkbox').check()
+        self.join_reauth = True
+        self.page.get_by_role('button', name='Connect my account to GC A').click()
+        self.page.get_by_role('alert').get_by_text('Please sign out and sign in again', exact=False).wait_for()
+        self.assertEqual(self.page.evaluate('localStorage.getItem("coi_token")'), OLD_TOKEN)
+        self.assertFalse(self.page.get_by_role('checkbox').is_checked())
+        self.assertTrue(self.page.get_by_role('checkbox').is_disabled())
+        self.assertTrue(self.page.get_by_role('button', name='Sign out and sign in again').is_visible())
 
 
 def load_tests(loader, tests, pattern):

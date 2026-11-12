@@ -87,7 +87,9 @@ test('normalized authentication and invitation integration', async (t) => {
 CREATE TABLE subcontractors (id TEXT PRIMARY KEY, user_id TEXT, company_name TEXT, trade TEXT, contact_person TEXT, phone TEXT, email TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE user_phones (id TEXT PRIMARY KEY, user_id TEXT, phone TEXT, label TEXT, is_primary INTEGER, created_at TEXT);
 CREATE TABLE gc_settings (id TEXT PRIMARY KEY, user_id TEXT, invite_code TEXT, company_name TEXT);
-CREATE TABLE gc_sub_connections (gc_user_id TEXT, subcontractor_id TEXT, created_at TEXT, PRIMARY KEY (gc_user_id, subcontractor_id));`)
+CREATE TABLE gc_sub_connections (gc_user_id TEXT, subcontractor_id TEXT, created_at TEXT, PRIMARY KEY (gc_user_id, subcontractor_id));
+CREATE TABLE sub_join_versions (user_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
+CREATE TABLE sub_join_intents (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_hash TEXT NOT NULL, gc_user_id TEXT NOT NULL, gc_settings_id TEXT NOT NULL, invite_code TEXT NOT NULL, version INTEGER NOT NULL, expires_at TEXT NOT NULL);`)
   await addUser('gc', 'gc@example.test', 'gc')
   await dbRun('INSERT INTO gc_settings (id, user_id, invite_code, company_name) VALUES (?, ?, ?, ?)', ['settings', 'gc', invite, 'GC'])
 
@@ -112,67 +114,67 @@ CREATE TABLE gc_sub_connections (gc_user_id TEXT, subcontractor_id TEXT, created
     const before = await snapshot()
     for (const p of [password, 'other-password']) {
       assert.deepEqual(await request('/api/auth/login', { body: { email: 'collision@example.test', password: p } }), { status: 401, body: { error: 'Invalid email or password' } })
-      assert.deepEqual(await request(join, { body: { email: 'collision@example.test', password: p, name: 'Cannot create' } }), { status: 401, body: { error: 'Invalid credentials for existing account' } })
+      assert.equal((await request(join, { body: { email: 'collision@example.test', password: p, name: 'Cannot create' } })).status, 409)
     }
     assert.equal((await request('/api/auth/register', { body: { email: ' COLLISION@example.test ', password, name: 'Duplicate' } })).status, 409)
     assert.deepEqual(await snapshot(), before)
     const rateIp = nextIp()
-    for (let i = 0; i < 10; i++) assert.equal((await request(join, { ip: rateIp, body: { email: 'collision@example.test', password } })).status, 401)
-    assert.equal((await request(join, { ip: rateIp, body: { email: 'collision@example.test', password } })).status, 429)
+    for (let i = 0; i < 10; i++) assert.equal((await request('/api/auth/login', { ip: rateIp, body: { email: 'collision@example.test', password } })).status, 401)
+    assert.equal((await request('/api/auth/login', { ip: rateIp, body: { email: 'collision@example.test', password } })).status, 429)
   })
 
   await t.test('Unicode normalized collisions are ambiguous across both databases', async () => {
     await addUser('kelvin-duplicate', 'kelvin@example.test')
     const before = await snapshot()
     assert.equal((await request('/api/auth/login', { body: { email: 'KELVIN@example.test', password } })).status, 401)
-    assert.equal((await request(join, { body: { email: 'kelvin@example.test', password, name: 'Duplicate' } })).status, 401)
+    assert.equal((await request(join, { body: { email: 'kelvin@example.test', password, name: 'Duplicate' } })).status, 409)
     assert.equal((await request('/api/auth/register', { body: { email: 'kelvin@example.test', password, name: 'Duplicate' } })).status, 409)
     assert.deepEqual(await snapshot(), before)
   })
 
-  await t.test('invite uses the same normalized identity, verifies password and role, and does not create a duplicate', async () => {
+  await t.test('normalized login precedes fresh invite consent without creating duplicates', async () => {
     await addUser('invite-legacy', ' \t InViTe@Example.Test\u00a0')
     const before = await snapshot()
-    assert.equal((await request(join, { body: { email: 'invite@example.test', password: 'wrong-password', name: 'Fake' } })).status, 401)
-    assert.equal((await request(join, { body: { email: ' GC@EXAMPLE.TEST ', password } })).status, 403)
+    assert.equal((await request('/api/auth/login', { body: { email: 'invite@example.test', password: 'wrong-password' } })).status, 401)
+    const gcLogin = await request('/api/auth/login', { body: { email: ' GC@EXAMPLE.TEST ', password } })
+    assert.equal((await request(`/api/sub/join-intent/${invite}`, { token: gcLogin.body.token, body: {} })).status, 403)
     assert.deepEqual(await snapshot(), before)
-    const result = await request(join, { body: { email: ' INVITE@example.test ', password } })
+    const login = await request('/api/auth/login', { body: { email: ' INVITE@example.test ', password } })
+    assert.equal(login.status, 200)
+    assert.equal(login.body.user.id, 'invite-legacy')
+    const intent = await request(`/api/sub/join-intent/${invite}`, { token: login.body.token, body: {} })
+    assert.equal(intent.status, 200)
+    const result = await request(join, { token: login.body.token, body: { intent: intent.body.intent, consent: true } })
     assert.equal(result.status, 200)
-    assert.equal(result.body.mode, 'existing')
-    assert.equal(result.body.user.id, 'invite-legacy')
-    assert.equal(result.body.user.email, ' \t InViTe@Example.Test\u00a0')
+    assert.equal(result.body.mode, 'authenticated')
     const state = await snapshot()
     assert.equal(state.users.filter((u: any) => u.id === 'invite-legacy').length, 1)
     assert.equal(state.subs.filter((s: any) => s.user_id === 'invite-legacy').length, 1)
     assert.equal(state.links.length, before.links.length + 1)
   })
 
-  await t.test('public and invite logins share the normalized per-IP failure limit', async () => {
+  await t.test('normalized login rate limit remains enforced', async () => {
     const rateIp = nextIp()
-    for (let i = 0; i < 5; i++) {
-      assert.equal((await request('/api/auth/login', { ip: rateIp, body: { email: ' INVITE@example.test ', password: 'wrong' } })).status, 401)
-      assert.equal((await request(join, { ip: rateIp, body: { email: 'invite@example.test', password: 'wrong' } })).status, 401)
-    }
-    assert.equal((await request(join, { ip: rateIp, body: { email: 'invite@example.test', password } })).status, 429)
+    for (let i = 0; i < 10; i++) assert.equal((await request('/api/auth/login', { ip: rateIp, body: { email: ' INVITE@example.test ', password: 'wrong' } })).status, 401)
     assert.equal((await request('/api/auth/login', { ip: rateIp, body: { email: 'invite@example.test', password } })).status, 429)
   })
 
-  await t.test('invite registration rejects invalid email and normalizes valid email across records', async () => {
+  await t.test('invite signup is separate, retains data, and needs explicit consent', async () => {
     const before = await snapshot()
     for (const email of [null, 12, {}, '   ', 'not-an-email', 'a@@example.com', 'a..b@example.com', `${'a'.repeat(245)}@example.test`]) {
-      assert.equal((await request(join, { body: { email, password, name: 'New' } })).status, 400)
+      assert.equal((await request('/api/auth/register', { body: { email, password, name: 'New', role: 'sub' } })).status, 400)
     }
     assert.deepEqual(await snapshot(), before)
-    const result = await request(join, { body: { email: '  NEW.JOIN@Example.Test\t', password, name: 'New' } })
+    const result = await request('/api/auth/register', { body: { email: '  NEW.JOIN@Example.Test\t', password, name: 'New', trade: 'Painting', role: 'sub' } })
     assert.equal(result.status, 200)
-    assert.equal(result.body.mode, 'new')
     assert.equal(result.body.user.email, 'new.join@example.test')
-    assert.equal(result.body.subcontractor.email, 'new.join@example.test')
+    assert.equal((await dbAll('SELECT trade FROM subcontractors WHERE user_id = ?', [result.body.user.id]))[0].trade, 'Painting')
     assert.equal((await request('/api/auth/login', { body: { email: 'NEW.JOIN@example.test', password } })).body.user.id, result.body.user.id)
     const afterRegistration = await snapshot()
-    assert.equal((await request(join, { body: { email: ' NEW.JOIN@example.test ', password: 'wrong-password', name: 'Duplicate' } })).status, 401)
+    assert.equal(afterRegistration.links.length, before.links.length)
+    const intent = await request(`/api/sub/join-intent/${invite}`, { token: result.body.token, body: {} })
+    assert.equal((await request(join, { token: result.body.token, body: { intent: intent.body.intent, consent: true } })).status, 200)
     assert.equal((await request('/api/auth/register', { body: { email: 'new.join@example.test', password, name: 'Duplicate' } })).status, 409)
-    assert.deepEqual(await snapshot(), afterRegistration)
   })
 
   await t.test('finds collisions across page boundaries rather than accepting an early match', async () => {
@@ -181,7 +183,7 @@ CREATE TABLE gc_sub_connections (gc_user_id TEXT, subcontractor_id TEXT, created
     await addUser('zzz-page-last', ' PAGINATION@example.test ')
     const before = await snapshot()
     assert.equal((await request('/api/auth/login', { body: { email: 'pagination@example.test', password } })).status, 401)
-    assert.equal((await request(join, { body: { email: 'pagination@example.test', password, name: 'Duplicate' } })).status, 401)
+    assert.equal((await request(join, { body: { email: 'pagination@example.test', password, name: 'Duplicate' } })).status, 409)
     assert.deepEqual(await snapshot(), before)
   })
 
@@ -205,9 +207,10 @@ CREATE TABLE gc_sub_connections (gc_user_id TEXT, subcontractor_id TEXT, created
     const original = console.error
     console.error = (...args: unknown[]) => { logs.push(args) }
     try {
-      const result = await request(join, { body: { email: 'test@example.test', password, name: 'Test' } })
-      assert.deepEqual(result, { status: 500, body: { error: 'Unable to join' } })
-      assert.deepEqual(logs, [['[auth] Invitation join failed']])
+      const token = signToken({ id: 'legacy', email: 'ignored', role: 'sub', name: 'ignored' })
+      const result = await request(`/api/sub/join-intent/${invite}`, { token, body: {} })
+      assert.deepEqual(result, { status: 500, body: { error: 'Unable to prepare connection' } })
+      assert.deepEqual(logs, [['[auth] Invitation intent failed']])
       for (const sensitive of ['gc_settings', 'no such table', password, temp]) assert.ok(!JSON.stringify({ result, logs }).includes(sensitive))
     } finally { console.error = original }
   })

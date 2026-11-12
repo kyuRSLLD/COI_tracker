@@ -3,15 +3,24 @@ import {
   ShieldCheck, Upload, CheckCircle2, Clock, FileText, AlertTriangle,
   Sparkles, Building2, Award,
 } from 'lucide-react'
-import { apiSub } from '../api'
+import { apiSub, getToken } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
 import { CertificateViewer } from '../components/CertificateViewer'
+import { SubConnectionQr } from '../components/SubConnectionQr'
+import { removeSubConnection } from '../lib/subConnections'
+
+type ConnectedGc = { gc_id: string; company_name: string; email?: string | null; phone?: string | null }
+type DashboardData = Omit<SubcontractorDashboardData, 'connected_gcs'> & { connected_gcs: ConnectedGc[] }
 
 export function SubcontractorDashboardPage() {
-  const [data, setData] = useState<SubcontractorDashboardData | null>(null)
+  const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewingCertificate, setViewingCertificate] = useState<COI | null>(null)
+  const [dataToken, setDataToken] = useState<string | null>(null)
+  const [removingGc, setRemovingGc] = useState<string | null>(null)
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
+  const [qrVersion, setQrVersion] = useState(0)
 
   // quick upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -25,8 +34,11 @@ export function SubcontractorDashboardPage() {
   const load = async () => {
     try {
       setError(null)
+      const token = getToken()
       const res = await apiSub.my()
-      setData(res)
+      if (!token || getToken() !== token) return
+      setData(res as DashboardData)
+      setDataToken(token)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -59,7 +71,35 @@ export function SubcontractorDashboardPage() {
     }
   }
 
-  const daysUntil = (d: string) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)
+  const handleRemoveConnection = async (gc: ConnectedGc) => {
+    if (!dataToken || removingGc || data?.disconnect_available !== true) return
+    if (!window.confirm(`Remove the connection to ${gc.company_name || 'this general contractor'}? They will no longer have future access through this connection. Previously issued download links may work briefly, and files already downloaded cannot be recalled. This will also cancel all your unused connection codes; generate a new code if you want to share again.`)) return
+    setRemovingGc(gc.gc_id)
+    setError(null)
+    setConnectionMessage(null)
+    try {
+      await removeSubConnection(gc.gc_id, dataToken)
+      setViewingCertificate(null)
+      setQrVersion(version => version + 1)
+      setConnectionMessage('Connection removed. Unused connection codes were canceled.')
+      setData(current => current ? { ...current, connected_gcs: (current.connected_gcs || []).filter(item => item.gc_id !== gc.gc_id), cois: current.cois.filter(coi => (coi as COI & { owner_gc_user_id?: string | null }).owner_gc_user_id !== gc.gc_id) } : current)
+      await load()
+    } catch (err: any) {
+      if (err.status === 503 && err.code === 'CONNECTION_REMOVAL_UNAVAILABLE') {
+        setData(current => current ? { ...current, disconnect_available: false } : current)
+      }
+      setError(err.message || 'Unable to remove connection')
+    } finally {
+      setRemovingGc(null)
+    }
+  }
+
+  const daysUntil = (d: string): number | null => {
+    if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null
+    const date = new Date(`${d}T00:00:00.000Z`)
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== d) return null
+    return Math.ceil((date.getTime() - Date.now()) / 86400000)
+  }
 
   if (loading) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm text-slate-500">Loading your insurance portal…</div>
@@ -207,9 +247,11 @@ export function SubcontractorDashboardPage() {
             <div className="space-y-3">
               {cois.map((coi: COI) => {
                 const days = daysUntil(coi.expiration_date)
-                const expired = days < 0
-                const expiring = days >= 0 && days <= 30
-                const badge = expired
+                const expired = days !== null && days < 0
+                const expiring = days !== null && days >= 0 && days <= 30
+                const badge = days === null
+                  ? { label: 'Expiration not provided', cls: 'bg-slate-50 text-slate-600 border-slate-200' }
+                  : expired
                   ? { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' }
                   : expiring
                   ? { label: `Expires in ${days}d`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
@@ -233,7 +275,7 @@ export function SubcontractorDashboardPage() {
                       <div className="flex items-center gap-2 text-slate-400 text-[11px]">
                         <span>Pol. {coi.policy_number || '—'}</span>
                         <span>·</span>
-                        <span>{coi.effective_date} → {coi.expiration_date}</span>
+                        <span>{coi.effective_date || 'Not provided'} → {days === null ? 'Expiration not provided' : coi.expiration_date}</span>
                       </div>
                     </div>
 
@@ -312,13 +354,36 @@ export function SubcontractorDashboardPage() {
           </section>
         )}
 
-        {/* Public sharing is not currently available. */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-xs">
-          <h3 className="text-sm font-semibold text-slate-900">Public COI sharing coming soon</h3>
-          <p className="text-slate-600 mt-1">
-            Public links, QR codes, and direct email sharing are not available yet. Contractors you join can still view your profile and certificates.
-          </p>
+        <section aria-label="Connected general contractors" className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <Building2 className="w-4 h-4 text-slate-700" />
+            <h3 className="text-sm font-semibold text-slate-900">Connected general contractors</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">Remove a connection to stop future access. Previously issued download links may work briefly, and files already downloaded cannot be recalled. Removing a connection also cancels all unused connection codes; generate a new code if you want to share again.</p>
+          {data?.disconnect_available !== true && <p role="status" className="text-xs text-amber-800 mb-3">Removing connections is temporarily unavailable. Existing connections remain active; please try again later.</p>}
+          {connectionMessage && <p role="status" className="text-xs text-emerald-700 mb-3">{connectionMessage}</p>}
+          {(data?.connected_gcs || []).length === 0 ? (
+            <p className="text-xs text-slate-500">No connected general contractors.</p>
+          ) : (
+            <ul className="space-y-2">
+              {(data?.connected_gcs || []).map(gc => (
+                <li key={gc.gc_id} className="flex flex-wrap items-center justify-between gap-3 border border-slate-200 rounded-xl p-3 text-xs">
+                  <div>
+                    <p className="font-semibold text-slate-900">{gc.company_name || 'General contractor'}</p>
+                    {(gc.email || gc.phone) && <p className="text-slate-500 mt-1">{[gc.email, gc.phone].filter(Boolean).join(' · ')}</p>}
+                  </div>
+                  <button type="button" disabled={data?.disconnect_available !== true || !!removingGc || !gc.gc_id} onClick={() => handleRemoveConnection(gc)}
+                    aria-label={`Remove connection to ${gc.company_name || 'general contractor'}`}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                    {removingGc === gc.gc_id ? 'Removing…' : 'Remove connection'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
+
+        <SubConnectionQr key={qrVersion} />
 
         {/* Footer info */}
         <div className="text-center text-[11px] text-slate-400 py-4">

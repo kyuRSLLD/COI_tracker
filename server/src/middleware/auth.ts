@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { randomUUID } from 'node:crypto'
 import { dbGet } from '../db/db.ts'
 
 const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret-change-in-production')
@@ -7,10 +8,11 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET must be configured in production')
 
 export interface AuthRequest extends Request {
   user?: { id: string; email: string; role: string; name: string; subcontractor_id?: string | null }
+  hasSessionJti?: boolean
 }
 
 export function signToken(user: { id: string; email: string; role: string; name: string }): string {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: '30d' })
+  return jwt.sign(user, JWT_SECRET, { expiresIn: '30d', jwtid: randomUUID() })
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -25,6 +27,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const payload = jwt.verify(token, JWT_SECRET)
     if (typeof payload !== 'object' || payload === null || typeof payload.id !== 'string' || !payload.id) throw new Error('Invalid subject')
     userId = payload.id
+    req.hasSessionJti = typeof payload.jti === 'string' && payload.jti.trim().length > 0
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' })
     return

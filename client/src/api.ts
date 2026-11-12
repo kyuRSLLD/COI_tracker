@@ -46,13 +46,13 @@ export function setStoredUser(user: User | null): void {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
     super(message)
     this.name = 'ApiError'
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}, authenticated = true, expectedToken?: string, verification = false): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, authenticated = true, expectedToken?: string, verification = false): Promise<T> {
   const storedToken = getToken()
   const token = authenticated ? (verification ? expectedToken : verifiedToken) : null
   if (authenticated && (!token || token !== storedToken || (expectedToken !== undefined && expectedToken !== token))) {
@@ -69,18 +69,22 @@ async function request<T>(path: string, options: RequestInit = {}, authenticated
   const res = await fetch(path, { ...options, headers })
   if (!res.ok) {
     let message = `Request failed (${res.status})`
+    let code: string | undefined
     try {
       const data = await res.json()
       message = data.error || data.message || message
+      code = typeof data.code === 'string' ? data.code : undefined
     } catch {}
     // Changing a password can also reject the current password with a 401.
     // Only the middleware's unambiguous errors mean its bearer token failed.
     const passwordCredentialError = path === '/api/auth/change-password' &&
       message !== 'Authentication required' && message !== 'Invalid or expired token'
-    if (authenticated && !verification && token && res.status === 401 && !passwordCredentialError && getToken() === token) {
+    const joinReauthentication = (path.startsWith('/api/sub/join-intent/') || path.startsWith('/api/sub/join/')) &&
+      code === 'JOIN_SESSION_REAUTH_REQUIRED'
+    if (authenticated && !verification && token && res.status === 401 && !passwordCredentialError && !joinReauthentication && getToken() === token) {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: token }))
     }
-    throw new ApiError(message, res.status)
+    throw new ApiError(message, res.status, code)
   }
   return res.json()
 }
@@ -94,7 +98,7 @@ export async function apiLogin(email: string, password: string): Promise<{ token
   return data
 }
 
-export async function apiRegister(body: { email: string; password: string; name?: string; first_name?: string; last_name?: string; phone?: string; company_name?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
+export async function apiRegister(body: { email: string; password: string; name?: string; first_name?: string; last_name?: string; phone?: string; company_name?: string; trade?: string; role?: 'gc' | 'sub' }): Promise<{ token: string; user: User }> {
   const data = await request<{ token: string; user: User }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -242,16 +246,33 @@ export const apiSub = {
   publicView: (subId: string) =>
     request<{ subcontractor: import('./types').Subcontractor; coi?: import('./types').COI }>(`/api/sub/public/${subId}`, {}, false),
   joinInfo: (inviteCode: string) => request<import('./types').JoinInfo>(`/api/sub/join-info/${inviteCode}`, {}, false),
-  join: (inviteCode: string, body?: { email?: string; password?: string; name?: string; company_name?: string; trade?: string; contact_person?: string; phone?: string }, expectedToken?: string) =>
-    request<{ token?: string; user?: import('./types').User; linked: boolean; mode?: string; gc_company_name?: string; subcontractor?: import('./types').Subcontractor }>(`/api/sub/join/${inviteCode}`, {
-      method: 'POST',
-      body: body ? JSON.stringify(body) : undefined,
-    }, !body, expectedToken),
+  joinIntent: (inviteCode: string, expectedToken: string) =>
+    request<{ intent: string }>(`/api/sub/join-intent/${inviteCode}`, { method: 'POST' }, true, expectedToken),
+  join: (inviteCode: string, intent: string, expectedToken: string) =>
+    request<{ linked: boolean; mode?: string; gc_company_name?: string; subcontractor?: import('./types').Subcontractor }>(`/api/sub/join/${inviteCode}`, {
+      method: 'POST', body: JSON.stringify({ intent, consent: true }),
+    }, true, expectedToken),
+}
+
+// QR connection tokens are private and are sent only to this application's API.
+export const apiConnectionQr = {
+  create: (consent: true, expectedToken?: string) =>
+    request<{ token: string; expiresAt: string }>('/api/connection-qr', {
+      method: 'POST', body: JSON.stringify({ consent }),
+    }, true, expectedToken),
+  redeem: (token: string, expectedToken?: string) =>
+    request<{ success: boolean; subcontractor: { id: string; company_name: string } }>('/api/connection-qr/redeem', {
+      method: 'POST', body: JSON.stringify({ token }),
+    }, true, expectedToken),
+  revoke: (token: string, expectedToken?: string) =>
+    request<{ success: boolean }>('/api/connection-qr/revoke', {
+      method: 'POST', body: JSON.stringify({ token }),
+    }, true, expectedToken),
 }
 
 // QR onboarding info for GCs
-export async function apiQrInvite(): Promise<import('./types').QrInviteInfo> {
-  return request<import('./types').QrInviteInfo>('/api/settings/qr-invite')
+export async function apiQrInvite(expectedToken?: string): Promise<import('./types').QrInviteInfo> {
+  return request<import('./types').QrInviteInfo>('/api/settings/qr-invite', {}, true, expectedToken)
 }
 export async function apiRegenerateQrInvite(): Promise<import('./types').QrInviteInfo> {
   return request<import('./types').QrInviteInfo>('/api/settings/qr-invite/regenerate', { method: 'POST' })

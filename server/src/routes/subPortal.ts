@@ -2,15 +2,13 @@ import express from 'express'
 const Router = express.Router
 import type { NextFunction, Response } from 'express'
 import multer from 'multer'
-import bcrypt from 'bcryptjs'
+import { createHash, randomBytes } from 'node:crypto'
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid'
-import { dbAll, dbGet, dbRun } from '../db/db.ts'
-import { requireAuth, signToken } from '../middleware/auth.ts'
+import { dbAll, dbGet, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
+import { requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
-import { clearLoginAttempts, consumeLoginAttempt, normalizeLoginEmail } from '../services/loginRateLimit.ts'
-import { findNormalizedEmailUsers, getMatchedUser, isValidRegistrationEmail } from '../services/authEmail.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -18,6 +16,17 @@ const upload = multer({
 })
 
 export const subPortalRouter = Router()
+
+// Only literal true enables the rollout guard; no unrelated portal operations are paused.
+const disconnectPaused = () => process.env.DISCONNECT_PAUSED?.trim().toLowerCase() === 'true'
+const requireJoinSession = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.hasSessionJti) {
+    res.set('Cache-Control', 'no-store')
+    res.status(401).json({ error: 'Please sign out and sign in again to connect to this invitation.', code: 'JOIN_SESSION_REAUTH_REQUIRED' })
+    return
+  }
+  next()
+}
 
 // The signed token establishes only the user id; the current role and profile
 // ownership always come from the database, not mutable JWT claims.
@@ -29,15 +38,10 @@ function requireSub(req: AuthRequest, res: Response, next: NextFunction): void {
       if (user.role !== 'sub') { res.status(403).json({ error: 'Subcontractor account required' }); return }
       req.user = user
       next()
-    } catch (err: any) {
-      res.status(500).json({ error: err.message })
+    } catch {
+      res.status(500).json({ error: 'Unable to verify account' })
     }
   })
-}
-
-function optionalJoinAuth(req: AuthRequest, res: Response, next: NextFunction): void {
-  if (req.headers.authorization) return requireSub(req, res, next)
-  next()
 }
 
 // Legacy records with only an email or a users.subcontractor_id pointer are
@@ -107,12 +111,13 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
       [sub.id]
     )
     const gcs = await dbAll(
-      `SELECT DISTINCT COALESCE(gcs.company_name, u.company_name, u.name) AS company_name,
-              COALESCE(gcs.email, u.email) AS email, COALESCE(gcs.phone, u.phone) AS phone
+      `SELECT u.id AS gc_id,
+              COALESCE((SELECT company_name FROM gc_settings WHERE user_id = u.id ORDER BY id LIMIT 1), u.company_name, u.name) AS company_name,
+              COALESCE((SELECT email FROM gc_settings WHERE user_id = u.id ORDER BY id LIMIT 1), u.email) AS email,
+              COALESCE((SELECT phone FROM gc_settings WHERE user_id = u.id ORDER BY id LIMIT 1), u.phone) AS phone
        FROM gc_sub_connections c
        JOIN users u ON u.id = c.gc_user_id AND u.role = 'gc'
-       LEFT JOIN gc_settings gcs ON gcs.user_id = u.id
-       WHERE c.subcontractor_id = ?`,
+       WHERE c.subcontractor_id = ? ORDER BY company_name, u.id`,
       [sub.id]
     )
     res.set('Cache-Control', 'no-store')
@@ -121,11 +126,54 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
       cois: cois.map(labelSimulatedCarrierCOI),
       requests,
       connected_gcs: gcs,
+      disconnect_available: !disconnectPaused(),
       // Keep the existing field shape, but never publish a raw profile id as a share link.
       public_share_url: '/api/sub/public/unavailable',
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// Removing a link is scoped to the same owned profile shown by /my. Lock the
+// issuer and profile under the same user lock used by QR redemption, so a concurrent
+// redemption and deletion serialize. The existing QR retry path checks that a
+// redeemed code's connection is still present and never inserts it again. An
+// unused code is not tied to any GC, so removing a link cancels all unused
+// codes for this profile. NOWAIT also fails closed against external token lockers.
+subPortalRouter.delete('/connections/:gcId', requireSub, async (req: AuthRequest, res) => {
+  res.set('Cache-Control', 'no-store')
+  if (disconnectPaused()) return res.status(503).json({ error: 'Removing connections is temporarily unavailable. Please try again later.', code: 'CONNECTION_REMOVAL_UNAVAILABLE' })
+  try {
+    const removed = await withTransaction(async tx => {
+      const lock = isPostgres ? ' FOR UPDATE' : ''
+      const user = (await lockConnectionUsers(tx, [req.user!.id])).get(req.user!.id)
+      if (!user || user.role !== 'sub') return false
+      const sub = await tx.get<{ id: string }>(`SELECT id FROM subcontractors WHERE user_id = ? ORDER BY created_at, id LIMIT 1${lock}`, [user.id])
+      if (!sub) return false
+      const connection = await tx.get(`SELECT gc_user_id FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?${lock}`, [req.params.gcId, sub.id])
+      if (!connection) return false
+      const result = await tx.run(`DELETE FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?
+        AND EXISTS (SELECT 1 FROM subcontractors s WHERE s.id = gc_sub_connections.subcontractor_id AND s.user_id = ?)
+        AND EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND u.role = 'sub')`, [req.params.gcId, sub.id, user.id, user.id])
+      if (result.changes !== 1) return false
+      await tx.run(`INSERT INTO sub_join_versions (user_id, version) VALUES (?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET version = sub_join_versions.version + 1`, [user.id])
+      // PostgreSQL's SELECT locks every matching row even though tx.get returns
+      // only the first one. If any external transaction holds a token row,
+      // fail and let the caller retry rather than hold the user's lock waiting.
+      await tx.get(`SELECT token_hash FROM sub_connection_qr_tokens
+        WHERE issuer_user_id = ? AND subcontractor_id = ? AND redeemed_by_gc_user_id IS NULL AND revoked_at IS NULL
+        ORDER BY token_hash${isPostgres ? ' FOR UPDATE NOWAIT' : ''}`, [user.id, sub.id])
+      await tx.run(`UPDATE sub_connection_qr_tokens SET revoked_at = ?
+        WHERE issuer_user_id = ? AND subcontractor_id = ? AND redeemed_by_gc_user_id IS NULL AND revoked_at IS NULL`, [new Date().toISOString(), user.id, sub.id])
+      return true
+    })
+    if (!removed) return res.status(404).json({ error: 'Connection not found' })
+    return res.json({ success: true })
+  } catch (err: any) {
+    if (err?.code === '55P03') return res.status(409).json({ error: 'A connection code is in use. Please try removing the connection again.' })
+    return res.status(500).json({ error: 'Unable to remove connection' })
   }
 })
 
@@ -211,6 +259,7 @@ subPortalRouter.get('/public/:subId', (_req, res) => {
 
 // QR code onboarding: public info about the GC hosting the invite
 subPortalRouter.get('/join-info/:inviteCode', async (req, res) => {
+  res.set('Cache-Control', 'no-store')
   try {
     const gc = await findInviteGc(req.params.inviteCode)
     if (!gc) return res.status(404).json({ error: 'Invite not found' })
@@ -225,92 +274,101 @@ subPortalRouter.get('/join-info/:inviteCode', async (req, res) => {
       },
     })
   } catch (err: any) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Unable to load invitation' })
   }
 })
 
-// QR code onboarding join: handles both new sub sign-up AND existing account connect
-subPortalRouter.post('/join/:inviteCode', optionalJoinAuth, async (req: AuthRequest, res) => {
+// Intent is an opaque, short-lived snapshot of the current disconnect generation.
+// It is issued BEFORE the checkbox can be selected, bound to one exact session,
+// identity and invite, and consumed atomically with the connection. A logout or
+// account switch cannot transfer the intent to another session.
+const joinHash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
+const joinLock = isPostgres ? ' FOR UPDATE' : ''
+const intentError = 'This connection request is no longer valid. Review the sharing terms and consent again.'
+
+subPortalRouter.post('/join-intent/:inviteCode', requireSub, requireJoinSession, async (req: AuthRequest, res) => {
+  res.set('Cache-Control', 'no-store')
   try {
     const gc = await findInviteGc(req.params.inviteCode)
     if (!gc) return res.status(404).json({ error: 'Invite not found' })
+    const token = randomBytes(32).toString('base64url')
+    const result = await withTransaction(async tx => {
+      const users = await lockConnectionUsers(tx, [req.user!.id, gc.user_id])
+      const user = users.get(req.user!.id)
+      if (user?.role !== 'sub' || users.get(gc.user_id)?.role !== 'gc') return false
+      const settings = await tx.get(`SELECT id FROM gc_settings WHERE id = ? AND user_id = ? AND invite_code = ?${joinLock}`,
+        [gc.id, gc.user_id, req.params.inviteCode])
+      if (!settings) return false
+      await tx.run('INSERT INTO sub_join_versions (user_id, version) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING', [user.id])
+      const state = await tx.get<{ version: number }>('SELECT version FROM sub_join_versions WHERE user_id = ?', [user.id])
+      const now = new Date().toISOString()
+      await tx.run('DELETE FROM sub_join_intents WHERE user_id = ? AND expires_at <= ?', [user.id, now])
+      await tx.run(`INSERT INTO sub_join_intents
+        (token_hash, user_id, session_hash, gc_user_id, gc_settings_id, invite_code, version, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [joinHash(token), user.id, joinHash(req.headers.authorization!), gc.user_id,
+        gc.id, req.params.inviteCode, state!.version, new Date(Date.now() + 10 * 60_000).toISOString()])
+      return true
+    })
+    if (!result) return res.status(409).json({ error: intentError })
+    return res.json({ intent: token })
+  } catch {
+    console.error('[auth] Invitation intent failed')
+    return res.status(500).json({ error: 'Unable to prepare connection' })
+  }
+})
 
-    const now = new Date().toISOString()
-    const linkSubToGc = async (sub: any) => {
-      const inserted = await dbRun(
-        `INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at)
-         SELECT g.user_id, ?, ? FROM gc_settings g
-         JOIN users u ON u.id = g.user_id AND u.role = 'gc'
-         WHERE g.id = ? AND g.user_id = ? AND g.invite_code = ?
-         ON CONFLICT(gc_user_id, subcontractor_id) DO NOTHING`,
-        [sub.id, now, gc.id, gc.user_id, req.params.inviteCode]
-      )
-      if (!inserted.changes) {
-        const current = await findInviteGc(req.params.inviteCode)
-        const existing = await dbGet('SELECT gc_user_id FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?', [gc.user_id, sub.id])
-        if (!current || current.id !== gc.id || !existing) throw new Error('Invite is no longer valid')
+// Legacy email/password joins cannot safely establish when consent was given.
+// Login/registration first is required; no account or connection is created here.
+subPortalRouter.post('/join/:inviteCode', (req: AuthRequest, res, next) => {
+  res.set('Cache-Control', 'no-store')
+  if (!req.headers.authorization) return res.status(409).json({ error: 'Sign in or create an account first, then review and consent to connect.' })
+  return requireSub(req, res, next)
+}, requireJoinSession, async (req: AuthRequest, res) => {
+  const { intent, consent } = req.body || {}
+  if (consent !== true || typeof intent !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(intent) ||
+      Object.keys(req.body || {}).some(key => key !== 'intent' && key !== 'consent')) {
+    return res.status(400).json({ error: 'Explicit consent and a valid connection request are required' })
+  }
+  try {
+    const result = await withTransaction(async tx => {
+      // Discover the second user without taking a row lock, then revalidate
+      // the complete intent after locking both users in the shared order.
+      const discovered = await tx.get<any>('SELECT * FROM sub_join_intents WHERE token_hash = ?', [joinHash(intent)])
+      if (!discovered || discovered.user_id !== req.user!.id || discovered.session_hash !== joinHash(req.headers.authorization!) ||
+          discovered.invite_code !== req.params.inviteCode) return null
+      const users = await lockConnectionUsers(tx, [req.user!.id, discovered.gc_user_id])
+      const user = users.get(req.user!.id)
+      if (user?.role !== 'sub' || users.get(discovered.gc_user_id)?.role !== 'gc') return null
+      const ticket = await tx.get<any>(`SELECT * FROM sub_join_intents WHERE token_hash = ?${joinLock}`, [joinHash(intent)])
+      const version = await tx.get<{ version: number }>('SELECT version FROM sub_join_versions WHERE user_id = ?', [user.id])
+      if (!ticket || ticket.gc_user_id !== discovered.gc_user_id || ticket.user_id !== user.id || ticket.session_hash !== joinHash(req.headers.authorization!) ||
+          ticket.invite_code !== req.params.inviteCode || ticket.expires_at <= new Date().toISOString() ||
+          !version || Number(ticket.version) !== Number(version.version)) return null
+      const gc = await tx.get<any>(`SELECT id, user_id, company_name FROM gc_settings WHERE id = ? AND user_id = ? AND invite_code = ?${joinLock}`,
+        [ticket.gc_settings_id, ticket.gc_user_id, ticket.invite_code])
+      const duplicates = await tx.get<{ count: number }>('SELECT COUNT(*) AS count FROM gc_settings WHERE invite_code = ?', [ticket.invite_code])
+      if (!gc || Number(duplicates?.count) !== 1) return null
+      let sub = await tx.get<any>(`SELECT * FROM subcontractors WHERE user_id = ? ORDER BY created_at, id LIMIT 1${joinLock}`, [user.id])
+      const now = new Date().toISOString()
+      if (!sub) {
+        const subId = uuidv5(`sub-profile:${user.id}`, '9da886b2-9907-4ccd-84fb-8690dc5ac3bd')
+        await tx.run(`INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, email, created_at, updated_at)
+          VALUES (?, ?, ?, 'Trade to be specified', ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+          [subId, user.id, user.company_name || user.name || 'My Company', user.name, user.email.toLowerCase(), now, now])
+        sub = await tx.get<any>(`SELECT * FROM subcontractors WHERE user_id = ? ORDER BY created_at, id LIMIT 1${joinLock}`, [user.id])
+        if (!sub) throw new Error('Profile unavailable')
+        await tx.run('UPDATE users SET subcontractor_id = ? WHERE id = ? AND role = ?', [sub.id, user.id, 'sub'])
       }
-    }
-
-    // Branch A: the bearer token was checked by the same middleware as other routes.
-    if (req.user) {
-      const sub = await resolveSubProfile(req.user)
-      await linkSubToGc(sub)
-      return res.json({ linked: true, mode: 'authenticated', subcontractor: sub, gc_company_name: gc.company_name })
-    }
-
-    const { email, password, name, company_name, trade, contact_person, phone } = req.body || {}
-    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Email and password are required' })
-    }
-    const normalizedEmail = normalizeLoginEmail(email)
-    if (!consumeLoginAttempt(req, normalizedEmail)) return res.status(429).json({ error: 'Too many requests' })
-    const matches = await findNormalizedEmailUsers(normalizedEmail)
-    // Do not fall through to account creation or test passwords against an
-    // arbitrary identity when legacy normalized addresses collide.
-    if (matches.length > 1) return res.status(401).json({ error: 'Invalid credentials for existing account' })
-
-    // Branch B: existing account - "if they already have an account that link will just connect to GC"
-    if (matches.length === 1) {
-      const existingUser = await getMatchedUser(matches[0])
-      if (!existingUser) return res.status(401).json({ error: 'Invalid credentials for existing account' })
-      const ok = await bcrypt.compare(password, existingUser.password_hash)
-      if (!ok) return res.status(401).json({ error: 'Invalid credentials for existing account' })
-      clearLoginAttempts(req, normalizedEmail)
-      if (existingUser.role !== 'sub') return res.status(403).json({ error: 'Subcontractor account required' })
-      const sub = await resolveSubProfile(existingUser)
-      await linkSubToGc(sub)
-      const user = { id: existingUser.id, email: existingUser.email, role: existingUser.role, name: existingUser.name, subcontractor_id: sub.id }
-      const token = signToken(user)
-      return res.json({ token, user, linked: true, mode: 'existing', subcontractor: sub, gc_company_name: gc.company_name })
-    }
-
-    // Branch C: new subcontractor sign-up - "Upon signing up, they will be linked"
-    if (!isValidRegistrationEmail(normalizedEmail)) return res.status(400).json({ error: 'Please enter a valid email address' })
-    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
-    if (!name) return res.status(400).json({ error: 'Name is required for new accounts' })
-    const hash = await bcrypt.hash(password, 10)
-    const userId = uuidv4()
-    const subId = uuidv4()
-    await dbRun(
-      `INSERT INTO subcontractors (id, user_id, company_name, trade, contact_person, phone, email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [subId, userId, company_name || name, trade || 'Trade to be specified', contact_person || name, phone || null, normalizedEmail, now, now]
-    )
-    await dbRun(
-      `INSERT INTO users (id, email, password_hash, name, company_name, role, created_at, subcontractor_id)
-       VALUES (?, ?, ?, ?, ?, 'sub', ?, ?)`,
-      [userId, normalizedEmail, hash, name, company_name || name, now, subId]
-    )
-    const sub = await dbGet('SELECT * FROM subcontractors WHERE id = ?', [subId])
-    await linkSubToGc(sub)
-    const user = { id: userId, email: normalizedEmail, role: 'sub', name, subcontractor_id: subId }
-    const token = signToken(user)
-    clearLoginAttempts(req, normalizedEmail)
-    return res.json({ token, user, linked: true, mode: 'new', subcontractor: sub, gc_company_name: gc.company_name })
+      await tx.run(`INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at)
+        VALUES (?, ?, ?) ON CONFLICT(gc_user_id, subcontractor_id) DO NOTHING`, [gc.user_id, sub.id, now])
+      await tx.run('DELETE FROM sub_join_intents WHERE token_hash = ?', [joinHash(intent)])
+      return { sub, company: gc.company_name }
+    })
+    if (!result) return res.status(409).json({ error: intentError })
+    return res.json({ linked: true, mode: 'authenticated', subcontractor: result.sub, gc_company_name: result.company })
   } catch {
     console.error('[auth] Invitation join failed')
-    res.status(500).json({ error: 'Unable to join' })
+    return res.status(500).json({ error: 'Unable to join' })
   }
 })
 

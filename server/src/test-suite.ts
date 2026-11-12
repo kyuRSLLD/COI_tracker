@@ -332,25 +332,25 @@ const qrInvite = await request(app, { url: '/api/settings/qr-invite', headers: a
 assert('GC gets their subcontractor QR invite info', qrInvite.status === 200 && qrInvite.json?.invite_code && qrInvite.json?.invite_url?.includes('/join/'))
 const joinInfo = await request(app, { url: `/api/sub/join-info/${qrInvite.json.invite_code}` })
 assert('Public join-info returns GC company info without auth', joinInfo.status === 200 && joinInfo.json?.valid && joinInfo.json?.gc?.company_name)
-const joinNew = await request(app, {
-  method: 'POST',
-  url: `/api/sub/join/${qrInvite.json.invite_code}`,
-  body: { email: 'qrsub@trade.demo', password: 'password123', name: 'Rina Diaz', company_name: 'Diaz Masonry', trade: 'Masonry' },
+const inviteSignup = await request(app, {
+  method: 'POST', url: '/api/auth/register',
+  body: { email: 'qrsub@trade.demo', password: 'password123', name: 'Rina Diaz', company_name: 'Diaz Masonry', trade: 'Masonry', role: 'sub' },
 })
-assert('QR invite: new sub signs up and is linked to the GC', joinNew.status === 200 && joinNew.json?.linked && joinNew.json?.user?.role === 'sub')
-const joinExisting = await request(app, {
-  method: 'POST',
-  url: `/api/sub/join/${qrInvite.json.invite_code}`,
-  body: { email: 'qrsub@trade.demo', password: 'password123' },
-})
-assert('QR invite: existing sub connects to the GC without re-registering', joinExisting.status === 200 && joinExisting.json?.linked && joinExisting.json?.mode === 'existing')
+assert('QR invite: new sub account is created without connecting', inviteSignup.status === 200 && inviteSignup.json?.user?.role === 'sub')
+const inviteAuth = { authorization: `Bearer ${inviteSignup.json?.token}` }
+const joinIntent = await request(app, { method: 'POST', url: `/api/sub/join-intent/${qrInvite.json.invite_code}`, headers: inviteAuth })
+assert('QR invite: a session-bound request is issued', joinIntent.status === 200 && Boolean(joinIntent.json?.intent))
 const joinAuthed = await request(app, {
-  method: 'POST',
-  url: `/api/sub/join/${qrInvite.json.invite_code}`,
-  headers: { authorization: `Bearer ${joinNew.json.token}` },
+  method: 'POST', url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  headers: inviteAuth, body: { intent: joinIntent.json?.intent, consent: true },
 })
-assert('QR invite: authenticated sub connects to the GC', joinAuthed.status === 200 && joinAuthed.json?.linked && joinAuthed.json?.mode === 'authenticated')
-
+assert('QR invite: authenticated sub connects after explicit consent', joinAuthed.status === 200 && joinAuthed.json?.linked && joinAuthed.json?.mode === 'authenticated')
+const replay = await request(app, { method: 'POST', url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  headers: inviteAuth, body: { intent: joinIntent.json?.intent, consent: true } })
+assert('QR invite: old intent cannot be replayed', replay.status === 409)
+const legacyJoin = await request(app, { method: 'POST', url: `/api/sub/join/${qrInvite.json.invite_code}`,
+  body: { email: 'qrsub@trade.demo', password: 'password123' } })
+assert('QR invite: legacy one-step credential join is rejected', legacyJoin.status === 409)
 // 19. Sub emails COI to contractor (even one without an account)
 const sendEmailBad = await request(app, {
   method: 'POST',

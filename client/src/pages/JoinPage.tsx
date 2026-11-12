@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ShieldCheck, CheckCircle2, ArrowRight, Sparkles, Building2, Lock, UserPlus, LogIn } from 'lucide-react'
-import { apiSub, getToken } from '../api'
+import { apiSub, apiLogin, apiRegister, getToken } from '../api'
 import type { JoinInfo, User } from '../types'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 
@@ -26,7 +26,11 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
   const [workingFor, setWorkingFor] = useState<number | null>(null)
   const [consentFor, setConsentFor] = useState<number | null>(null)
   const working = workingFor === generation
-  const sharingConsent = consentFor === generation
+  const [joinIntent, setJoinIntent] = useState<{ value: string; generation: number } | null>(null)
+  const [intentRefresh, setIntentRefresh] = useState(0)
+  const [reauthFor, setReauthFor] = useState<number | null>(null)
+  const usableIntent = joinIntent?.generation === generation ? joinIntent.value : null
+  const sharingConsent = consentFor === generation && !!usableIntent
   const active = useRef(true)
   useLayoutEffect(() => {
     active.current = true
@@ -67,20 +71,48 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
     return () => { cancelled = true }
   }, [inviteCode])
 
+  // Obtain the version snapshot before allowing consent. Never reuse one from
+  // another identity/session or an earlier failed request.
+  useEffect(() => {
+    if (!info?.valid || sessionStatus !== 'authenticated' || currentUser?.role !== 'sub' || !sessionToken) return
+    let cancelled = false
+    const token = sessionToken
+    setJoinIntent(null)
+    setConsentFor(null)
+    apiSub.joinIntent(inviteCode, token).then(result => {
+      if (!cancelled && active.current && getToken() === token && identity.current.generation === generation) {
+        setJoinIntent({ value: result.intent, generation })
+        setReauthFor(null)
+      }
+    }).catch((err: any) => {
+      if (!cancelled && active.current && getToken() === token && identity.current.generation === generation) {
+        setReauthFor(err.status === 401 && err.code === 'JOIN_SESSION_REAUTH_REQUIRED' ? generation : null)
+        setError(err.message || 'Unable to prepare connection')
+      }
+    })
+    return () => { cancelled = true }
+  }, [inviteCode, info?.valid, sessionStatus, currentUser?.role, sessionToken, generation, intentRefresh])
+
   const gcName = info?.gc.company_name || 'the general contractor'
 
   const handleAuthenticatedJoin = async () => {
-    if (!sharingConsent || !sessionToken || !info?.valid) return
+    if (!sharingConsent || !usableIntent || !sessionToken || !info?.valid) return
     setWorkingFor(generation)
     setError(null)
     const token = sessionToken
     try {
-      const res = await apiSub.join(inviteCode, undefined, token)
+      const res = await apiSub.join(inviteCode, usableIntent, token)
       if (active.current && getToken() === token && identity.current.generation === generation) {
         setSuccess({ token, message: `You're now linked to ${res.gc_company_name || gcName}. Any certificate on file is visible to them automatically.` })
       }
     } catch (err: any) {
-      if (active.current && identity.current.generation === generation) setError(err.message || 'Unable to connect your account')
+      if (active.current && identity.current.generation === generation && getToken() === token) {
+        setConsentFor(null)
+        setJoinIntent(null)
+        setReauthFor(err.status === 401 && err.code === 'JOIN_SESSION_REAUTH_REQUIRED' ? generation : null)
+        setError(err.message || 'Unable to connect your account. Please review and consent again.')
+        if (!(err.status === 401 && err.code === 'JOIN_SESSION_REAUTH_REQUIRED')) setIntentRefresh(value => value + 1)
+      }
     } finally {
       if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
@@ -88,25 +120,26 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
 
   const handleNewSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sharingConsent || !info?.valid || sessionStatus !== 'anonymous' || getToken()) return
+    if (!info?.valid || sessionStatus !== 'anonymous' || getToken()) return
     setWorkingFor(generation)
     setError(null)
     try {
       const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
-      const res = await apiSub.join(inviteCode, {
-        email,
-        password,
-        name: fullName,
-        company_name: company,
-        trade,
-        phone,
+      const res = await apiRegister({
+        email, password, name: fullName, company_name: company, trade, phone, role: 'sub',
       })
-      if (!active.current || getToken() || identity.current.generation !== generation) return
-      if (!res.token || !res.user) throw new Error('Account linked, but no session was returned. Please sign in to continue.')
-      await onSession({ token: res.token, user: res.user })
-      if (active.current) setSuccess({ token: res.token, message: `Welcome, ${fullName}! Your account is created and linked to ${res.gc_company_name || gcName}. Upload your insurance paper whenever you're ready.` })
+      // A different session may have appeared while registration was pending.
+      // The account remains created; do not silently replace that session.
+      if (!active.current) return
+      if (getToken() || identity.current.generation !== generation) {
+        setError('Your account was created, but your session changed. Sign out and sign in with the new account to connect.')
+        return
+      }
+      await onSession(res)
+      setPassword('')
+      if (active.current) setError('Account created. Review the sharing terms and check the box to connect.')
     } catch (err: any) {
-      if (active.current) setError(err.message)
+      if (active.current && identity.current.generation === generation && !getToken()) setError(err.message)
     } finally {
       if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
@@ -114,20 +147,17 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
 
   const handleExistingConnect = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sharingConsent || !info?.valid || sessionStatus !== 'anonymous' || getToken()) return
+    if (!info?.valid || sessionStatus !== 'anonymous' || getToken()) return
     setWorkingFor(generation)
     setError(null)
     try {
-      const res = await apiSub.join(inviteCode, {
-        email: existEmail,
-        password: existPassword,
-      })
+      const res = await apiLogin(existEmail, existPassword)
       if (!active.current || getToken() || identity.current.generation !== generation) return
-      if (!res.token || !res.user) throw new Error('Account linked, but no session was returned. Please sign in to continue.')
-      await onSession({ token: res.token, user: res.user })
-      if (active.current) setSuccess({ token: res.token, message: `Connected! Your account is now linked to ${res.gc_company_name || gcName}.` })
+      await onSession(res)
+      setExistPassword('')
+      if (active.current) setError('Signed in. Review the sharing terms and check the box to connect.')
     } catch (err: any) {
-      if (active.current) setError(err.message)
+      if (active.current && identity.current.generation === generation && !getToken()) setError(err.message)
     } finally {
       if (active.current) setWorkingFor((value) => value === generation ? null : value)
     }
@@ -200,15 +230,28 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                 </p>
               </div>
 
-              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+              <div id="sharing-disclosure" className="space-y-2 text-xs text-slate-700">
+                <p>
+                  Connecting gives {gcName} ongoing access to your profile and <strong>all current and future certificates of insurance (COIs) you own</strong>. {gcName} may also include anonymized insurance information in client reports they share.
+                </p>
+                <p>
+                  When connection removal is available, you can disconnect this general contractor from your subcontractor dashboard to stop future access through the connection. Removal may be temporarily unavailable. Previously issued download links may work briefly, and files already downloaded cannot be recalled.
+                </p>
+              </div>
+
+              {hasSession && currentUser?.role === 'sub' && <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
                 <input
                   type="checkbox"
+                  aria-describedby="sharing-disclosure"
                   checked={sharingConsent}
+                  disabled={!usableIntent || working}
                   onChange={(e) => setConsentFor(e.target.checked ? generation : null)}
                   className="mt-0.5 shrink-0"
                 />
-                <span>I understand that joining lets {gcName} view my company profile and certificates on file.</span>
-              </label>
+                <span>I agree to give {gcName} ongoing access to my profile and all current and future COIs I own, including possible sharing of anonymized insurance information in client reports.</span>
+              </label>}
+              {hasSession && currentUser?.role === 'sub' && !usableIntent && reauthFor !== generation && <button type="button" onClick={() => setIntentRefresh(value => value + 1)} className="text-xs underline">Refresh connection request</button>}
+              {sessionStatus === 'anonymous' && <p className="text-xs text-slate-600">First sign in or create an account. You will then review and consent to sharing before any connection is made.</p>}
 
               {/* Already authenticated branch */}
               {hasSession && (
@@ -226,9 +269,9 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                     {working ? 'Linking…' : `Connect my account to ${gcName}`}
                   </button> : <p>Only subcontractor accounts can connect to this invitation.</p>}
                   {currentUser?.role === 'sub' && <p className="text-[11px] text-indigo-700/80">
-                    Already linked? No problem — scanning again is safe and idempotent.
+                    Connecting again requires fresh consent.
                   </p>}
-                  <button type="button" disabled={working} onClick={() => { onSwitchAccount(); setError(null); setConsentFor(null) }} className="underline font-semibold disabled:opacity-40">Switch account</button>
+                  <button type="button" disabled={working} onClick={() => { onSwitchAccount(); setError(null); setConsentFor(null); setReauthFor(null); setTab('existing') }} className="underline font-semibold disabled:opacity-40">{reauthFor === generation ? 'Sign out and sign in again' : 'Switch account'}</button>
                 </div>
               )}
 
@@ -246,7 +289,7 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                           : 'border-transparent text-slate-400 hover:text-slate-600'
                       }`}
                     >
-                      <UserPlus className="w-3.5 h-3.5" /> Create free account &amp; link
+                      <UserPlus className="w-3.5 h-3.5" /> Create free account
                     </button>
                     <button
                       type="button"
@@ -343,16 +386,16 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                       </div>
                       <button
                         type="submit"
-                        disabled={working || !sharingConsent}
+                        disabled={working}
                         className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
                       >
-                        {working ? 'Creating account…' : 'Start free & link to ' + gcName}
+                        {working ? 'Creating account…' : 'Create account'}
                       </button>
                     </form>
                   ) : (
                     <form onSubmit={handleExistingConnect} className="space-y-3 text-xs">
                       <p className="text-[11px] text-slate-500">
-                        Sign in with the subcontractor account you already use — we'll link it to {gcName} in one step.
+                        Sign in with your subcontractor account, then review and consent to connect.
                       </p>
                       <div>
                         <label className="block text-[11px] text-slate-500 mb-1">Email <span className="text-[10px] text-slate-400">(your sign-in identifier)</span></label>
@@ -377,10 +420,10 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                       </div>
                       <button
                         type="submit"
-                        disabled={working || !sharingConsent}
+                        disabled={working}
                         className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
                       >
-                        {working ? 'Connecting…' : 'Sign in & link to ' + gcName}
+                        {working ? 'Connecting…' : 'Sign in'}
                       </button>
                     </form>
                   )}

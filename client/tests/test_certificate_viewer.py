@@ -40,7 +40,8 @@ def pdf_bytes():
 def coi(name, url, mime, id):
     return {'id': id, 'carrier': name, 'certificate_name': name, 'certificate_url': url,
             'certificate_mime': mime, 'policy_number': 'POL', 'effective_date': '2026-01-01',
-            'expiration_date': '2027-12-31', 'status': 'pending_review', 'coverages': []}
+            'expiration_date': '2027-12-31', 'status': 'pending_review', 'coverages': [],
+            'owner_gc_user_id': 'user1', 'owner_sub_user_id': None}
 
 
 COIS = [
@@ -86,6 +87,9 @@ class ViewerTests(unittest.TestCase):
         self.context = self.browser.new_context(viewport={'width': 390, 'height': 844}, accept_downloads=True)
         self.page = self.context.new_page()
         self.role = 'sub'
+        self.cois = COIS
+        self.sub = SUB
+        self.review_requests = []
         self.page.route('**/*', self.route)
 
     def tearDown(self):
@@ -99,13 +103,16 @@ class ViewerTests(unittest.TestCase):
         if path.endswith('/api/auth/me'):
             payload = {'user': user}
         elif path.endswith('/api/sub/my'):
-            payload = {'subcontractor': SUB, 'cois': COIS, 'requests': [], 'connected_gcs': [], 'public_share_url': '/sub/share/sub1'}
+            payload = {'subcontractor': self.sub, 'cois': self.cois, 'requests': [], 'connected_gcs': [], 'public_share_url': '/sub/share/sub1'}
         elif path.endswith('/api/sub/sent-emails'):
             payload = {'emails': []}
         elif path.endswith('/api/subcontractors'):
-            payload = {'subcontractors': [SUB]}
+            payload = {'subcontractors': [self.sub]}
         elif path.endswith('/api/subcontractors/sub1'):
-            payload = {'subcontractor': SUB}
+            payload = {'subcontractor': self.sub}
+        elif path.endswith('/api/cois/gc-owned/review'):
+            self.review_requests.append(route.request.post_data_json)
+            payload = {'coi': self.cois[0]}
         elif path.endswith('/api/settings'):
             payload = {'settings': {'expiration_warning_days': 30}}
         if payload is not None:
@@ -171,6 +178,37 @@ class ViewerTests(unittest.TestCase):
         self.assertEqual(notes.input_value(), 'Keep these notes')
         self.assertTrue(self.page.get_by_role('heading', name='Review certificate').is_visible())
         self.assertTrue(self.page.get_by_role('button', name='Open', exact=True).evaluate('(el) => document.activeElement === el'))
+
+    def test_gc_review_only_for_gc_owned_certificate(self):
+        gc = coi('GC-owned', '/test/photo.png', 'image/png', 'gc-owned')
+        sub = {**coi('Sub-owned', '/test/photo.png', 'image/png', 'sub-owned'),
+               'owner_gc_user_id': None, 'owner_sub_user_id': 'sub-user'}
+        dual = {**coi('Dual-owned', '/test/photo.png', 'image/png', 'dual'), 'owner_sub_user_id': 'sub-user'}
+        unknown = coi('Unknown ownership', '/test/photo.png', 'image/png', 'unknown')
+        del unknown['owner_sub_user_id']
+        self.cois = [gc, sub, dual, unknown]
+        self.sub = {**SUB, 'cois': self.cois}
+        self.login('gc', '/subcontractors')
+        self.page.get_by_text('Acme Test', exact=True).first.click()
+
+        def card(name):
+            return self.page.get_by_text(name, exact=True).locator('xpath=../../..')
+
+        self.assertEqual(card('GC-owned').get_by_role('button', name='Review', exact=True).count(), 1)
+        for name in ('Sub-owned', 'Dual-owned', 'Unknown ownership'):
+            self.assertEqual(card(name).get_by_role('button', name='Review', exact=True).count(), 0)
+        card('Sub-owned').get_by_text('Uploaded by the subcontractor.', exact=False).wait_for()
+        self.assertIn('GC review is not available yet', card('Sub-owned').inner_text())
+        card('Sub-owned').get_by_role('button', name='View certificate file').click()
+        self.page.get_by_role('dialog', name='Certificate document').wait_for()
+        self.page.get_by_role('button', name='Back to subcontractors').click()
+        self.assertFalse(self.review_requests)
+
+        card('GC-owned').get_by_role('button', name='Review', exact=True).click()
+        self.page.get_by_role('button', name='Request revision', exact=True).click()
+        self.page.get_by_text('Status updated', exact=True).wait_for()
+        self.assertEqual(len(self.review_requests), 1)
+        self.assertEqual(self.review_requests[0]['status'], 'needs_revision')
 
     def test_pdf_sandbox_and_download(self):
         self.login('sub', '/subcontractor')

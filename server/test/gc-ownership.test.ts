@@ -166,7 +166,7 @@ test('GC COI ownership stays isolated across connected GCs and public views', as
       assertNoText(stats.body, forbidden, 'stats')
     })
 
-    await t.test(`${gc.id}: client share and upload history cannot disclose another owner's records or reviewer notes`, async () => {
+    await t.test(`${gc.id}: client share is pseudonymous and upload history discloses no records`, async () => {
       const report = await get(`/api/client/share/${gc.share}`)
       assert.equal(report.response.status, 200)
       assert.equal(report.body.subcontractors.length, 1)
@@ -182,8 +182,9 @@ test('GC COI ownership stays isolated across connected GCs and public views', as
       const uploadToken = `gc1.${Buffer.from(gc.id).toString('base64url')}.${gc.upload}`
       const history = await get(`/api/upload/my/${uploadToken}`)
       assert.equal(history.response.status, 200)
-      assertIds(history.body.cois, expected, `${gc.id} upload history`)
-      assertNoText(history.body, [...forbidden, fixtures.a.note, fixtures.b.note, fixtures.sub.note, fixtures.legacy.note, 'reviewer_notes', 'COVERAGE-SECRET'], 'upload history')
+      assert.deepEqual(history.body, { cois: [] })
+      assertNoText(history.body, [...forbidden, fixtures.a.id, fixtures.b.id, fixtures.sub.id, fixtures.legacy.id,
+        'POLICY-a', 'POLICY-b', 'POLICY-sub', 'POLICY-legacy', 'CARRIER-', 'reviewer_notes', 'COVERAGE-SECRET'], 'upload history')
     })
 
     await t.test(`${gc.id}: cannot change, review or delete other, sub-owned, or ambiguous COIs`, async () => {

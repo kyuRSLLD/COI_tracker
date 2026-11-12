@@ -5,7 +5,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { storeFile } from '../services/storage.ts'
 import { sendEmail } from '../services/email.ts'
-import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -13,6 +12,12 @@ const upload = multer({
 })
 
 export const uploadPortalRouter = Router()
+
+// Bearer-link responses, including errors, must not be cached.
+uploadPortalRouter.use((_req, res, next) => {
+  res.set('Cache-Control', 'no-store')
+  next()
+})
 
 // The legacy table has no owner column. New tokens carry an opaque random
 // secret plus an explicit GC identity; the database row remains authoritative.
@@ -69,22 +74,15 @@ uploadPortalRouter.get('/validate/:token', async (req, res) => {
     const checked = await validRequest(req.params.token)
     if ('error' in checked) return res.status(checked.status ?? 404).json({ error: checked.error })
     const { request, context } = checked
-    const sub = await dbGet('SELECT id, company_name, trade, contact_person, phone, email, address FROM subcontractors WHERE id = ?', [request.subcontractor_id])
+    // The link permits a submission, not access to the sub's private profile.
+    const sub = await dbGet('SELECT company_name, trade FROM subcontractors WHERE id = ?', [request.subcontractor_id])
     if (!sub) return res.status(404).json({ error: 'Invalid upload link' })
     const gcSettings = context.settings
     res.set('Cache-Control', 'no-store')
     res.json({
       subcontractor: sub,
-      gc: {
-        company_name: gcSettings.company_name || 'General Contractor',
-        license_number: gcSettings.license_number, address: gcSettings.address, phone: gcSettings.phone,
-        email: gcSettings.email, additional_insured_wording: gcSettings.additional_insured_wording,
-        required_gl_limit: gcSettings.required_gl_limit, required_auto_limit: gcSettings.required_auto_limit,
-        required_wc_limit: gcSettings.required_wc_limit, required_umbrella_limit: gcSettings.required_umbrella_limit,
-        expiration_warning_days: gcSettings.expiration_warning_days,
-      },
-      request: { token: request.token, requested_by_email: request.requested_by_email,
-        message: request.message, used: Boolean(request.used), created_at: request.created_at },
+      gc: { company_name: gcSettings.company_name || 'General Contractor' },
+      request: { expires_at: request.expires_at },
     })
   } catch {
     res.status(500).json({ error: 'Unable to validate upload link' })
@@ -168,32 +166,11 @@ uploadPortalRouter.get('/my/:token', async (req, res) => {
   try {
     const checked = await validRequest(req.params.token)
     if ('error' in checked) return res.status(checked.status ?? 404).json({ error: checked.error })
-    // A bearer link may expose only this GC's submissions and COIs owned by
-    // the actual sub account on this profile, never another GC or legacy rows.
-    // GC ownership takes precedence if malformed data has both owners set.
-    const cois = await dbAll(
-      `SELECT c.id, c.subcontractor_id, c.carrier, c.am_best_rating, c.policy_number,
-        c.effective_date, c.expiration_date, c.status, c.created_at, c.updated_at,
-        CASE WHEN c.certificate_url = 'carrier-connect://verified'
-          OR c.reviewer_notes = 'Instant verification via simulated carrier connect'
-          THEN 1 ELSE 0 END AS simulation_marker
-       FROM cois c WHERE c.subcontractor_id = ? AND (
-        c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND EXISTS (
-          SELECT 1 FROM subcontractors s JOIN users u ON u.id = s.user_id AND u.role = 'sub'
-          WHERE s.id = c.subcontractor_id AND s.user_id = c.owner_sub_user_id
-        ))
-       ) ORDER BY c.expiration_date DESC`,
-      [checked.request.subcontractor_id, checked.context.gc.id]
-    )
-    const enriched = await Promise.all(cois.map(async (c) => {
-      const { simulation_marker, ...publicFields } = c
-      return {
-        ...labelSimulatedCarrierCOI(simulation_marker ? { ...publicFields, simulated_carrier_connect: true } : publicFields),
-        coverages: await dbAll('SELECT id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation FROM coi_coverages WHERE coi_id = ?', [c.id]),
-      }
-    }))
+    // A GC can mint this link without sub consent. It grants submission only,
+    // even when the GC can separately view COIs in its authenticated session.
+    // Keep the response shape for older upload pages, but disclose no history.
     res.set('Cache-Control', 'no-store')
-    res.json({ cois: enriched })
+    res.json({ cois: [] })
   } catch {
     res.status(500).json({ error: 'Unable to load submissions' })
   }

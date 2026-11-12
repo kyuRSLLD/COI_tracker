@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useContext } from 'react'
 import { X, Building2 } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { apiSubcontractors } from '../api'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
+import { ConnectionOptions, ConnectionSession } from './ConnectionOptions'
 
 const TRADES = [
   'Electrical',
@@ -38,6 +39,8 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [method, setMethod] = useState<'manual' | 'connect'>('manual')
+  const connectionSession = useContext(ConnectionSession)
 
   useEffect(() => {
     if (subcontractor) {
@@ -56,6 +59,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
       setAddress('')
     }
     setError(null)
+    setMethod('manual')
   }, [subcontractor, open])
 
   if (!open) return null
@@ -90,7 +94,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-brand-600 uppercase tracking-wider font-['JetBrains_Mono']">
@@ -106,11 +110,18 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
               Internal subcontractor notes are not available in this view.
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {!subcontractor && connectionSession.role === 'gc' && connectionSession.token && <div className="flex gap-2 mt-5 text-xs">
+          <button type="button" aria-pressed={method === 'manual'} onClick={() => setMethod('manual')} className={`rounded-lg px-3 py-2 font-semibold ${method === 'manual' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Enter manually</button>
+          <button type="button" aria-pressed={method === 'connect'} onClick={() => setMethod('connect')} className={`rounded-lg px-3 py-2 font-semibold ${method === 'connect' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Connect an account</button>
+        </div>}
+
+        {!subcontractor && method === 'connect' && <ConnectionOptions key={connectionSession.token} onSaved={onSaved} />}
+        {(subcontractor || method === 'manual') && <>
         {error && <div className="mt-4 p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">{error}</div>}
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
@@ -192,6 +203,7 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
             </button>
           </div>
         </form>
+        </>}
       </div>
     </div>
   )

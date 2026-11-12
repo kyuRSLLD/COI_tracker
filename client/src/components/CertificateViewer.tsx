@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, Download, X } from 'lucide-react'
 import type { COI } from '../types'
+import { getToken, SESSION_CHANGED_EVENT } from '../api'
+import { ConnectionSession } from './ConnectionOptions'
 
 type Certificate = Pick<COI, 'certificate_url' | 'certificate_name' | 'certificate_mime'>
 type PreviewKind = 'image' | 'pdf' | 'unsupported'
@@ -38,12 +40,29 @@ interface Props {
 export function CertificateViewer({ certificate, onClose, returnLabel }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const returnRef = useRef<HTMLButtonElement>(null)
+  const { token: sessionToken } = useContext(ConnectionSession)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [downloadError, setDownloadError] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [pdfSource, setPdfSource] = useState<{ url: string; sandboxed: boolean } | null>(null)
+  const [imageSource, setImageSource] = useState<string | null>(null)
   const url = safeCertificateUrl(certificate.certificate_url)
   const kind = certificatePreviewKind(certificate)
+  const local = !!url && new URL(url).origin === window.location.origin && /^\/uploads\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(new URL(url).pathname)
+
+  // Never attach the session credential to an S3 URL, a different origin, or
+  // a redirect. Also refuse a stale tab identity after localStorage changes.
+  const fetchCertificate = (signal?: AbortSignal) => {
+    if (!url) throw new Error('Certificate unavailable')
+    if (local && (!sessionToken || getToken() !== sessionToken)) {
+      window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
+      throw new Error('Session changed')
+    }
+    return fetch(url, {
+      credentials: 'same-origin', signal,
+      ...(local ? { headers: { Authorization: `Bearer ${sessionToken}` }, redirect: 'error' as const } : {}),
+    })
+  }
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -68,20 +87,23 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
     const loadPdf = async () => {
       let response: Response
       try {
-        response = await fetch(url, { credentials: 'same-origin', signal: controller.signal })
+        response = await fetchCertificate(controller.signal)
       } catch {
         if (!controller.signal.aborted) {
           // Signed cross-origin URLs may not allow fetch/CORS. Some browsers can
           // still display a PDF in this script-free sandbox; others cannot.
-          setPdfSource({ url, sandboxed: true })
-          setStatus('loaded')
+          if (local) setStatus('error')
+          else {
+            setPdfSource({ url, sandboxed: true })
+            setStatus('loaded')
+          }
         }
         return
       }
       try {
         if (!response.ok) throw new Error('PDF unavailable')
         const bytes = await response.arrayBuffer()
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted || (local && getToken() !== sessionToken)) return
         const header = new TextDecoder().decode(bytes.slice(0, 1024))
         if (!header.includes('%PDF-')) throw new Error('Not a PDF')
         // The blob's fixed type prevents a mislabeled HTML response from being
@@ -98,7 +120,37 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [kind, url])
+  }, [kind, url, local, sessionToken])
+
+  useEffect(() => {
+    if (kind !== 'image' || !url || !local) return
+    const controller = new AbortController()
+    let objectUrl: string | null = null
+    setStatus('loading')
+    setImageSource(null)
+    void (async () => {
+      try {
+        const response = await fetchCertificate(controller.signal)
+        if (!response.ok) throw new Error('Image unavailable')
+        const bytes = await response.arrayBuffer()
+        if (controller.signal.aborted || getToken() !== sessionToken) return
+        // A fixed raster MIME prevents HTML/SVG from being interpreted as a page.
+        const mime = certificate.certificate_mime?.split(';')[0].trim().toLowerCase()
+        const type = mime && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime)
+          ? mime : /\.jpe?g$/i.test(certificate.certificate_name || '') ? 'image/jpeg'
+            : /\.gif$/i.test(certificate.certificate_name || '') ? 'image/gif'
+              : /\.webp$/i.test(certificate.certificate_name || '') ? 'image/webp' : 'image/png'
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type }))
+        setImageSource(objectUrl)
+      } catch {
+        if (!controller.signal.aborted) setStatus('error')
+      }
+    })()
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [kind, url, local, sessionToken, certificate.certificate_mime, certificate.certificate_name])
 
   // Frame load events do not reliably report PDF renderer failures, so guidance
   // remains visible even after loading.
@@ -107,10 +159,11 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
     setDownloading(true)
     setDownloadError(false)
     try {
-      const response = await fetch(url, { credentials: 'same-origin' })
+      const response = await fetchCertificate()
       if (!response.ok) throw new Error('Download failed')
       // Force a download instead of navigating to potentially executable HTML.
       const blob = new Blob([await response.arrayBuffer()], { type: 'application/octet-stream' })
+      if (local && getToken() !== sessionToken) throw new Error('Session changed')
       const objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = objectUrl
@@ -154,7 +207,7 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
               {status === 'loading' && <p role="status" className="mb-3 text-sm text-slate-600">Loading certificate…</p>}
               {status === 'error' && <p role="alert" className="mb-3 rounded-xl bg-white p-4 text-sm text-rose-700">The certificate could not be displayed. The link may have expired or the file may be unavailable.</p>}
               {kind === 'image' ? (
-                <img src={url} alt={certificate.certificate_name ? `Certificate: ${certificate.certificate_name}` : 'Uploaded certificate'} onLoad={() => setStatus('loaded')} onError={() => setStatus('error')} className="mx-auto h-auto max-w-full rounded bg-white shadow-sm" />
+                (local ? imageSource : url) && <img src={(local ? imageSource : url) || undefined} alt={certificate.certificate_name ? `Certificate: ${certificate.certificate_name}` : 'Uploaded certificate'} onLoad={() => setStatus('loaded')} onError={() => setStatus('error')} className="mx-auto h-auto max-w-full rounded bg-white shadow-sm" />
               ) : pdfSource && (
                 <iframe src={pdfSource.url} title="Certificate PDF preview" sandbox={pdfSource.sandboxed ? '' : undefined} onError={() => setStatus('error')} className="h-full min-h-[60vh] w-full rounded border border-slate-200 bg-white" />
               )}

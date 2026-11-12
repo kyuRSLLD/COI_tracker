@@ -14,6 +14,7 @@ process.env.AWS_ACCESS_KEY_ID = ''
 process.env.AWS_SECRET_ACCESS_KEY = ''
 process.env.AWS_S3_ENDPOINT = ''
 process.env.JWT_SECRET = 'maintenance-test-only-secret'
+process.env.NODE_ENV = 'test'
 
 const { createApp, MAINTENANCE_MODE } = await import('../src/app.ts')
 const { dbAll, dbRun, initDatabase } = await import('../src/db/db.ts')
@@ -32,7 +33,7 @@ async function stop(server: ReturnType<Awaited<ReturnType<typeof createApp>>['li
   await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()))
 }
 
-test('maintenance protects APIs and uploads without database startup writes; disabling restores existing behavior', async () => {
+test('maintenance protects APIs and uploads without database startup writes; disabling retains private file protections', async () => {
   const app = await createApp({ maintenanceMode: true })
   const defaultApp = MAINTENANCE_MODE ? await createApp() : undefined
   assert.equal(fs.existsSync(dbPath), false, 'maintenance startup must not initialize or migrate the database')
@@ -46,13 +47,17 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     // Populate a disposable SQLite DB with data that real routes can expose or mutate.
     await initDatabase()
     const now = new Date().toISOString()
-    await dbRun('INSERT INTO subcontractors (id, company_name, trade, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ['private-sub', 'SENSITIVE TEST COMPANY', 'Test Trade', 'private@example.test', now, now])
+    await dbRun('INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ['test-admin', 'admin@example.test', 'unused', 'Test Admin', 'admin', now])
+    await dbRun('INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ['test-sub', 'private@example.test', 'unused', 'Test Sub', 'sub', now])
+    await dbRun('INSERT INTO subcontractors (id, user_id, company_name, trade, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['private-sub', 'test-sub', 'SENSITIVE TEST COMPANY', 'Test Trade', 'private@example.test', now, now])
     await dbRun('INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)', ['private-project', 'SENSITIVE TEST PROJECT', now])
     await dbRun('INSERT INTO client_share_links (id, project_id, token, created_at) VALUES (?, ?, ?, ?)', ['share', 'private-project', 'share-token', now])
     await dbRun('INSERT INTO upload_requests (id, subcontractor_id, token, created_at) VALUES (?, ?, ?, ?)', ['upload', 'private-sub', 'upload-token', now])
-    await dbRun('INSERT INTO cois (id, subcontractor_id, carrier, policy_number, effective_date, expiration_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ['coi', 'private-sub', 'TEST CARRIER', 'PRIVATE-POLICY', '2020-01-01', '2099-01-01', 'compliant', now, now])
+    await dbRun('INSERT INTO cois (id, subcontractor_id, owner_sub_user_id, carrier, policy_number, effective_date, expiration_date, status, certificate_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['coi', 'private-sub', 'test-sub', 'TEST CARRIER', 'PRIVATE-POLICY', '2020-01-01', '2099-01-01', 'compliant', markerName, now, now])
     fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
     fs.writeFileSync(markerPath, 'PRIVATE TEST UPLOAD', { flag: 'wx' })
     markerCreated = true
@@ -60,6 +65,7 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     const snapshot = async () => Promise.all(tables.map((table) => dbAll(`SELECT * FROM ${table} ORDER BY id`)))
     const before = await snapshot()
     const token = signToken({ id: 'test-admin', email: 'admin@example.test', role: 'admin', name: 'Test Admin' })
+    const subToken = signToken({ id: 'test-sub', email: 'private@example.test', role: 'sub', name: 'Test Sub' })
 
     const health = await fetch(`${maintenance.base}/api/health`)
     assert.equal(health.status, 200)
@@ -71,7 +77,7 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     assert.match(index.headers.get('content-type') || '', /text\/html/)
     assert.match(await index.text(), /<div id="root"><\/div>/)
 
-    const requests: Array<{ method: string; url: string; body?: string; auth?: boolean }> = [
+    const requests: Array<{ method: string; url: string; body?: string; auth?: boolean | 'sub' }> = [
       { method: 'GET', url: '/api' },
       { method: 'GET', url: '/api/unknown?x=1' },
       { method: 'GET', url: '/API/COIS' },
@@ -93,6 +99,8 @@ test('maintenance protects APIs and uploads without database startup writes; dis
       { method: 'POST', url: '/api/sub/carrier-connect', auth: true, body: '{}' },
       { method: 'GET', url: '/uploads' },
       { method: 'GET', url: `/uploads/${markerName}` },
+      { method: 'GET', url: `/uploads/${markerName}`, auth: true },
+      { method: 'GET', url: `/uploads/${markerName}`, auth: 'sub' },
       { method: 'GET', url: `/UPLOADS/${markerName}` },
       { method: 'HEAD', url: `/uploads/${markerName}` },
       { method: 'POST', url: '/uploads/no-file' },
@@ -100,7 +108,7 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     for (const { method, url, body, auth } of requests) {
       const response = await fetch(`${maintenance.base}${url}`, {
         method,
-        headers: { origin: 'https://example.test', ...(auth ? { authorization: `Bearer ${token}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
+        headers: { origin: 'https://example.test', ...(auth ? { authorization: `Bearer ${auth === 'sub' ? subToken : token}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
         ...(body ? { body } : {}),
       })
       assert.equal(response.status, 503, `${method} ${url}`)
@@ -118,8 +126,28 @@ test('maintenance protects APIs and uploads without database startup writes; dis
     assert.equal(publicSub.status, 410)
     assert.doesNotMatch(await publicSub.text(), /SENSITIVE TEST COMPANY/)
     const upload = await fetch(`${normal.base}/uploads/${markerName}`)
-    assert.equal(upload.status, 200)
-    assert.equal(await upload.text(), 'PRIVATE TEST UPLOAD')
+    assert.equal(upload.status, 401)
+    assert.doesNotMatch(await upload.text(), /PRIVATE TEST UPLOAD/)
+    const otherUser = await fetch(`${normal.base}/uploads/${markerName}`, { headers: { authorization: `Bearer ${token}` } })
+    assert.equal(otherUser.status, 404)
+    assert.doesNotMatch(await otherUser.text(), /PRIVATE TEST UPLOAD/)
+    const ownerUpload = await fetch(`${normal.base}/uploads/${markerName}`, { headers: { authorization: `Bearer ${subToken}` } })
+    assert.equal(ownerUpload.status, 200)
+    assert.equal(ownerUpload.headers.get('cache-control'), 'no-store')
+    assert.equal(await ownerUpload.text(), 'PRIVATE TEST UPLOAD')
+    // The route checks NODE_ENV per request; exercise the production guard locally
+    // without starting a production app or contacting production services.
+    process.env.NODE_ENV = 'production'
+    try {
+      for (const authorization of [undefined, `Bearer ${subToken}`]) {
+        const blocked = await fetch(`${normal.base}/uploads/${markerName}`, { headers: authorization ? { authorization } : {} })
+        assert.equal(blocked.status, 404)
+        assert.equal(blocked.headers.get('cache-control'), 'no-store')
+        assert.doesNotMatch(await blocked.text(), /PRIVATE TEST UPLOAD/)
+      }
+    } finally {
+      process.env.NODE_ENV = 'test'
+    }
     const login = await fetch(`${normal.base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
     assert.notEqual(login.status, 503)
 

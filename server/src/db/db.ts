@@ -134,6 +134,73 @@ export async function dbExec(sql: string): Promise<void> {
   })
 }
 
+// All transaction statements must use this adapter, never dbRun/dbGet: on
+// SQLite those helpers are queued separately and would deadlock or interleave.
+export type DbTransaction = {
+  get<T = any>(sql: string, params?: any[]): Promise<T | undefined>
+  run(sql: string, params?: any[]): Promise<{ changes: number }>
+}
+
+// Every connection flow locks all known users in the same bytewise JS order,
+// before locking any settings, profile, intent, QR token or connection rows.
+// Non-locking lookups used to discover ids must be validated again afterward.
+export async function lockConnectionUsers(tx: DbTransaction, ids: string[]) {
+  const users = new Map<string, { id: string; role: string; email: string; name: string; company_name: string | null }>()
+  for (const id of [...new Set(ids)].sort()) {
+    const user = await tx.get<{ id: string; role: string; email: string; name: string; company_name: string | null }>(
+      `SELECT id, role, email, name, company_name FROM users WHERE id = ?${isPostgres ? ' FOR UPDATE' : ''}`, [id])
+    if (user) users.set(id, user)
+  }
+  return users
+}
+
+// Callbacks must contain only transactional database work: on PostgreSQL a
+// deadlock/serialization abort re-executes the entire callback from BEGIN.
+export async function withTransaction<T>(operation: (tx: DbTransaction) => Promise<T>): Promise<T> {
+  if (isPostgres) {
+    for (let attempt = 0; ; attempt++) {
+      const client = await getPgPool().connect()
+      let discard = false
+      try {
+        await client.query('BEGIN')
+        const tx: DbTransaction = {
+          get: async <R = any>(sql: string, params: any[] = []) => (await client.query(toPgSql(sql), params)).rows[0] as R | undefined,
+          run: async (sql, params = []) => ({ changes: (await client.query(toPgSql(sql), params)).rowCount ?? 0 }),
+        }
+        const result = await operation(tx)
+        await client.query('COMMIT')
+        return result
+      } catch (error: any) {
+        try { await client.query('ROLLBACK') } catch { discard = true }
+        // Only PostgreSQL-confirmed transaction aborts are safe to retry;
+        // never retry unknown commit/connection failures or failed rollback.
+        if (discard || !['40P01', '40001'].includes(error?.code) || attempt >= 2) throw error
+      } finally {
+        client.release(discard)
+      }
+      await new Promise(resolve => setTimeout(resolve, 5 * (attempt + 1)))
+    }
+  }
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    await sqliteRun(db, 'BEGIN IMMEDIATE')
+    try {
+      const tx: DbTransaction = {
+        get: <R = any>(sql: string, params: any[] = []) => new Promise<R | undefined>((resolve, reject) => {
+          db.get(sql, params, (err, row) => err ? reject(err) : resolve(row as R | undefined))
+        }),
+        run: async (sql, params = []) => ({ changes: (await sqliteRun(db, sql, params)).changes ?? 0 }),
+      }
+      const result = await operation(tx)
+      await sqliteRun(db, 'COMMIT')
+      return result
+    } catch (error) {
+      try { await sqliteRun(db, 'ROLLBACK') } catch { /* preserve original failure */ }
+      throw error
+    }
+  })
+}
+
 // Delete the parent and its coverages together. The authorization predicate
 // is part of the DELETE itself, not a check made before the write.
 export async function deleteOwnedGcCOI(id: string, gcUserId: string): Promise<boolean> {
@@ -171,7 +238,7 @@ export async function deleteOwnedGcCOI(id: string, gcUserId: string): Promise<bo
 }
 
 export async function initDatabase(): Promise<void> {
-  console.log(`[db] Using ${isPostgres ? 'PostgreSQL (' + DATABASE_URL?.replace(/:[^:@/]+@/, ':***@') + ')' : 'SQLite (' + DB_FILE + ')'}`)
+  console.log(`[db] Using ${isPostgres ? 'PostgreSQL' : 'SQLite'}`)
 
   const schema = `
     CREATE TABLE IF NOT EXISTS users (
@@ -353,6 +420,34 @@ export async function initDatabase(): Promise<void> {
   `
 
   await dbExec(schema)
+  // Serialize this new migration across processes as well as within the
+  // SQLite connection. Concurrent PostgreSQL CREATE TABLE IF NOT EXISTS can
+  // otherwise race in system catalogs. No legacy links imply consent.
+  await withTransaction(async tx => {
+    if (isPostgres) await tx.get('SELECT pg_advisory_xact_lock(736628415)')
+    await tx.run(`CREATE TABLE IF NOT EXISTS sub_connection_qr_tokens (
+      token_hash TEXT PRIMARY KEY,
+      issuer_user_id TEXT NOT NULL,
+      subcontractor_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      redeemed_by_gc_user_id TEXT,
+      redeemed_at TEXT,
+      revoked_at TEXT
+    )`)
+    await tx.run('CREATE INDEX IF NOT EXISTS idx_sub_connection_qr_issuer ON sub_connection_qr_tokens(issuer_user_id)')
+    // A disconnect advances the owner's monotonic generation even if a future
+    // reconnect removes the original row. Tickets never rely on timestamps.
+    await tx.run(`CREATE TABLE IF NOT EXISTS sub_join_versions (
+      user_id TEXT PRIMARY KEY, version INTEGER NOT NULL
+    )`)
+    await tx.run(`CREATE TABLE IF NOT EXISTS sub_join_intents (
+      token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_hash TEXT NOT NULL,
+      gc_user_id TEXT NOT NULL, gc_settings_id TEXT NOT NULL, invite_code TEXT NOT NULL,
+      version INTEGER NOT NULL, expires_at TEXT NOT NULL
+    )`)
+    await tx.run('CREATE INDEX IF NOT EXISTS idx_sub_join_intents_expiry ON sub_join_intents(expires_at)')
+  })
   console.log('[db] Schema initialized successfully')
 
   // A connection alone does not establish ownership. In particular, leave

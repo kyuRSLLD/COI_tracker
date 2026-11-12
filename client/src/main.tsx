@@ -20,6 +20,8 @@ import { SubcontractorDashboardPage } from './pages/SubcontractorDashboardPage'
 import { JoinPage } from './pages/JoinPage'
 import { SubcontractorModal } from './components/SubcontractorModal'
 import { RequestCOIModal } from './components/RequestCOIModal'
+import { ConnectionSession } from './components/ConnectionOptions'
+import { ConnectSubPage, captureConnectionFragment } from './pages/ConnectSubPage'
 
 function roleHome(u: User | null): string {
   if (!u) return '/login'
@@ -169,9 +171,11 @@ function App() {
     location.pathname.startsWith('/share/') ||
     location.pathname.startsWith('/upload/') ||
     location.pathname.startsWith('/join/') ||
+    location.pathname === '/connect-sub' ||
     location.pathname === '/login'
 
   return (
+    <ConnectionSession.Provider value={{ role: sessionStatus === 'authenticated' ? user?.role ?? null : null, token: sessionStatus === 'authenticated' ? sessionToken : null }}>
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       {!hideNavbar && (
         <Navbar
@@ -244,6 +248,10 @@ function App() {
           <Route path="/admin" element={<Navigate to="/staff" replace />} />
           </Route>
           <Route path="/join/:inviteCode" element={<JoinRoute user={user} sessionToken={sessionToken} sessionStatus={sessionStatus} onSession={establishSession} onSwitchAccount={logout} />} />
+          <Route path="/connect-sub" element={<ConnectSubPage key={location.key} user={user} sessionToken={sessionToken} sessionStatus={sessionStatus} getSessionVersion={() => sessionVersion.current} onSession={async (session, version) => {
+            if (sessionVersion.current !== version) throw new Error('Your session changed. Please try signing in again.')
+            await establishSession(session)
+          }} onSwitchAccount={logout} onSaved={() => { if (sessionToken) loadSubs(renderedVersion, sessionToken) }} />} />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -264,6 +272,7 @@ function App() {
         </>
       )}
     </div>
+    </ConnectionSession.Provider>
   )
 }
 
@@ -281,6 +290,7 @@ function SessionUnavailable() {
   return <div className="p-8 text-center text-sm text-slate-500">Your session could not be verified. Retry or switch account above.</div>
 }
 
+captureConnectionFragment()
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>

@@ -16,6 +16,8 @@ import { emailsRouter } from './routes/emails.ts'
 import { settingsRouter } from './routes/settings.ts'
 import { adminRouter } from './routes/admin.ts'
 import { subPortalRouter } from './routes/subPortal.ts'
+import { subConnectionQrRouter } from './routes/subConnectionQr.ts'
+import { localCertificatesRouter } from './routes/localCertificates.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -29,6 +31,11 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   if (!maintenanceMode) await initDatabase()
 
   const app = express()
+  // Includes parser failures, 404s, and authentication errors on this path.
+  app.use('/api/connection-qr', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    next()
+  })
   app.use(cors({ origin: true, credentials: true, preflightContinue: maintenanceMode }))
 
   app.get('/api/health', (_req, res) => {
@@ -53,9 +60,8 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
 
   app.use(express.json({ limit: '10mb' }))
   if (!maintenanceMode) fs.mkdirSync(LOCAL_UPLOADS, { recursive: true })
-  // Local files are for development only. Production certificates live in S3
-  // and are served only after an authorized route issues a short-lived URL.
-  if (process.env.NODE_ENV !== 'production') app.use('/uploads', express.static(LOCAL_UPLOADS))
+  // Even development storage contains private certificates. Never serve it statically.
+  app.use('/uploads', localCertificatesRouter)
 
   app.use('/api/auth', authRouter)
   app.use('/api/subcontractors', subcontractorsRouter)
@@ -69,6 +75,9 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   app.use('/api/admin', adminRouter)
   app.use('/api/staff', adminRouter)
   app.use('/api/sub', subPortalRouter)
+  app.use('/api/connection-qr', subConnectionQrRouter)
+  // Express's default 404 echoes the path, which may contain a pasted token.
+  app.use('/api/connection-qr', (_req, res) => res.status(404).json({ error: 'Not found' }))
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {
@@ -80,6 +89,13 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   }
 
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // Body-parser errors can include the raw request body, including tokens.
+    const errorPath = _req.path.toLowerCase()
+    if (errorPath.startsWith('/api/sub/join') || errorPath === '/api/connection-qr' || errorPath.startsWith('/api/connection-qr/') ||
+        errorPath === '/uploads' || errorPath.startsWith('/uploads/')) {
+      const status = err?.status === 400 || err?.status === 413 ? err.status : 500
+      return res.status(status).json({ error: status === 500 ? 'Unable to process request' : 'Invalid request' })
+    }
     console.error('[error]', err)
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' })
   })
