@@ -25,22 +25,22 @@ export function LandingPage({ onLogin }: Props) {
     {
       num: '02',
       title: 'Live expiration countdown',
-      body: 'Every policy carries a visible expiration countdown. Color-coded badges show compliant (green), expiring-within-30-days (amber), and expired (red) — with one-click automated renewal reminders.',
+      body: 'See expiration countdowns and color-coded statuses for certificates on file. Reminder emails are currently simulated and are not delivered.',
       icon: AlertBadge,
       tint: 'bg-amber-100 text-amber-800',
     },
     {
       num: '03',
       title: 'Share with clients — safely',
-      body: 'Send project owners a live, branded compliance portal. Verified coverage limits, carrier ratings, and status badges are visible, while subcontractor contact info is automatically stripped so every inquiry routes back to you.',
+      body: 'Share a project report with owners showing anonymized subcontractor records, available coverage details, and status badges. The report is not verification of insurance.',
       icon: Lock,
       tint: 'bg-emerald-100 text-emerald-700',
       highlight: true,
     },
     {
       num: '04',
-      title: 'Audit-ready reports, instantly',
-      body: 'Print or export project compliance reports for inspectors, lenders, or owners at any moment. Every simulated reminder and COI revision is logged in an audit trail you can hand over.',
+      title: 'Shareable project reports',
+      body: 'Share a project report with inspectors, lenders, or owners and print it for your records. Reminder emails are simulated and are not delivered.',
       icon: FileCheck,
       tint: 'bg-sky-100 text-sky-700',
     },
@@ -49,11 +49,11 @@ export function LandingPage({ onLogin }: Props) {
   const faqs = [
     {
       q: 'How does client-safe sharing protect contractor relationships?',
-      a: 'The client portal exposes only the subcontractor company name, trade, verified coverage limits, policy numbers, carrier information, and expiration dates. Phone numbers, emails, contact persons, and addresses are completely removed from both the screen and the underlying API response. When a client has questions about a subcontractor on the job, the only contact information they receive is yours.',
+      a: 'The client report uses anonymous subcontractor labels and may show coverage details, dates, and statuses. It omits subcontractor names, trade, contact details, policy numbers, and carrier information. The report is not verification of insurance.',
     },
     {
       q: 'Do subcontractors need to create an account?',
-      a: 'No. Each request generates a unique magic upload link. The subcontractor opens the link on their phone or computer, fills in a four-step wizard with their policy details, attaches their ACORD certificate PDF or photo, and submits — under two minutes.',
+      a: 'A subcontractor can submit through a unique upload link without creating an account. They open the link, enter policy details, and can attach their ACORD certificate PDF or photo. Connecting through an onboarding invitation requires an account and consent.',
     },
     {
       q: 'Can I track different projects for different clients?',
@@ -65,15 +65,15 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       q: 'How do expiration reminders work?',
-      a: 'The dashboard highlights policies expiring in the next 30 days. You can send renewal reminders individually or batch-remind all expiring subcontractors in one click. Every reminder is logged in an audit trail.',
+      a: 'The dashboard highlights policies expiring in the next 30 days. Reminder emails are currently simulated and are not delivered, so contact subcontractors separately about renewals.',
     },
     {
       q: 'How does pricing work?',
-      a: 'Subcontractors get their first month completely free, then pay a one-time fee of $2 to keep their certificate hosted. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+      a: 'COI Shield is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
     },
     {
       q: 'How do I onboard subcontractors?',
-      a: 'Go to Profile → Subcontractor onboarding QR code. Share the QR code (print it for your job-site trailer) or the invite link. Subs scan it, create a free account — first month free — and are linked to you instantly. Existing COI Shield users can connect their account with one tap.',
+      a: 'Go to Profile → Subcontractor onboarding QR code. Share the QR code or invite link. Subcontractors can create a free account or sign in, then review and consent to sharing before connecting.',
     },
   ]
 
@@ -97,7 +97,7 @@ export function LandingPage({ onLogin }: Props) {
               </span>
             </h1>
             <p className="mt-5 text-base sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              One platform where General Contractors request and verify Certificates of Insurance, subcontractors upload in minutes, and clients see live project compliance — with contractor–sub relationships protected by built-in privacy.
+              One platform where General Contractors request Certificates of Insurance, subcontractors upload them, and clients can view anonymized project reports. Reports do not verify insurance coverage.
             </p>
           </div>
 
@@ -124,9 +124,9 @@ export function LandingPage({ onLogin }: Props) {
           <p className="mt-4 text-center text-xs text-slate-300">
             Subcontractor?{' '}
             <Link to="/login" className="text-emerald-300 font-semibold hover:underline">
-              Upload or connect your insurance paper in 2 minutes
+              Upload or connect your insurance certificate
             </Link>{' '}
-            — free for your first month.
+            — free for subcontractors.
           </p>
 
           {/* Product mockup frame */}
@@ -156,7 +156,7 @@ export function LandingPage({ onLogin }: Props) {
                   { name: 'Horizon Electrical Services', trade: 'Electrical', badge: 'Compliant · 180d left', color: 'bg-emerald-50 text-emerald-800 border-emerald-200', carrier: 'Liberty Mutual · GL $1M/$2M · Auto $1M · WC · Umbrella $5M' },
                   { name: 'Midwest Mechanical Systems', trade: 'HVAC', badge: 'Expires in 14 days', color: 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse', carrier: 'Travelers · GL $1M/$2M · Umbrella $10M' },
                   { name: 'Benchmark Concrete & Foundation', trade: 'Concrete', badge: 'Expired 18d ago', color: 'bg-rose-50 text-rose-800 border-rose-300 font-semibold', carrier: 'Zurich · renewal required before site access' },
-                  { name: 'Titan Steel Erectors', trade: 'Framing & Structural', badge: 'Compliant · 220d left', color: 'bg-emerald-50 text-emerald-800 border-emerald-200', carrier: 'The Hartford · full coverage verified' },
+                  { name: 'Titan Steel Erectors', trade: 'Framing & Structural', badge: 'Compliant · 220d left', color: 'bg-emerald-50 text-emerald-800 border-emerald-200', carrier: 'The Hartford · certificate on file' },
                 ].map((r) => (
                   <div
                     key={r.name}
@@ -220,12 +220,12 @@ export function LandingPage({ onLogin }: Props) {
                 GC
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">General Contractor</h3>
-              <p className="text-xs text-slate-500 mt-1">Collect · Verify · Monitor · Share</p>
+              <p className="text-xs text-slate-500 mt-1">Collect · View · Monitor · Share</p>
               <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-emerald-50 text-emerald-800 border border-emerald-200">$10/month</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Request COIs with personalized magic links</span></li>
-                <li className="flex gap-2"><span>✓</span><span>Review coverage limits against company requirements</span></li>
-                <li className="flex gap-2"><span>✓</span><span>30-day expiration countdown with batch reminders</span></li>
+                <li className="flex gap-2"><span>✓</span><span>View submitted coverage details</span></li>
+                <li className="flex gap-2"><span>✓</span><span>Expiration countdowns; reminder emails are simulated</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Generate client-safe project portals in one click</span></li>
               </ul>
             </div>
@@ -238,12 +238,12 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">Subcontractor</h3>
               <p className="text-xs text-slate-500 mt-1">Upload · Confirm · Stay active</p>
-              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-sky-50 text-sky-800 border border-sky-200">First month free · then $2</span></div>
+              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-sky-50 text-sky-800 border border-sky-200">Free for subcontractors</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Open the link — no app, no password</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Enter policy #, carrier, limits in a 4-step wizard</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Attach ACORD PDF or photo right from the phone</span></li>
-                <li className="flex gap-2"><span>✓</span><span>Friendly renewal reminders before expiration</span></li>
+                <li className="flex gap-2"><span>✓</span><span>View expiration dates for certificates on file</span></li>
               </ul>
             </div>
           </div>
@@ -254,11 +254,11 @@ export function LandingPage({ onLogin }: Props) {
                 CLI
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">Client / Owner</h3>
-              <p className="text-xs text-slate-500 mt-1">Verify · Trust · Print</p>
+              <p className="text-xs text-slate-500 mt-1">View · Share · Print</p>
               <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-slate-100 text-slate-700 border border-slate-200">Free · shared by your GC</span></div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Live project scorecard (e.g. 86% compliant)</span></li>
-                <li className="flex gap-2"><span>✓</span><span>Verified coverage limits per trade at a glance</span></li>
+                <li className="flex gap-2"><span>✓</span><span>Available coverage details at a glance, not insurance verification</span></li>
                 <li className="flex gap-2"><span>✓</span><span>Print-ready compliance report for the file</span></li>
                 <li className="flex gap-2"><span>✓</span><span className="font-semibold text-emerald-800">Never see subcontractor contact info — GC stays the contact</span></li>
               </ul>
@@ -307,7 +307,7 @@ export function LandingPage({ onLogin }: Props) {
             <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 font-['JetBrains_Mono']">See it work</div>
             <h2 className="text-3xl font-extrabold mt-2">What's your job site's compliance score?</h2>
             <p className="text-xs text-slate-300 mt-2">
-              Slide the counters to simulate your current roster. The real app computes this live from your expiration dates.
+              Slide the counters to simulate a roster. Actual scores reflect records and their statuses, not insurance verification.
             </p>
           </div>
 
@@ -334,7 +334,7 @@ export function LandingPage({ onLogin }: Props) {
 
               <div>
                 <div className="flex justify-between text-xs text-slate-300">
-                  <span>Fully compliant (active COI verified)</span>
+                  <span>Marked compliant in this example</span>
                   <span className="font-['JetBrains_Mono'] font-bold text-white text-base">{calcCompliant}</span>
                 </div>
                 <input
@@ -379,7 +379,7 @@ export function LandingPage({ onLogin }: Props) {
             Simple, honest pricing for every side of the job site.
           </h2>
           <p className="mt-3 text-sm text-slate-500 leading-relaxed">
-            No contracts. Cancel anytime. Start free and only pay when you are ready to track or share compliance.
+            Subcontractors use COI Shield for free. General Contractor plans have no contracts and can be canceled anytime.
           </p>
         </div>
 
@@ -394,14 +394,14 @@ export function LandingPage({ onLogin }: Props) {
               </p>
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$0</span>
-                <span className="text-xs text-slate-400 font-medium">first month</span>
+                <span className="text-xs text-slate-400 font-medium">for subcontractors</span>
               </div>
-              <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">then $2 one-time after 30 days</div>
+              <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">No subcontractor fees</div>
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Free for your first month</strong> — no payment info needed to start</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Upload and host your COI for any requesting contractor</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Expiration alerts so you renew before your policy lapses</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Self-service upload link — done in under two minutes</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Free for subcontractors</strong> — no fee to upload or keep certificates on file</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Upload your COI and share it with connected contractors</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> View expiration dates for certificates on file</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Self-service upload link for submitting your COI</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Certificate stored securely, share-ready anytime</li>
               </ul>
             </div>
@@ -409,7 +409,7 @@ export function LandingPage({ onLogin }: Props) {
               to="/login"
               className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition"
             >
-              Start free
+              Get started
             </Link>
           </div>
 
@@ -434,8 +434,8 @@ export function LandingPage({ onLogin }: Props) {
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>See all subcontractor COIs</strong> connected to you, with status and countdowns</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Optionally share compliance with clients</strong> through privacy-safe links</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Subcontractor contact info is strictly hidden from clients</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> One-click renewal reminders to expiring subcontractors</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Printable compliance scorecards and audit trails</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Reminder emails are simulated and are not delivered</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Printable project reports and compliance scorecards</li>
               </ul>
             </div>
             <Link
@@ -461,7 +461,7 @@ export function LandingPage({ onLogin }: Props) {
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Everything in the General Contractor plan</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Unlimited projects and unlimited subcontractors</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Automated weekly expiry digests by email</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> View expiration information in the dashboard</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> CSV/spreadsheet exports for audits</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Priority support</li>
               </ul>
@@ -476,7 +476,7 @@ export function LandingPage({ onLogin }: Props) {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          All plans include 256-bit encrypted storage, email reminders, and client-safe privacy by design. Need something custom? Let us know.
+          Client reports are designed to omit subcontractor contact details. Email reminders are simulated and are not delivered.
         </p>
       </section>
 

@@ -268,7 +268,7 @@ export function AdminDashboardPage() {
                     <span className="font-semibold text-slate-900">{p.plan}</span>
                     {p.plan === 'Subcontractor' && (
                       <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1 font-mono">
-                        · first month free
+                        · free for subcontractors
                       </span>
                     )}
                   </div>

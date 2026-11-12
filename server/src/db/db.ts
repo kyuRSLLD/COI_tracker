@@ -41,7 +41,7 @@ function sqliteRun(db: sqlite3.Database, sql: string, params: any[] = []): Promi
 
 export const PLAN_PRICES: Record<string, number> = {
   'Free Demo': 0,
-  Subcontractor: 2,
+  Subcontractor: 0,
   'General Contractor': 10,
   'Pro GC': 29,
 }
@@ -490,14 +490,15 @@ export async function initDatabase(): Promise<void> {
   } catch {}
 
   try {
-    const users = await dbAll('SELECT id, company_name, created_at FROM users WHERE company_name IS NOT NULL')
+    const users = await dbAll('SELECT id, company_name, role, created_at FROM users WHERE company_name IS NOT NULL')
     for (const u of users) {
       const existing = await dbGet('SELECT id FROM companies WHERE name = ?', [u.company_name])
       if (!existing) {
+        const plan = u.role === 'sub' ? 'Subcontractor' : 'General Contractor'
         await dbRun(
           `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
-           VALUES (?, ?, 'General Contractor', 10, 'active', ?, ?)`,
-          [uuidv4(), u.company_name, u.id, u.created_at || new Date().toISOString()]
+           VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+          [uuidv4(), u.company_name, plan, planToMRR(plan), u.id, u.created_at || new Date().toISOString()]
         )
       }
     }

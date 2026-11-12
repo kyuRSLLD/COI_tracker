@@ -56,7 +56,9 @@ class SubConnectionQrTests(unittest.TestCase):
     def setUp(self):
         self.context = self.browser.new_context(viewport={'width': 390, 'height': 844})
         self.page = self.context.new_page()
+        self.page.set_default_timeout(8000)
         self.calls = []
+        self.qr_requests = []
         self.create_status = 200
         self.revoke_status = 200
         self.expiry_seconds = 900
@@ -71,8 +73,15 @@ class SubConnectionQrTests(unittest.TestCase):
           }} }});
         ''')
         self.page.goto(self.origin + '/subcontractor')
-        self.panel = self.page.get_by_role('region', name='Share with a general contractor')
-        self.panel.wait_for()
+        self.region = self.page.get_by_role('region', name='Share with a general contractor')
+        self.region.wait_for()
+        self.opener = self.region.get_by_role('button', name='Show connection QR code')
+        self.panel = self.page.get_by_role('dialog')
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.qr_requests, [])
+        self.open_modal()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.qr_requests, [])
 
     def tearDown(self):
         self.context.close()
@@ -80,6 +89,8 @@ class SubConnectionQrTests(unittest.TestCase):
     def route(self, route):
         request = route.request
         path = request.url.split('?', 1)[0]
+        if '/api/connection-qr' in path:
+            self.qr_requests.append((request.method, path.removeprefix(self.origin)))
         if path.endswith('/api/auth/me'):
             return route.fulfill(json={'user': USER})
         if path.endswith('/api/sub/my'):
@@ -91,14 +102,139 @@ class SubConnectionQrTests(unittest.TestCase):
         if path.endswith('/api/connection-qr/revoke') and request.method == 'POST':
             self.calls.append(('revoke', request.post_data_json))
             return route.fulfill(status=self.revoke_status, json={'success': True} if self.revoke_status == 200 else {'error': 'error'})
+        if '/api/connection-qr' in path:
+            return route.abort()  # Never allow an unexpected QR request onto the network.
         if request.url.startswith(self.origin):
             return route.continue_()
         return route.abort()
 
+    def open_modal(self):
+        self.opener.click()
+        self.panel.wait_for(state='visible')
+    def close_modal(self):
+        self.panel.get_by_role('button', name='Close', exact=False).click()
+        self.panel.wait_for(state='hidden')
     def generate(self):
         self.panel.get_by_role('checkbox').check()
         self.panel.get_by_role('button', name='Generate QR code').click()
 
+    def test_mobile_dialog_fills_viewport_and_controls_remain_reachable(self):
+        # A showModal() dialog is natively modal even without an aria-modal attribute.
+        self.assertTrue(self.panel.evaluate("el => el.matches(':modal') || el.getAttribute('aria-modal') === 'true'"))
+        for width, height in [(390, 844), (320, 568)]:
+            with self.subTest(viewport=(width, height)):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                bounds = self.panel.bounding_box()
+                self.assertIsNotNone(bounds)
+                for actual, expected in [(bounds['x'], 0), (bounds['y'], 0),
+                                         (bounds['width'], width), (bounds['height'], height)]:
+                    self.assertAlmostEqual(actual, expected, delta=2)
+                self.panel.get_by_role('checkbox').scroll_into_view_if_needed()
+                self.assertTrue(self.panel.get_by_role('checkbox').is_visible())
+                self.assertTrue(self.panel.get_by_role('button', name='Generate QR code').is_disabled())
+        self.assertEqual(self.calls, [])
+    def test_generated_qr_and_actions_are_reachable_on_narrow_mobile(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.generate()
+        qr = self.panel.get_by_role('img', name='QR code to connect one general contractor')
+        qr.wait_for()
+        qr.scroll_into_view_if_needed()
+        bounds = qr.bounding_box()
+        self.assertIsNotNone(bounds)
+        self.assertGreater(bounds['width'], 0)
+        self.assertGreaterEqual(bounds['x'], 0)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 320)
+        self.panel.get_by_role('button', name='Copy link').click()
+        self.assertEqual(self.page.evaluate('window.testClipboard.text'), 'https://safecoi.com/connect-sub#' + TOKEN)
+        self.panel.get_by_role('button', name='Revoke / cancel QR code').scroll_into_view_if_needed()
+        self.assertTrue(self.panel.get_by_role('button', name='Revoke / cancel QR code').is_visible())
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+    def test_closing_while_generate_is_pending_does_not_duplicate_or_revoke(self):
+        self.page.evaluate("""() => {
+          const realFetch = window.fetch;
+          window.deferredCreateCalls = 0;
+          window.fetch = (...args) => {
+            if (String(args[0]).endsWith('/api/connection-qr') && args[1]?.method === 'POST') {
+              window.deferredCreateCalls++;
+              return new Promise(resolve => { window.finishCreate = () => resolve(new Response(
+                JSON.stringify({token: 'a'.repeat(43), expiresAt: new Date(Date.now()+900000).toISOString()}),
+                {status:200, headers:{'Content-Type':'application/json'}})) });
+            }
+            return realFetch(...args);
+          };
+        }""")
+        self.generate()
+        self.page.wait_for_function('window.finishCreate !== undefined')
+        self.close_modal()
+        self.page.evaluate('window.finishCreate()')
+        self.open_modal()
+        self.panel.get_by_role('img', name='QR code to connect one general contractor').wait_for()
+        self.assertEqual(self.panel.get_by_label('Private connection link').input_value(),
+                         'https://safecoi.com/connect-sub#' + TOKEN)
+        self.assertEqual(self.page.evaluate('window.deferredCreateCalls'), 1)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.qr_requests, [])  # The deferred create was intercepted above fetch.
+    def test_desktop_dialog_is_bounded_and_centered(self):
+        self.page.set_viewport_size({'width': 1280, 'height': 900})
+        bounds = self.panel.bounding_box()
+        self.assertIsNotNone(bounds)
+        self.assertGreater(bounds['width'], 0)
+        self.assertGreater(bounds['height'], 0)
+        self.assertLess(bounds['width'], 1000)
+        self.assertLess(bounds['height'], 900)
+        self.assertGreater(bounds['x'], 0)
+        self.assertGreater(bounds['y'], 0)
+        self.assertAlmostEqual(bounds['x'] + bounds['width'] / 2, 640, delta=3)
+        self.assertAlmostEqual(bounds['y'] + bounds['height'] / 2, 450, delta=3)
+        self.assertEqual(self.calls, [])
+    def test_keyboard_escape_closes_and_returns_focus_to_launcher(self):
+        self.page.keyboard.press('Escape')
+        self.panel.wait_for(state='hidden')
+        self.page.wait_for_function("""() => document.activeElement?.textContent?.includes('Show connection QR code')""")
+        self.assertTrue(self.opener.evaluate('(el) => document.activeElement === el'))
+        self.assertEqual(self.calls, [])
+        self.page.keyboard.press('Enter')
+        self.panel.wait_for(state='visible')
+        self.assertTrue(self.panel.get_by_role('button', name='Generate QR code').is_disabled())
+        self.assertEqual(self.calls, [])
+    def test_close_does_not_revoke_and_reopen_preserves_same_code(self):
+        self.generate()
+        self.panel.get_by_role('img', name='QR code to connect one general contractor').wait_for()
+        expected = self.panel.get_by_label('Private connection link').input_value()
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+        self.close_modal()
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+        self.open_modal()
+        self.assertEqual(self.panel.get_by_label('Private connection link').input_value(), expected)
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+        self.page.keyboard.press('Escape')
+        self.panel.wait_for(state='hidden')
+        self.open_modal()
+        self.assertEqual(self.panel.get_by_label('Private connection link').input_value(), expected)
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+        self.assertEqual(self.qr_requests, [('POST', '/api/connection-qr')])
+    def test_closed_code_expires_without_revoke_and_requires_new_consent(self):
+        self.expiry_seconds = 1
+        self.generate()
+        self.panel.get_by_role('img').wait_for()
+        self.close_modal()
+        self.page.wait_for_timeout(1500)
+        self.open_modal()
+        self.panel.get_by_text('This QR code has expired.', exact=False).wait_for(timeout=5000)
+        self.assertEqual(self.panel.locator('canvas').count(), 0)
+        self.assertFalse(self.panel.get_by_role('checkbox').is_checked())
+        self.assertTrue(self.panel.get_by_role('button', name='Generate QR code').is_disabled())
+        self.assertEqual(self.calls, [('create', {'consent': True})])
+        self.assertEqual(self.qr_requests, [('POST', '/api/connection-qr')])
+    def test_closed_code_not_restored_after_session_switch(self):
+        self.generate()
+        self.panel.get_by_role('img').wait_for()
+        self.close_modal()
+        self.switch_session()
+        self.assertEqual(self.panel.locator('canvas').count(), 0)
+        self.assertFalse(self.panel.get_by_role('checkbox').is_checked())
+        self.assertTrue(self.panel.get_by_role('button', name='Generate QR code').is_disabled())
+        self.assertEqual(self.calls, [('create', {'consent': True})])
     def test_consent_payload_qr_copy_and_revocation(self):
         self.assertIn('all current and future', self.panel.inner_text().lower())
         self.assertIn('ongoing access', self.panel.inner_text().lower())
@@ -182,10 +318,18 @@ class SubConnectionQrTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def switch_session(self):
-        self.page.evaluate('''() => {
-          localStorage.setItem('coi_token', 'other-sub-session');
-          window.dispatchEvent(new StorageEvent('storage', {key:'coi_token', storageArea:localStorage}));
-        }''')
+        old_opener = self.opener.element_handle()
+        with self.page.expect_response(lambda r: '/api/auth/me' in r.url and
+                                       r.request.headers.get('authorization') == 'Bearer other-sub-session'):
+            self.page.evaluate('''() => {
+              localStorage.setItem('coi_token', 'other-sub-session');
+              window.dispatchEvent(new StorageEvent('storage', {key:'coi_token', storageArea:localStorage}));
+            }''')
+        # Wait for React's verified-session remount, not just the network response.
+        self.page.wait_for_function('(old) => !old.isConnected', arg=old_opener)
+        self.panel.wait_for(state='hidden')
+        self.opener.wait_for(state='visible')
+        self.open_modal()
         self.panel.get_by_role('checkbox').wait_for()
 
     def test_create_completion_is_ignored_after_account_switch(self):

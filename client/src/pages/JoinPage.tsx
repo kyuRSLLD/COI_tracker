@@ -103,7 +103,7 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
     try {
       const res = await apiSub.join(inviteCode, usableIntent, token)
       if (active.current && getToken() === token && identity.current.generation === generation) {
-        setSuccess({ token, message: `You're now linked to ${res.gc_company_name || gcName}. Any certificate on file is visible to them automatically.` })
+        setSuccess({ token, message: `You're now linked to ${res.gc_company_name || gcName}. They can access the certificates you own through this connection.` })
       }
     } catch (err: any) {
       if (active.current && identity.current.generation === generation && getToken() === token) {
@@ -222,11 +222,11 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                 </div>
               </div>
 
-              {/* Free first month pill */}
+              {/* Free subcontractor account pill */}
               <div className="rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-3 flex items-start gap-2.5 text-xs text-emerald-900">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                 <p>
-                  <span className="font-semibold">Free for your first month.</span> Upload your COI in under two minutes — after 30 days it's just a $2 one-time fee to keep your certificate hosted.
+                  <span className="font-semibold">Free for subcontractors.</span> Upload your COI and keep it on file at no charge.
                 </p>
               </div>
 

@@ -109,9 +109,9 @@ export function SettingsPage() {
         <p class="url">${qrInvite.invite_url}</p>
         <ol>
           <li>Open the camera on your phone and scan the QR code (or type the link)</li>
-          <li>Create a free subcontractor account — <strong>free for your first month</strong></li>
-          <li>Upload your ACORD certificate for review</li>
-          <li>Your submission can be reviewed by ${qrInvite.company_name}</li>
+          <li>Create a subcontractor account or sign in — <strong>free for subcontractors</strong></li>
+          <li>Review the sharing terms and consent to connect</li>
+          <li>Upload your ACORD certificate; ${qrInvite.company_name} can view your submission</li>
         </ol>
       </div>
       <p style="font-size:11px;color:#94a3b8;margin-top:18px;text-align:center">Powered by COI Shield · safecoi.com</p>
@@ -198,7 +198,7 @@ export function SettingsPage() {
               <input type="tel" value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: formatPhone(e.target.value) })} placeholder="(312) 555-0100" pattern={US_PHONE_PATTERN} title="Please enter a 10-digit phone number in (xxx) xxx-xxxx format" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">Compliance email (used for reminders &amp; invites)</label>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">Compliance email</label>
               <input value={settings.email || ''} onChange={(e) => setSettings({ ...settings, email: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
           </div>
@@ -312,7 +312,7 @@ export function SettingsPage() {
             <h2 className="text-sm font-bold text-slate-900">Subcontractor onboarding QR code</h2>
           </div>
           <p className="text-xs text-slate-500">
-            Share this QR code or link with subcontractors. Scanning it lets them sign up (or connect an existing account) directly to your company — no manual invites needed.
+            Share this QR code or link with subcontractors. They can sign up for free or sign in, then review and consent to sharing before connecting to your company.
           </p>
 
           {qrInvite && (
@@ -354,9 +354,9 @@ export function SettingsPage() {
                   <p className="text-[11px] text-slate-400">How it works</p>
                   <ol className="list-decimal list-inside text-slate-600 mt-1 space-y-1 text-[11px]">
                     <li>Print the flyer and post it in your job-site trailer or text the link.</li>
-                    <li>Subcontractors scan, create a free account (first month free), and are linked instantly.</li>
-                    <li>Subs who already have a COI Shield account can connect it with one tap.</li>
-                    <li>Their COI can be submitted for review.</li>
+                    <li>Subcontractors scan and create a free account or sign in to an existing one.</li>
+                    <li>They review the sharing terms and consent before connecting.</li>
+                    <li>Their COI can be uploaded and viewed by your company.</li>
                   </ol>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">

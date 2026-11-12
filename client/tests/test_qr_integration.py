@@ -101,7 +101,10 @@ app.listen(Number(process.argv[2]), '127.0.0.1', () => console.log('BACKEND_READ
 """
             vite = NETWORK_GUARD + """
 import { createServer } from 'vite'; import react from '@vitejs/plugin-react';
-const s = await createServer({configFile:false,root:process.cwd() + '/client',plugins:[react()],cacheDir:process.cwd() + '/vite-cache',
+// Tailwind's content globs are relative to the frontend working directory.
+// Without this, the isolated server silently omits component utility classes.
+const root = process.cwd() + '/client'; process.chdir(root);
+const s = await createServer({configFile:false,root,plugins:[react()],cacheDir:root + '/../vite-cache',
  server:{host:'127.0.0.1',port:Number(process.argv[2]),strictPort:true,hmr:false,proxy:{'/api':{target:'http://127.0.0.1:' + process.argv[3],changeOrigin:true},'/uploads':{target:'http://127.0.0.1:' + process.argv[3],changeOrigin:true}}},logLevel:'error'}); await s.listen(); console.log('VITE_READY');
 """
             for filename, code, args in [('backend.mjs', backend, [str(cls.server_port)]), ('frontend.mjs', vite, [str(cls.vite_port), str(cls.server_port)])]:
@@ -198,8 +201,14 @@ const s = await createServer({configFile:false,root:process.cwd() + '/client',pl
                     self.assertNotIn(token, value)
 
     def qr(self, page):
-        panel = page.get_by_role('region', name='Share with a general contractor')
-        panel.wait_for()
+        region = page.get_by_role('region', name='Share with a general contractor')
+        region.wait_for()
+        panel = page.get_by_role('dialog')
+        if not panel.is_visible():
+            region.get_by_role('button', name='Show connection QR code').click()
+            panel.wait_for()
+        # Catch a broken isolated Tailwind setup rather than scanning a clipped QR.
+        self.assertLess(panel.bounding_box()['width'], page.viewport_size['width'])
         self.assertTrue(panel.get_by_role('button', name='Generate QR code').is_disabled())
         panel.get_by_role('checkbox').check()
         with page.expect_response(lambda r: urlsplit(r.url).path == '/api/connection-qr' and r.request.method == 'POST') as created:
@@ -230,8 +239,21 @@ const s = await createServer({configFile:false,root:process.cwd() + '/client',pl
         with sqlite3.connect(self.db) as db:
             self.assertEqual(db.execute('SELECT subcontractor_id, owner_sub_user_id, owner_gc_user_id FROM cois WHERE id=?',(coi_id,)).fetchone(), (sub_id, sub_user, None))
         print('PASS real sub login and previously sub-owned multipart COI', flush=True)
+        qr_writes = []
+        sub_page.on('request', lambda request: qr_writes.append((urlsplit(request.url).path, request.method))
+                    if urlsplit(request.url).path.startswith('/api/connection-qr') else None)
         token, image, panel = self.qr(sub_page)
-        print('PASS explicit consent creates actual app-rendered QR at simulated SafeCOI origin', flush=True)
+        self.assertEqual(qr_writes, [('/api/connection-qr', 'POST')])
+        panel.get_by_role('button', name='Close', exact=False).click()
+        panel.wait_for(state='hidden')
+        self.assertEqual(qr_writes, [('/api/connection-qr', 'POST')])
+        sub_page.get_by_role('region', name='Share with a general contractor').get_by_role('button', name='Show connection QR code').click()
+        panel.wait_for()
+        self.assertEqual(panel.get_by_label('Private connection link').input_value(), ORIGIN+'/connect-sub#'+token)
+        self.assertEqual(qr_writes, [('/api/connection-qr', 'POST')])
+        with sqlite3.connect(self.db) as db:
+            self.assertIsNone(db.execute('SELECT revoked_at FROM sub_connection_qr_tokens WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()[0])
+        print('PASS explicit consent creates actual app-rendered QR; close/reopen keeps it without API writes or revocation', flush=True)
 
         gc_page = self.new_page(); self.login(gc_page, 'gc@example.test')
         gc_page.goto(ORIGIN+'/subcontractors')
@@ -241,7 +263,10 @@ const s = await createServer({configFile:false,root:process.cwd() + '/client',pl
         with gc_page.expect_file_chooser() as chooser:
             gc_page.get_by_role('button', name='Upload sub QR', exact=True).click()
         chooser.value.set_files({'name':'qr.png','mimeType':'image/png','buffer':image})
-        gc_page.get_by_text('Connection QR detected.', exact=False).wait_for()
+        try:
+            gc_page.get_by_text('Connection QR detected.', exact=False).wait_for(timeout=5000)
+        except Exception as exc:
+            self.fail(f'Could not detect the actual QR screenshot: {gc_page.get_by_role("alert").all_text_contents()}; {exc}')
         # Code has not been redeemed just by scanning the screenshot.
         self.assertEqual(self.api(gc_page, 'GET', '/api/subcontractors')['body']['subcontractors'], [])
         with gc_page.expect_response(lambda r: urlsplit(r.url).path == '/api/connection-qr/redeem' and r.request.method == 'POST') as redeem:

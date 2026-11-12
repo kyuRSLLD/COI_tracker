@@ -121,11 +121,11 @@ export function SubcontractorDashboardPage() {
           </span>
         </div>
 
-        {/* Free first month banner */}
+        {/* Free subcontractor account banner */}
         <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-900">
           <Sparkles className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
           <p>
-            <span className="font-semibold">Free for your first month.</span> Submit your insurance paper once — after 30 days it's just a $2 one-time fee to keep your certificate hosted for every contractor who asks.
+            <span className="font-semibold">Free for subcontractors.</span> Upload your certificate and keep it on file at no charge.
           </p>
         </div>
 
@@ -211,7 +211,7 @@ export function SubcontractorDashboardPage() {
 
             {uploadSuccess && (
               <div className="mt-3 text-xs text-emerald-700 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Certificate submitted — it will appear below under review.
+                <CheckCircle2 className="w-3.5 h-3.5" /> Certificate submitted — it will appear below.
               </div>
             )}
           </div>
@@ -223,7 +223,7 @@ export function SubcontractorDashboardPage() {
               <h2 className="text-sm font-semibold text-slate-900">Insurance carrier connections unavailable</h2>
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              Carrier connections are not available. Please upload your certificate for review instead.
+              Carrier connections are not available. Please upload your certificate instead.
               No insurance coverage is verified by a carrier connection.
             </p>
           </div>
@@ -280,7 +280,7 @@ export function SubcontractorDashboardPage() {
                     </div>
 
                     {coi.simulated_carrier_connect && (
-                      <p className="mt-2 text-amber-800 font-semibold">Simulated carrier connection — not verified. Upload a real certificate for review.</p>
+                      <p className="mt-2 text-amber-800 font-semibold">Simulated carrier connection — not verified. Upload a real certificate instead.</p>
                     )}
                     {coi.reviewer_notes && !coi.simulated_carrier_connect && (
                       <p className="text-[11px] text-slate-500 mt-2 italic">{coi.reviewer_notes}</p>
@@ -326,7 +326,7 @@ export function SubcontractorDashboardPage() {
               <h3 className="text-sm font-semibold text-slate-900">Requests from contractors</h3>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              GCs who asked for your COI. Upload once and both sides are covered.
+              GCs who asked for your COI. View certificates on file or upload a new one.
             </p>
             <div className="space-y-2">
               {data.requests.map((r) => (
