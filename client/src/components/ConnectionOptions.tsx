@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import { ApiError, apiConnectionQr, apiQrInvite, getToken, SESSION_CHANGED_EVENT } from '../api'
+import { CameraQrScanner } from './CameraQrScanner'
 
 export const ConnectionSession = createContext<{ role: string | null; token: string | null }>({ role: null, token: null })
 // Unlike $, this end assertion cannot match before a trailing newline.
@@ -52,14 +53,14 @@ export function connectionError(err: unknown): string {
 const inputClass = 'w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500'
 const buttonClass = 'px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 transition'
 
-export function ConnectionOptions({ onSaved }: { onSaved: () => void }) {
+export function ConnectionOptions({ onSaved, onManual }: { onSaved: () => void; onManual: () => void }) {
   const { role, token: sessionToken } = useContext(ConnectionSession)
   if (role !== 'gc' || !sessionToken) return null
-  return <SessionConnectionOptions key={sessionToken} sessionToken={sessionToken} onSaved={onSaved} />
+  return <SessionConnectionOptions key={sessionToken} sessionToken={sessionToken} onSaved={onSaved} onManual={onManual} />
 }
 
-function SessionConnectionOptions({ sessionToken, onSaved }: { sessionToken: string; onSaved: () => void }) {
-  const [mode, setMode] = useState<'qr' | 'email'>('qr')
+function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { sessionToken: string; onSaved: () => void; onManual: () => void }) {
+  const [mode, setMode] = useState<'qr' | 'camera' | 'email'>('qr')
   const [qrToken, setQrToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
@@ -68,12 +69,44 @@ function SessionConnectionOptions({ sessionToken, onSaved }: { sessionToken: str
   const [recipient, setRecipient] = useState('')
   const [invite, setInvite] = useState<{ invite_url: string; company_name: string } | null>(null)
   const active = useRef(true)
+  const fileInput = useRef<HTMLInputElement>(null)
   const decodeVersion = useRef(0)
-  useEffect(() => { active.current = true; return () => { active.current = false; decodeVersion.current++ } }, [])
+  const source = useRef<'image' | 'camera' | null>('image')
+  const [cameraVersion, setCameraVersion] = useState(0)
+  useLayoutEffect(() => { active.current = true; return () => { active.current = false; decodeVersion.current++ } }, [])
+
+  // The provider re-verifies sessions on these events; stop the camera immediately
+  // rather than allowing it to keep scanning while verification is pending.
+  useEffect(() => {
+    const checkSession = () => {
+      if (getToken() === sessionToken) return
+      source.current = null
+      decodeVersion.current++
+      setMode('qr'); setQrToken(null); setDecoding(false); setConnectedName(null); setError(null); setInvite(null)
+    }
+    window.addEventListener('storage', checkSession)
+    window.addEventListener(SESSION_CHANGED_EVENT, checkSession)
+    return () => {
+      window.removeEventListener('storage', checkSession)
+      window.removeEventListener(SESSION_CHANGED_EVENT, checkSession)
+    }
+  }, [sessionToken])
+
+  const resetQrState = () => {
+    decodeVersion.current++
+    setQrToken(null); setDecoding(false); setConnectedName(null); setError(null); setInvite(null)
+  }
 
   const selectImage = async (file?: File) => {
+    // A late file-chooser result must not replace a later camera selection.
+    if (!active.current || source.current !== 'image') return
     const version = ++decodeVersion.current
     setQrToken(null); setConnectedName(null); setError(null)
+    if (getToken() !== sessionToken) {
+      setDecoding(false)
+      window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
+      return
+    }
     if (!file) { setDecoding(false); return }
     setDecoding(true)
     try {
@@ -84,6 +117,23 @@ function SessionConnectionOptions({ sessionToken, onSaved }: { sessionToken: str
     } finally {
       if (active.current && version === decodeVersion.current && getToken() === sessionToken) setDecoding(false)
     }
+  }
+  const cameraDecoded = (value: string, version: number) => {
+    if (!active.current || source.current !== 'camera' || version !== decodeVersion.current) return
+    if (getToken() !== sessionToken) {
+      window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
+      return
+    }
+    const token = tokenFromQr(value)
+    setQrToken(null); setConnectedName(null); setError(null)
+    if (!token) {
+      setError('This is not a valid SafeCOI subcontractor connection QR code.')
+      return
+    }
+    // A scan only stages a token. Stop/unmount the scanner and require Connect.
+    source.current = 'image'
+    decodeVersion.current++
+    setDecoding(false); setMode('qr'); setQrToken(token)
   }
   const connect = async () => {
     if (!qrToken || working) return
@@ -123,20 +173,35 @@ function SessionConnectionOptions({ sessionToken, onSaved }: { sessionToken: str
   const subject = 'Invitation to connect on COI Shield'
   const body = `Hello,\n\nPlease use this link to join and connect with ${invite?.company_name || 'our company'} on COI Shield:\n\n${invite?.invite_url || ''}\n\nThank you.`
   return <div className="mt-4 border-t border-slate-200 pt-4 space-y-3">
-    <div className="flex gap-2 text-xs" aria-label="Connection method">
-      <button type="button" aria-pressed={mode === 'qr'} onClick={() => { setMode('qr'); setError(null) }} className={`rounded-lg px-3 py-2 font-semibold ${mode === 'qr' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Upload sub QR</button>
-      <button type="button" aria-pressed={mode === 'email'} onClick={() => { decodeVersion.current++; setQrToken(null); setDecoding(false); setMode('email'); setError(null) }} className={`rounded-lg px-3 py-2 font-semibold ${mode === 'email' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Invite by email</button>
+    <div className="flex flex-wrap gap-2 text-xs" aria-label="Add subcontractor method">
+      <button type="button" disabled={working} aria-pressed={mode === 'camera'} onClick={() => {
+        source.current = 'camera'; resetQrState()
+        if (getToken() !== sessionToken) { source.current = null; setMode('qr'); window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)); return }
+        setCameraVersion(decodeVersion.current); setMode('camera')
+      }} className={`rounded-lg px-3 py-2 font-semibold disabled:opacity-50 ${mode === 'camera' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Scan QR code</button>
+      <button type="button" disabled={working} onClick={() => {
+        source.current = 'image'; resetQrState(); setMode('qr')
+        if (getToken() !== sessionToken) { source.current = null; window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)); return }
+        fileInput.current?.click()
+      }} className="rounded-lg px-3 py-2 font-semibold bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">Upload sub QR</button>
+      <button type="button" disabled={working} aria-pressed={mode === 'email'} onClick={() => { source.current = null; resetQrState(); setMode('email') }} className={`rounded-lg px-3 py-2 font-semibold disabled:opacity-50 ${mode === 'email' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Invite by email</button>
+      <button type="button" disabled={working} onClick={() => { source.current = null; resetQrState(); setMode('qr'); onManual() }} className="rounded-lg px-3 py-2 font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50">Enter manually</button>
     </div>
     {error && <p role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</p>}
-    {mode === 'qr' ? <div className="space-y-3 text-xs text-slate-600">
-      <p>Ask the subcontractor to create their connection QR code and send you a screenshot. Your image is read on this device and is not uploaded.</p>
+    {mode === 'camera' && <CameraQrScanner key={cameraVersion} sessionKey={sessionToken} onDecoded={value => cameraDecoded(value, cameraVersion)} onClose={() => {
+      if (source.current !== 'camera' || cameraVersion !== decodeVersion.current) return
+      source.current = 'image'; resetQrState(); setMode('qr')
+    }} />}
+    <div className={mode === 'qr' ? 'space-y-3 text-xs text-slate-600' : 'hidden'}>
+      <p>Ask the subcontractor to create their connection QR code and send you a screenshot (PNG or JPG, up to 15 MB). Choose Upload sub QR to read it on this device; the image is not uploaded.</p>
       <label className="block font-semibold text-slate-700">Screenshot (PNG or JPG)
-        <input type="file" accept="image/png,image/jpeg" disabled={working} onChange={e => { void selectImage(e.target.files?.[0]); e.target.value = '' }} className="block w-full mt-1 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-semibold file:text-slate-700" />
+        <input ref={fileInput} type="file" accept="image/png,image/jpeg" disabled={working} onChange={e => { void selectImage(e.target.files?.[0]); e.target.value = '' }} className="block w-full mt-1 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-semibold file:text-slate-700" />
       </label>
       {decoding && <p>Reading QR code…</p>}
       {qrToken && !decoding && <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2"><p>Connection QR detected. Connect to add or link this subcontractor to your account.</p><button type="button" disabled={working} onClick={() => void connect()} className={buttonClass}>{working ? 'Connecting…' : 'Connect subcontractor'}</button> <button type="button" disabled={working} onClick={() => { setQrToken(null); setError(null) }} className="px-3 py-2 rounded-xl font-semibold underline disabled:opacity-50">Cancel</button></div>}
       {connectedName && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">Connected: <strong>{connectedName}</strong>.</p>}
-    </div> : <form onSubmit={prepareEmail} className="space-y-3 text-xs text-slate-600">
+    </div>
+    {mode === 'email' && <form onSubmit={prepareEmail} className="space-y-3 text-xs text-slate-600">
       <p>Prepare your company’s onboarding invitation for the subcontractor. They will need to accept it to connect.</p>
       <label className="block font-semibold text-slate-700">Subcontractor email
         <input required type="email" value={recipient} onChange={e => { setRecipient(e.target.value); setInvite(null) }} placeholder="subcontractor@example.com" className={`${inputClass} mt-1`} />

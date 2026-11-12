@@ -238,8 +238,9 @@ const s = await createServer({configFile:false,root:process.cwd() + '/client',pl
         gc_page.get_by_role('heading', name='Subcontractors', exact=True).wait_for()
         self.assertEqual(self.api(gc_page, 'GET', '/api/subcontractors')['body']['subcontractors'], [])
         gc_page.get_by_role('button', name='Add subcontractor', exact=True).click()
-        gc_page.get_by_role('button', name='Connect an account').click()
-        gc_page.locator('input[type=file]').set_input_files({'name':'qr.png','mimeType':'image/png','buffer':image})
+        with gc_page.expect_file_chooser() as chooser:
+            gc_page.get_by_role('button', name='Upload sub QR', exact=True).click()
+        chooser.value.set_files({'name':'qr.png','mimeType':'image/png','buffer':image})
         gc_page.get_by_text('Connection QR detected.', exact=False).wait_for()
         # Code has not been redeemed just by scanning the screenshot.
         self.assertEqual(self.api(gc_page, 'GET', '/api/subcontractors')['body']['subcontractors'], [])
@@ -382,8 +383,9 @@ const s = await createServer({configFile:false,root:process.cwd() + '/client',pl
             changed = db.execute('UPDATE sub_connection_qr_tokens SET expires_at=? WHERE token_hash=?',('2000-01-01T00:00:00.000Z',hashlib.sha256(expired.encode()).hexdigest())).rowcount
             self.assertEqual(changed,1)
         other_page.get_by_role('button', name='Add subcontractor', exact=True).click()
-        other_page.get_by_role('button', name='Connect an account').click()
-        other_page.locator('input[type=file]').set_input_files({'name':'expired.png','mimeType':'image/png','buffer':expired_image})
+        with other_page.expect_file_chooser() as chooser:
+            other_page.get_by_role('button', name='Upload sub QR', exact=True).click()
+        chooser.value.set_files({'name':'expired.png','mimeType':'image/png','buffer':expired_image})
         other_page.get_by_text('Connection QR detected.',exact=False).wait_for()
         with other_page.expect_response(lambda r: urlsplit(r.url).path == '/api/connection-qr/redeem' and r.request.method == 'POST') as expired_result:
             other_page.get_by_role('button',name='Connect subcontractor').click()

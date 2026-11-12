@@ -39,8 +39,9 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [method, setMethod] = useState<'manual' | 'connect'>('manual')
+  const [method, setMethod] = useState<'manual' | 'connect'>('connect')
   const connectionSession = useContext(ConnectionSession)
+  const canConnect = !subcontractor && connectionSession.role === 'gc' && Boolean(connectionSession.token)
 
   useEffect(() => {
     if (subcontractor) {
@@ -59,8 +60,8 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
       setAddress('')
     }
     setError(null)
-    setMethod('manual')
-  }, [subcontractor, open])
+    setMethod('connect')
+  }, [subcontractor, open, connectionSession.token])
 
   if (!open) return null
 
@@ -115,13 +116,9 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
           </button>
         </div>
 
-        {!subcontractor && connectionSession.role === 'gc' && connectionSession.token && <div className="flex gap-2 mt-5 text-xs">
-          <button type="button" aria-pressed={method === 'manual'} onClick={() => setMethod('manual')} className={`rounded-lg px-3 py-2 font-semibold ${method === 'manual' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Enter manually</button>
-          <button type="button" aria-pressed={method === 'connect'} onClick={() => setMethod('connect')} className={`rounded-lg px-3 py-2 font-semibold ${method === 'connect' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>Connect an account</button>
-        </div>}
-
-        {!subcontractor && method === 'connect' && <ConnectionOptions key={connectionSession.token} onSaved={onSaved} />}
-        {(subcontractor || method === 'manual') && <>
+        {canConnect && method === 'connect' && <ConnectionOptions key={connectionSession.token} onSaved={onSaved} onManual={() => setMethod('manual')} />}
+        {(!canConnect || method === 'manual') && <>
+        {canConnect && <button type="button" onClick={() => setMethod('connect')} className="mt-5 text-xs font-semibold text-brand-700 hover:underline">Back to connection options</button>}
         {error && <div className="mt-4 p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">{error}</div>}
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
