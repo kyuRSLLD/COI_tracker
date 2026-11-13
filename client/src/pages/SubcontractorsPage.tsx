@@ -1,5 +1,6 @@
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
 import { ApiError, apiCoiFields, apiSubcontractors, apiSettings, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
@@ -84,6 +85,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
   const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<any>(null)
   const [viewingCertificate, setViewingCertificate] = useState<COI | null>(null)
+  const location = useLocation()
   const [toast, setToast] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [fieldsReview, setFieldsReview] = useState<FieldsReviewState | null>(null)
@@ -188,6 +190,12 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
   useEffect(() => {
     load()
   }, [trade, status, search])
+  useEffect(() => {
+    const state = location.state as { openSubId?: string } | null
+    if (state?.openSubId) {
+      void loadDetail(state.openSubId)
+    }
+  }, [location.key])
   useEffect(() => {
     if (!fieldsReview?.saving) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -469,6 +477,16 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                           <Upload className="w-4 h-4" /> Upload COI
                         </button>
                         <button
+                          type="button"
+                          onClick={() => { if (s.best_coi) void openFieldsReview(s.best_coi) }}
+                          title={s.best_coi ? 'Review document data' : 'No certificate on file'}
+                          aria-label={`Review document data for ${s.company_name}`}
+                          disabled={!s.best_coi}
+                          className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          <FileText className="w-4 h-4 text-brand-600" />
+                        </button>
+                        <button
                           onClick={() => { setEditSub(s); setAddSubOpen(true) }}
                           title="Edit"
                           className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100"
@@ -561,7 +579,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                           onClick={() => void openFieldsReview(c)}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
                         >
-                          Review fields
+                          Review document data
                         </button>
                         {canReviewCertificate(c) && (
                           <button
@@ -577,7 +595,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                     {!canReviewCertificate(c) && (
                       <p className="mt-2 text-[11px] text-slate-600">
                         {isSubOwnedCertificate(c)
-                          ? 'Uploaded by the subcontractor. GC review is not available yet. Select Review fields to view structured document data.'
+                          ? 'Uploaded by the subcontractor. GC review is not available yet. Select Review document data to view structured document data.'
                           : 'GC review is unavailable for this certificate.'}
                       </p>
                     )}
@@ -651,7 +669,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
       {addCoiOpen && <AddCOIModal
         subcontractor={addCoiSub}
         onClose={() => setAddCoiOpen(false)}
-        onSaved={() => { showToast('COI uploaded — pending review. Open its subcontractor and select Review fields.'); load() }}
+        onSaved={() => { showToast('COI uploaded — pending review. Open its subcontractor and select Review document data.'); load() }}
       />}
       <COIReviewModal
         coi={reviewCoi}

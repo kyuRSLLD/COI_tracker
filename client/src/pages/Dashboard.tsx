@@ -149,6 +149,13 @@ export function Dashboard() {
                   >
                     Review COI
                   </button>
+                  <Link
+                    to="/subcontractors"
+                    state={{ openSubId: c.subcontractor_id }}
+                    className="text-[11px] font-semibold text-sky-800 hover:underline"
+                  >
+                    Review document data
+                  </Link>
                 </div>
               </div>
             ))}
