@@ -4,6 +4,7 @@ import type { Subcontractor } from '../types'
 import { apiSubcontractors } from '../api'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 import { ConnectionOptions, ConnectionSession } from './ConnectionOptions'
+import { Button } from './Button'
 
 const TRADES = [
   'Electrical',
@@ -98,20 +99,14 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-brand-600 uppercase tracking-wider font-['JetBrains_Mono']">
-              <Building2 className="w-3.5 h-3.5" /> Subcontractor
-            </div>
-            <h2 className="text-xl font-extrabold text-slate-900 mt-1">
-              {subcontractor ? 'Edit subcontractor' : 'Add a new subcontractor'}
+            <h2 className="text-xl font-extrabold text-slate-900">
+              {subcontractor ? 'Edit subcontractor' : 'Add a subcontractor'}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
               Contact info is private to your company and is automatically hidden from clients.
             </p>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Internal subcontractor notes are not available in this view.
-            </p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="Close" className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -188,16 +183,12 @@ export function SubcontractorModal({ open, onClose, subcontractor, onSaved }: Pr
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm"
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={loading}>
               {loading ? 'Saving…' : subcontractor ? 'Save changes' : 'Add subcontractor'}
-            </button>
+            </Button>
           </div>
         </form>
         </>}

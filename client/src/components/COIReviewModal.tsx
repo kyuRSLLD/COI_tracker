@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, CheckCircle2, FileQuestion, Ban, FileText, ShieldCheck } from 'lucide-react'
 import type { COI, GCSettings } from '../types'
+import { Button } from './Button'
 import { apiCOIs } from '../api'
 import { CertificateViewer } from './CertificateViewer'
 
@@ -58,7 +59,7 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
               {coi.company_name} — {coi.trade || 'subcontractor'}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -159,37 +160,37 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
 
         {/* Actions */}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
           >
             Close
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="danger"
             disabled={loading}
             onClick={() => applyStatus('rejected')}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-300 hover:bg-rose-100 disabled:opacity-60 transition"
           >
-            <Ban className="w-3.5 h-3.5" /> Reject
-          </button>
-          <button
+            <Ban className="w-4 h-4" /> Reject
+          </Button>
+          <Button
             type="button"
+            variant="secondary"
             disabled={loading}
             onClick={() => applyStatus('needs_revision')}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-300 hover:bg-orange-100 disabled:opacity-60 transition"
           >
-            <FileQuestion className="w-3.5 h-3.5" /> Request revision
-          </button>
-          <button
+            <FileQuestion className="w-4 h-4" /> Request revision
+          </Button>
+          <Button
             type="button"
+            variant="primary"
             disabled={loading}
             onClick={() => applyStatus('compliant')}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 transition shadow-sm"
           >
-            <CheckCircle2 className="w-3.5 h-3.5" /> Approve & mark compliant
-          </button>
+            <CheckCircle2 className="w-4 h-4" /> Approve & mark compliant
+          </Button>
         </div>
       </div>
       {viewingCertificate && <CertificateViewer certificate={coi} onClose={() => setViewingCertificate(false)} returnLabel="Back to review" />}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Copy, Check, Send } from 'lucide-react'
 import type { Subcontractor } from '../types'
+import { Button } from './Button'
 import { apiEmails } from '../api'
 
 interface Props {
@@ -52,18 +53,12 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-brand-600 uppercase tracking-wider font-['JetBrains_Mono']">
-              <Send className="w-3.5 h-3.5" /> Self-service upload
-            </div>
-            <h2 className="text-xl font-extrabold text-slate-900 mt-1">Request a COI from a Subcontractor</h2>
+            <h2 className="text-xl font-extrabold text-slate-900">Request a COI</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Generates a secure, personalized upload link. The subcontractor opens it, fills in their policy info, and attaches the certificate — no account required.
-            </p>
-            <p className="text-xs text-amber-800 mt-2">
-              Email delivery is not configured. After generating the link, copy and share it manually with the subcontractor.
+              Creates an upload link for one subcontractor. They open it, enter their policy details and attach the certificate. No account needed.
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="Close" className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -111,21 +106,21 @@ export function RequestCOIModal({ subcontractors, open, onClose, initialSubId, o
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
+            <Button
               type="button"
+              variant="secondary"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
               disabled={loading || !subId}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm"
             >
-              <Send className="w-3.5 h-3.5" />
-              {loading ? 'Creating…' : 'Generate Request Link'}
-            </button>
+              <Send className="w-4 h-4" />
+              {loading ? 'Creating…' : 'Create link'}
+            </Button>
           </div>
         </form>
 

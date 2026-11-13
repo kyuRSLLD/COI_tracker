@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ShieldCheck, CheckCircle2, ArrowRight, Sparkles, Building2, Lock, UserPlus, LogIn } from 'lucide-react'
@@ -259,19 +260,20 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                   <p>
                     Signed in as <span className="font-semibold">{currentUser?.email}</span>
                   </p>
-                  {currentUser?.role === 'sub' ? <button
+                  {currentUser?.role === 'sub' ? <Button
                     type="button"
+                    variant="primary"
+                    full
                     onClick={handleAuthenticatedJoin}
                     disabled={working || !sharingConsent}
-                    className="w-full text-xs font-semibold py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {working ? 'Linking…' : `Connect my account to ${gcName}`}
-                  </button> : <p>Only subcontractor accounts can connect to this invitation.</p>}
+                  </Button> : <p>Only subcontractor accounts can connect to this invitation.</p>}
                   {currentUser?.role === 'sub' && <p className="text-[11px] text-indigo-700/80">
                     Connecting again requires fresh consent.
                   </p>}
-                  <button type="button" disabled={working} onClick={() => { onSwitchAccount(); setError(null); setConsentFor(null); setReauthFor(null); setTab('existing') }} className="underline font-semibold disabled:opacity-40">{reauthFor === generation ? 'Sign out and sign in again' : 'Switch account'}</button>
+                  <Button type="button" variant="secondary" full disabled={working} onClick={() => { onSwitchAccount(); setError(null); setConsentFor(null); setReauthFor(null); setTab('existing') }}>{reauthFor === generation ? 'Sign out and sign in again' : 'Switch account'}</Button>
                 </div>
               )}
 
@@ -384,13 +386,9 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                           className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
                         />
                       </div>
-                      <button
-                        type="submit"
-                        disabled={working}
-                        className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
-                      >
+                      <Button type="submit" variant="primary" full disabled={working}>
                         {working ? 'Creating account…' : 'Create account'}
-                      </button>
+                      </Button>
                     </form>
                   ) : (
                     <form onSubmit={handleExistingConnect} className="space-y-3 text-xs">
@@ -418,13 +416,9 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
                           className="w-full px-3 py-1.5 rounded-lg border border-slate-200"
                         />
                       </div>
-                      <button
-                        type="submit"
-                        disabled={working}
-                        className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 transition"
-                      >
+                      <Button type="submit" variant="primary" full disabled={working}>
                         {working ? 'Connecting…' : 'Sign in'}
-                      </button>
+                      </Button>
                     </form>
                   )}
                 </>

@@ -1,6 +1,7 @@
+import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, Link } from 'react-router-dom'
 import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
 import { ApiError, apiCoiFields, apiSubcontractors, apiSettings, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
@@ -370,23 +371,36 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
             Track Certificates of Insurance per subcontractor. Contact information is private to you and never shared with clients.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
             onClick={() => { setAddCoiSub(selectedSub); setAddCoiOpen(true) }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition"
+            className="flex-1 sm:flex-initial"
           >
-            <Upload className="w-3.5 h-3.5" /> Upload COI
-          </button>
-          <button
+            <Upload className="w-4 h-4" /> Upload COI
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => { setEditSub(null); setAddSubOpen(true) }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
+            className="flex-1 sm:flex-initial"
           >
-            <Plus className="w-3.5 h-3.5" /> Add subcontractor
-          </button>
+            <Plus className="w-4 h-4" /> Add subcontractor
+          </Button>
         </div>
       </div>
 
-      {loadError && <div role="alert" className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">Unable to refresh subcontractors: {loadError}</div>}
+      {loadError && (
+        loadError === 'GC access required' ? (
+          <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+            <p className="text-sm text-slate-700">This account has no contractor workspace. Open Staff, or pick a company to view.</p>
+            <Link to="/staff" className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-700 transition">
+              Open Staff
+            </Link>
+          </div>
+        ) : (
+          <div role="alert" className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200">Unable to refresh subcontractors: {loadError}</div>
+        )
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-card space-y-3">
@@ -400,12 +414,12 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto text-xs pb-1 sm:pb-0">
+          <div className="flex items-center gap-2 overflow-x-auto text-xs pb-1 sm:pb-0 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
             {statuses.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setStatus(s.key)}
-                className={`px-3 py-1.5 rounded-full font-semibold transition shrink-0 ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-full font-semibold transition shrink-0 ${
                   status === s.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -416,12 +430,12 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
         </div>
 
         {/* Trade tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto text-xs pt-2 border-t border-slate-100">
+        <div className="flex items-center gap-2 overflow-x-auto text-xs pt-2 border-t border-slate-100 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
           {trades.map((t) => (
             <button
               key={t}
               onClick={() => setTrade(t)}
-              className={`px-2.5 py-1 rounded-lg font-medium transition shrink-0 ${
+              className={`min-h-[36px] px-2.5 py-1 rounded-lg font-medium transition shrink-0 ${
                 trade === t ? 'bg-brand-50 text-brand-700 font-bold' : 'text-slate-500 hover:text-slate-900'
               }`}
             >

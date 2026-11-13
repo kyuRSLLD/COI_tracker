@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useState } from 'react'
 import { X, Copy, Check, Lock, ExternalLink, ShieldAlert } from 'lucide-react'
 import type { Project } from '../types'
@@ -55,7 +56,7 @@ export function ShareModal({ project, open, onClose, onCreated }: Props) {
               Create a read-only live compliance link to send to the project owner or client.
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -96,16 +97,16 @@ export function ShareModal({ project, open, onClose, onCreated }: Props) {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">
+            <Button type="button" variant="secondary" onClick={onClose}>
               Close
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
               disabled={loading}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm"
             >
               {loading ? 'Creating…' : 'Generate client link'}
-            </button>
+            </Button>
           </div>
         </form>
 
@@ -118,20 +119,21 @@ export function ShareModal({ project, open, onClose, onCreated }: Props) {
                 value={share.url}
                 className="flex-1 text-xs font-['JetBrains_Mono'] bg-white border border-brand-200 rounded-lg px-2.5 py-1.5 truncate text-slate-700 select-all"
               />
-              <button
+              <Button
                 type="button"
+                variant="primary"
                 onClick={copy}
-                className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white transition"
+                className="shrink-0"
               >
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 {copied ? 'Copied' : 'Copy'}
-              </button>
+              </Button>
               <a
                 href={share.url}
                 target="_blank"
                 rel="noreferrer"
                 title="Preview client view"
-                className="shrink-0 p-2 rounded-lg text-brand-700 hover:bg-brand-100 transition"
+                className="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-lg text-brand-700 hover:bg-brand-100 transition"
               >
                 <ExternalLink className="w-4 h-4" />
               </a>

@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { Button } from '../components/Button'
+import { Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
 import {
   Save, Lock, Check, QrCode, Copy, RefreshCw, Printer, ExternalLink,
   Phone, Plus, Trash2, Star, Mail,
 } from 'lucide-react'
 import type { GCSettings, UserPhone } from '../types'
-import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe } from '../api'
+import { apiSettings, apiChangePassword, apiQrInvite, apiRegenerateQrInvite, apiPhones, apiMe, ApiError } from '../api'
 import { formatPhone, isValidUsPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 import { QRCodeSVG } from 'qrcode.react'
 
@@ -33,6 +35,7 @@ export function SettingsPage() {
   const [newIsPrimary, setNewIsPrimary] = useState(false)
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const initialSettings = useRef<string | null>(null)
 
   const showToast = (m: string) => {
     setToast(m)
@@ -48,14 +51,18 @@ export function SettingsPage() {
         apiMe().catch(() => ({ user: { email: '' } as any })),
       ])
       setSettings(sr.settings)
+      initialSettings.current = JSON.stringify(sr.settings)
       setQrInvite(qr)
       setPhones(pr.phones)
       setUserEmail(me.user.email)
+    } catch (e: any) {
+      if (e instanceof ApiError && (e.status === 403 || e.message?.includes('GC access required'))) {
+        // no-op; handled by the guarded render below
+      }
     } finally {
       setLoading(false)
     }
   }
-
   useEffect(() => { loadAll() }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,12 +72,14 @@ export function SettingsPage() {
     try {
       const res = await apiSettings.update(settings)
       setSettings(res.settings)
+      initialSettings.current = JSON.stringify(res.settings)
       showToast('Settings saved')
     } finally {
       setSaving(false)
     }
   }
 
+  const isDirty = Boolean(initialSettings.current && settings && JSON.stringify(settings) !== initialSettings.current)
   const handleCopyLink = () => {
     if (!qrInvite) return
     navigator.clipboard?.writeText(qrInvite.invite_url)
@@ -155,8 +164,18 @@ export function SettingsPage() {
       showToast(err.message)
     }
   }
-  if (loading || !settings) {
+  if (loading) {
     return <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 text-center text-xs text-slate-400">Loading settings…</div>
+  }
+  if (!settings) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+        <p className="text-sm text-slate-700">This account has no contractor workspace. Open Staff, or pick a company to view.</p>
+        <Link to="/staff" className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-700 transition">
+          Open Staff
+        </Link>
+      </div>
+    )
   }
 
   return (
@@ -168,13 +187,13 @@ export function SettingsPage() {
       )}
 
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Profile &amp; Settings</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Profile</h1>
         <p className="text-xs text-slate-500 mt-1">
-          Manage your company profile, password, and subcontractor onboarding QR code.
+          Manage your company profile, password, and subcontractor onboarding.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 text-xs">
+      <form id="settings-form" onSubmit={handleSubmit} className="space-y-6 text-xs">
         {/* Company profile */}
         <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
           <h2 className="text-sm font-bold text-slate-900">Company profile</h2>
@@ -317,58 +336,62 @@ export function SettingsPage() {
 
           {qrInvite && (
             <div className="grid md:grid-cols-2 gap-6 items-center">
-              <div className="flex flex-col items-center text-center p-5 bg-slate-50 rounded-2xl border border-slate-200">
-                <div id="qr-svg-container" className="p-3 bg-white rounded-xl shadow-xs border border-slate-200">
-                  <QRCodeSVG value={qrInvite.invite_url} size={200} level="M" />
+              <div className="flex flex-col items-center text-center p-5 bg-slate-50 rounded-2xl border border-slate-200 min-w-0">
+                <div id="qr-svg-container" className="max-w-full overflow-hidden p-3 bg-white rounded-xl shadow-xs border border-slate-200">
+                  <QRCodeSVG value={qrInvite.invite_url} size={200} level="M" className="max-w-full h-auto" />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2 font-mono">{qrInvite.invite_url}</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <button
+                <p className="text-[11px] text-slate-400 mt-2 font-mono break-all">{qrInvite.invite_url}</p>
+                <div className="flex flex-col gap-2 mt-3 w-full">
+                  <Button
                     type="button"
+                    variant="primary"
+                    full
                     onClick={handleCopyLink}
-                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-semibold flex items-center gap-1 hover:bg-slate-800"
                   >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     {copied ? 'Copied' : 'Copy invite link'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="secondary"
+                    full
                     onClick={handlePrintFlyer}
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 font-semibold hover:bg-slate-50 flex items-center gap-1"
                   >
-                    <Printer className="w-3.5 h-3.5" /> Print job-site flyer
-                  </button>
+                    <Printer className="w-4 h-4" /> Print job-site flyer
+                  </Button>
                   <a
                     href={qrInvite.invite_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 font-semibold hover:bg-slate-50 flex items-center gap-1"
+                    className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition"
                   >
-                    Open page <ExternalLink className="w-3 h-3" />
+                    Open page <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50">
-                  <p className="text-[11px] text-slate-400">How it works</p>
-                  <ol className="list-decimal list-inside text-slate-600 mt-1 space-y-1 text-[11px]">
-                    <li>Print the flyer and post it in your job-site trailer or text the link.</li>
-                    <li>Subcontractors scan and create a free account or sign in to an existing one.</li>
-                    <li>They review the sharing terms and consent before connecting.</li>
-                    <li>Their COI can be uploaded and viewed by your company.</li>
+                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50 text-xs">
+                  <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">How it works</p>
+                  <ol className="list-decimal list-inside text-slate-600 mt-1.5 space-y-1 text-xs">
+                    <li>Share the flyer or link with subcontractors.</li>
+                    <li>They scan and sign in with a free account.</li>
+                    <li>They review the sharing terms and consent to connect.</li>
+                    <li>Their uploaded certificates are then visible to your company.</li>
                   </ol>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">
-                  <span>Invite code: <code className="font-mono">{qrInvite.invite_code}</code></span>
-                  <button
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-slate-400 pt-2 border-t border-slate-100">
+                  <span>Invite code: <code className="font-mono text-sm tracking-widest">{qrInvite.invite_code}</code></span>
+                  <Button
                     type="button"
+                    variant="secondary"
                     disabled={regen}
                     onClick={handleRegenerate}
-                    className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                    full
+                    className="sm:w-auto"
                   >
-                    <RefreshCw className={`w-3 h-3 ${regen ? 'animate-spin' : ''}`} /> Regenerate code
-                  </button>
+                    <RefreshCw className={`w-3.5 h-3.5 ${regen ? 'animate-spin' : ''}`} /> Regenerate code
+                  </Button>
                 </div>
               </div>
             </div>
@@ -379,7 +402,7 @@ export function SettingsPage() {
         <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900">Security — password</h2>
+            <h2 className="text-sm font-bold text-slate-900">Password</h2>
           </div>
           <div className="grid sm:grid-cols-3 gap-4">
             <div>
@@ -399,8 +422,9 @@ export function SettingsPage() {
             <p className={`text-xs ${pwMsg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{pwMsg.text}</p>
           )}
           <div className="flex justify-end">
-            <button
+            <Button
               type="button"
+              variant="primary"
               disabled={pwSaving}
               onClick={async () => {
                 setPwMsg(null)
@@ -418,18 +442,14 @@ export function SettingsPage() {
                   setPwSaving(false)
                 }
               }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 transition shadow-sm"
             >
               <Check className="w-4 h-4" /> {pwSaving ? 'Updating…' : 'Update password'}
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* The former demo controls did not enforce a second factor. */}
-        <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-2">
-          <h2 className="text-sm font-bold text-slate-900">Two-factor authentication</h2>
-          <p className="text-xs text-slate-600">Two-factor authentication is not currently enabled from this page. The previous demo controls did not protect sign-ins.</p>
-        </div>
+
 
         {/* Insurance requirements */}
         <div className="bg-white rounded-3xl p-7 border border-slate-200 shadow-card space-y-4">
@@ -468,11 +488,18 @@ export function SettingsPage() {
         </div>
 
         <div className="flex justify-end">
-          <button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 px-6 py-3 rounded-2xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 transition shadow-sm">
+          <Button type="submit" variant="primary" disabled={saving}>
             <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save all settings'}
-          </button>
+          </Button>
         </div>
       </form>
+      {isDirty && (
+        <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 p-3 bg-white/95 backdrop-blur-sm border-t border-slate-200 shadow-xl">
+          <Button type="submit" form="settings-form" variant="primary" full disabled={saving}>
+            <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save all settings'}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useState, useEffect } from 'react'
 import { Plus, Share2, Users, ExternalLink, Trash2, Check, FolderKanban } from 'lucide-react'
 import type { Project, Subcontractor } from '../types'
@@ -61,17 +62,16 @@ export function ProjectsPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Projects & Client Sharing</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Group subcontractors by job and generate privacy-safe client compliance links in one click.
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Projects</h1>
+          <p className="text-xs text-slate-500 mt-1">Group subcontractors by job and share a compliance link with your client.</p>
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={() => { setEditProject(null); setProjectModal(true) }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm self-start sm:self-auto"
+          className="self-start sm:self-auto"
         >
-          <Plus className="w-3.5 h-3.5" /> New project
-        </button>
+          <Plus className="w-4 h-4" /> New project
+        </Button>
       </div>
 
       {loading ? (

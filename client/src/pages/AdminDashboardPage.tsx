@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { apiAdmin, apiMe } from '../api'
@@ -149,31 +150,31 @@ export function AdminDashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff</h1>
-          <p className="text-xs text-slate-500 font-mono mt-0.5">Platform command center · live data</p>
+          <p className="text-xs text-slate-500 mt-0.5">All companies and users</p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-xs w-full sm:w-auto">
           <span className="text-slate-400 font-mono hidden sm:inline">
             {lastRefreshed.toLocaleTimeString()}
           </span>
-          <button
+          <Button
+            variant="secondary"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-          <button
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
+          <Button
+            variant="danger"
             onClick={handleResetData}
             title="Restore full demo dataset (companies, users, COIs, growth history)"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 transition"
           >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset demo data
-          </button>
+            <RotateCcw className="w-4 h-4" /> Reset demo data
+          </Button>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 transition font-mono"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
           >
-            Contractor view →
+            Contractor view
           </Link>
         </div>
       </div>
@@ -183,6 +184,10 @@ export function AdminDashboardPage() {
           {statusMsg}
         </div>
       )}
+      <div className="text-xs font-mono text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+        <span>Email: simulated mode — SMTP is not configured. Outgoing mail is recorded in the log but not delivered.</span>
+        <span className="text-[10px] text-amber-700">staff only</span>
+      </div>
 
       {error && (
         <div className="text-xs font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
@@ -251,19 +256,18 @@ export function AdminDashboardPage() {
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">Revenue by plan</h2>
-            <span className="text-[11px] font-mono text-slate-400">MRR from assigned plans</span>
           </div>
-          <div className="divide-y divide-slate-100 text-xs font-mono">
-            <div className="grid grid-cols-4 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+          <div className="overflow-x-auto"><div className="min-w-[420px] divide-y divide-slate-100 text-xs font-mono">
+            <div className="grid grid-cols-4 gap-2 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
               <div>Plan</div>
               <div className="text-right">Price</div>
-              <div className="text-right">Subscribers</div>
+              <div className="text-right">Subs</div>
               <div className="text-right">MRR</div>
             </div>
             {plans.map((p) => {
               const price = overview?.revenue.available_plans.find((ap) => ap.plan === p.plan)?.price ?? 0
               return (
-                <div key={p.plan} className="grid grid-cols-4 py-2 items-center">
+                <div key={p.plan} className="grid grid-cols-4 gap-2 py-2 items-center">
                   <div>
                     <span className="font-semibold text-slate-900">{p.plan}</span>
                     {p.plan === 'Subcontractor' && (
@@ -278,6 +282,7 @@ export function AdminDashboardPage() {
                 </div>
               )
             })}
+          </div>
           </div>
         </div>
 
@@ -304,9 +309,7 @@ export function AdminDashboardPage() {
               <div className="text-center text-slate-400 text-xs py-6">no data</div>
             )}
           </div>
-          <div className="text-[10px] font-mono text-slate-400 pt-3 border-t border-slate-100 mt-3">
-            Last 6 months, ISO string month buckets
-          </div>
+
         </div>
       </div>
 
@@ -323,11 +326,51 @@ export function AdminDashboardPage() {
               placeholder="Search companies…"
               value={companySearch}
               onChange={(e) => setCompanySearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-56"
+              className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-full sm:w-56"
             />
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="sm:hidden divide-y divide-slate-100 text-xs font-mono">
+          {filteredCompanies.map((c) => (
+            <div key={c.id} className="py-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900 truncate">{c.name}</div>
+                  <div className="text-slate-500 truncate">{c.owner_name || '—'}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{c.owner_email || '—'}</div>
+                </div>
+                <button
+                  onClick={() => handleDeleteCompany(c)}
+                  title="Delete company"
+                  className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div>
+                <select
+                  value={c.plan || 'Free Demo'}
+                  disabled={savingPlanId === c.id}
+                  onChange={(e) => handlePlanChange(c.id, e.target.value)}
+                  className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
+                >
+                  {overview?.revenue.available_plans.map((ap) => (
+                    <option key={ap.plan} value={ap.plan}>
+                      {ap.plan} · ${ap.price}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-600 pt-1">
+                <span>MRR <strong className="text-slate-900">${(c.mrr || 0).toLocaleString()}</strong></span>
+                <span>Subs {c.subcontractor_count}</span>
+                <span>Projects {c.project_count}</span>
+                <span className="text-slate-400">Joined {c.created_at ? c.created_at.slice(0, 10) : '—'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-xs font-mono text-left">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
@@ -371,7 +414,7 @@ export function AdminDashboardPage() {
                     <button
                       onClick={() => handleDeleteCompany(c)}
                       title="Delete company"
-                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -389,13 +432,13 @@ export function AdminDashboardPage() {
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">
             Users ({filteredUsers.length})
           </h2>
-          <div className="flex items-center gap-2">
-            <div className="flex text-xs font-mono border border-slate-300 rounded-lg overflow-hidden">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex w-full sm:w-auto text-xs font-mono border border-slate-300 rounded-lg overflow-hidden">
               {(['all', 'admin', 'gc'] as const).map((r) => (
                 <button
                   key={r}
                   onClick={() => setRoleFilter(r)}
-                  className={`px-2.5 py-1 ${
+                  className={`flex-1 sm:flex-initial min-h-[44px] px-2.5 py-2 ${
                     roleFilter === r ? 'bg-slate-900 text-white font-bold' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
@@ -403,19 +446,54 @@ export function AdminDashboardPage() {
                 </button>
               ))}
             </div>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+            <div className="relative w-full sm:w-56">
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
               <input
                 type="text"
                 placeholder="Search users…"
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-52"
+                className="w-full sm:w-56 pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500"
               />
             </div>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="sm:hidden divide-y divide-slate-100 text-xs font-mono">
+          {filteredUsers.map((u) => (
+            <div key={u.id} className="py-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900 truncate">{u.name || '—'}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                  <div className="text-slate-500 mt-1 truncate">{u.company_name || '—'}</div>
+                </div>
+                <button
+                  onClick={() => handleDeleteUser(u)}
+                  disabled={me ? u.id === me.id : false}
+                  title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
+                  className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div>
+                <select
+                  value={u.role || 'gc'}
+                  disabled={savingRoleId === u.id}
+                  onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                  className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
+                >
+                  <option value="gc">gc</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <div className="text-[11px] text-slate-400 pt-1">
+                Joined {u.created_at ? u.created_at.slice(0, 10) : '—'}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-xs font-mono text-left">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
@@ -451,7 +529,7 @@ export function AdminDashboardPage() {
                       onClick={() => handleDeleteUser(u)}
                       disabled={me ? u.id === me.id : false}
                       title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
-                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

@@ -9,9 +9,9 @@ interface Props {
 export function StatsGrid({ stats, onFilterClick }: Props) {
   const t = stats.totals
   const cards = [
-    { num: '01', key: 'all', label: 'Total subcontractors', value: t.total, icon: Users, tint: 'bg-slate-100 text-slate-700', sub: 'tracked across all projects' },
+    { num: '01', key: 'all', label: 'Total subcontractors', value: t.total, icon: Users, tint: 'bg-slate-100 text-slate-700', sub: 'across all projects' },
     { num: '02', key: 'compliant', label: 'Fully compliant', value: t.compliant, icon: CheckCircle2, tint: 'bg-emerald-100 text-emerald-700', sub: 'active COI verified' },
-    { num: '03', key: 'expiring_soon', label: 'Expiring ≤30 days', value: t.expiring, icon: AlertTriangle, tint: 'bg-amber-100 text-amber-700', sub: 'reminders recommended' },
+    { num: '03', key: 'expiring_soon', label: 'Expiring ≤30 days', value: t.expiring, icon: AlertTriangle, tint: 'bg-amber-100 text-amber-700', sub: 'send reminders' },
     { num: '04', key: 'expired', label: 'Expired policies', value: t.expired, icon: XCircle, tint: 'bg-rose-100 text-rose-700', sub: 'stop-work risk' },
     { num: '05', key: 'missing', label: 'Missing COI', value: t.missing, icon: FileQuestion, tint: 'bg-slate-100 text-slate-600', sub: 'no certificate on file' },
     { num: '06', key: 'pending_review', label: 'Pending GC review', value: t.pending, icon: Clock, tint: 'bg-sky-100 text-sky-700', sub: 'submitted, await review' },

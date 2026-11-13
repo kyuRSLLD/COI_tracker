@@ -200,7 +200,7 @@ export const CameraQrScanner = forwardRef<CameraQrScannerHandle, CameraQrScanner
     <section className="space-y-3 rounded-xl border border-slate-200 p-3 text-xs text-slate-700" aria-label="Camera QR scanner">
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-semibold text-slate-900">Scan a subcontractor QR code</h3>
-        <button type="button" onClick={close} className="rounded-lg px-2 py-1 font-semibold text-slate-700 underline">Close scanner</button>
+        <button type="button" onClick={close} className="min-h-[44px] inline-flex items-center px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 transition">Close scanner</button>
       </div>
       {!supported ? (
         <p role="status">Camera scanning is unavailable in this browser or on this connection. Use a secure HTTPS page with a supported browser, or upload a screenshot instead.</p>
@@ -215,7 +215,7 @@ export const CameraQrScanner = forwardRef<CameraQrScannerHandle, CameraQrScanner
           {status === 'decoded' && <p role="status">Connection QR detected. Camera stopped.</p>}
           {invalidCode && status === 'scanning' && <p role="status">That QR code is not a SafeCOI subcontractor connection code. Try another.</p>}
           {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-800">{error}</p>}
-          {(status === 'error' || status === 'decoded') && <button type="button" onClick={() => void start()} className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800">Try camera again</button>}
+          {(status === 'error' || status === 'decoded') && <button type="button" onClick={() => void start()} className="min-h-[44px] rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-sm text-white hover:bg-brand-700 active:bg-brand-800 transition shadow-xs">Try camera again</button>}
         </>
       )}
     </section>

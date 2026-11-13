@@ -72,18 +72,20 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                 <button
                   onClick={onOpenAddSub}
                   title="Add subcontractor"
-                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
+                  aria-label="Add subcontractor"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
                 >
-                  <Plus className="w-3.5 h-3.5" /> + Sub
+                  <Plus className="w-4 h-4" /> <span className="hidden sm:inline">+ Sub</span>
                 </button>
               )}
               {user.role !== 'sub' && onOpenRequestCOI && (
                 <button
                   onClick={onOpenRequestCOI}
                   title="Request certificate of insurance"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm whitespace-nowrap"
+                  aria-label="Request certificate of insurance"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm whitespace-nowrap"
                 >
-                  <FileText className="w-3.5 h-3.5" /> Request
+                  <FileText className="w-4 h-4" /> <span>Request</span>
                 </button>
               )}
               <div className="hidden md:flex flex-col text-right text-xs leading-tight ml-2">
@@ -92,10 +94,11 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
               </div>
               <button
                 onClick={onLogout}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition ml-1"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-slate-500 hover:text-red-600 rounded-xl hover:bg-red-50 transition ml-1"
                 title="Sign out"
+                aria-label="Sign out"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               </button>
             </>
           ) : (
@@ -110,7 +113,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
       </div>
       {/* mobile bottom bar */}
       {user && (
-        <div className="lg:hidden flex items-center justify-around border-t border-slate-200 py-1 bg-white text-[11px]">
+        <div className="lg:hidden flex items-center justify-around border-t border-slate-200 py-1 bg-white text-xs">
           {nav.map((item) => {
             const Icon = item.icon
             const active = loc.pathname === item.to
@@ -123,7 +126,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                 }`}
               >
                 <Icon className="w-4 h-4" />
-                {item.label}
+                <span>{item.label === 'Subcontractors' ? <><span className="sm:hidden">Subs</span><span className="hidden sm:inline">Subcontractors</span></> : item.label}</span>
               </Link>
             )
           })}

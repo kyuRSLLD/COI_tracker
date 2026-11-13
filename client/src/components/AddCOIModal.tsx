@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useEffect, useState } from 'react'
 import { X, Upload, Shield } from 'lucide-react'
 import type { Subcontractor } from '../types'
@@ -110,7 +111,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
             <h2 id="upload-coi-title" className="text-xl font-extrabold text-slate-900 mt-1">Upload COI</h2>
             <p className="text-xs text-slate-500 mt-1">Upload a certificate you already collected. It will be pending manual review, not verified.</p>
           </div>
-          <button type="button" onClick={onClose} disabled={loading} aria-label="Close" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+          <button type="button" onClick={onClose} disabled={loading} aria-label="Close" className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -183,8 +184,8 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} disabled={loading} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={loading || loadingSubs || !!subError || subs.length === 0} className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm">{loading ? 'Uploading…' : 'Upload COI'}</button>
+            <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={loading || loadingSubs || !!subError || subs.length === 0}>{loading ? 'Uploading…' : 'Upload COI'}</Button>
           </div>
         </form>
       </div>

@@ -31,3 +31,28 @@ html {
     display: none !important;
   }
 }
+
+/* Hide scrollbars on chip carousels (both Firefox and WebKit) */
+.scrollbar-hide {
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+/* Mobile text and input sizing: no text under 12px, inputs >=16px to prevent iOS zoom */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]):not([type="hidden"]),
+  select {
+    font-size: 16px !important;
+    min-height: 44px !important;
+  }
+  textarea {
+    font-size: 16px !important;
+  }
+  [class*="text-[10px]"],
+  [class*="text-[11px]"],
+  [class*="text-[9px]"],
+  [class*="text-[8px]"] {
+    font-size: 12px !important;
+  }
+}

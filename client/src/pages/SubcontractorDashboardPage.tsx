@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
 import {
   ShieldCheck, Upload, CheckCircle2, Clock, FileText, AlertTriangle,
@@ -483,8 +484,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             <h1 className="text-xl font-bold text-slate-900">{sub?.company_name}</h1>
             <p className="text-xs text-slate-500">Subcontractor insurance portal · {sub?.trade}</p>
           </div>
-          <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-            {cois.length === 0 ? 'No COI on file' : `${cois.length} certificate on file`}
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap shrink-0">
+            {cois.length === 0 ? 'No COI on file' : `${cois.length} on file`}
           </span>
         </div>
 
@@ -507,10 +508,10 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-1">
               <Upload className="w-4 h-4 text-slate-700" />
-              <h2 className="text-sm font-semibold text-slate-900">Upload your insurance paper</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Upload your certificate of insurance</h2>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Drop your ACORD certificate (PDF or photo) — you can fill the rest later or let your broker handle it.
+              Attach your ACORD certificate (PDF or photo). You can complete the details yourself or have your broker do it later.
             </p>
 
             <form onSubmit={handleQuickUpload} className="space-y-3">
@@ -534,7 +535,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 ) : (
                   <>
                     <p className="text-xs font-semibold text-slate-700">Click to choose a file</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">ACORD 25 certificate · PDF, PNG, JPG up to 25 MB</p>
+                    <p className="text-xs text-slate-400 mt-0.5">ACORD certificate · PDF, PNG, JPG up to 25 MB</p>
                   </>
                 )}
               </div>
@@ -574,7 +575,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 disabled={!file || uploading}
                 className="w-full text-xs font-semibold py-2 rounded-xl bg-slate-900 text-white disabled:opacity-40 hover:bg-slate-800 transition"
               >
-                {uploading ? 'Uploading…' : file ? 'Upload certificate' : 'Choose a file first'}
+                {uploading ? 'Uploading…' : 'Upload certificate'}
               </button>
             </form>
 
@@ -592,8 +593,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
               <h2 className="text-sm font-semibold text-slate-900">Insurance carrier connections unavailable</h2>
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              Carrier connections are not available. Please upload your certificate instead.
-              No insurance coverage is verified by a carrier connection.
+              Direct carrier connections are not available. Upload your certificate PDF or photo above instead — it is stored securely and shared only with general contractors you choose to connect.
             </p>
           </div>
         </div>
@@ -623,8 +623,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                   : expired
                   ? { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' }
                   : expiring
-                  ? { label: `Expires in ${days}d`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
-                  : { label: `${days}d left`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                  ? { label: `${days} days left`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+                  : { label: `${days} days left`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
                 return (
                   <div key={coi.id} className="border border-slate-200 rounded-xl p-4 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -669,21 +669,31 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       </div>
                     )}
 
-                    <button type="button" onClick={() => openReview(coi)}
-                      className="mt-3 mr-3 text-[11px] font-semibold text-indigo-700 hover:underline">
-                      Review document data
-                    </button>
-                    <button type="button" onClick={async () => {
-                        if (!window.confirm(`Delete your ${coi.carrier} certificate (Policy ${coi.policy_number || '—'})? Contractors who have it on file will no longer see it.`)) return
-                        try {
-                          await apiSub.deleteCOI(coi.id, sessionToken)
-                          load()
-                        } catch (e: any) { setError(e?.message || 'Delete failed') }
-                      }}
-                      className="mt-3 mr-3 text-[11px] font-semibold text-rose-600 hover:underline"
-                      title="Delete this certificate you uploaded">
-                      Delete certificate
-                    </button>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => openReview(coi)}
+                        className="text-xs"
+                      >
+                        Review document data
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete your ${coi.carrier} certificate (Policy ${coi.policy_number || '—'})? Contractors who have it on file will no longer see it. This cannot be undone.`)) return
+                          try {
+                            await apiSub.deleteCOI(coi.id, sessionToken)
+                            load()
+                          } catch (e: any) { setError(e?.message || 'Delete failed') }
+                        }}
+                        title="Delete this certificate you uploaded"
+                        className="text-xs"
+                      >
+                        Delete certificate
+                      </Button>
+                    </div>
                     {coi.certificate_url && !coi.simulated_carrier_connect && (
                       <div className="mt-3 text-[11px]">
                         <button
@@ -743,7 +753,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             <Building2 className="w-4 h-4 text-slate-700" />
             <h3 className="text-sm font-semibold text-slate-900">Connected general contractors</h3>
           </div>
-          <p className="text-xs text-slate-500 mb-3">Remove a connection to stop future access. Previously issued download links may work briefly, and files already downloaded cannot be recalled. Removing a connection also cancels all unused connection codes; generate a new code if you want to share again.</p>
+          <p className="text-xs text-slate-500 mb-3">Remove a connection to stop future access. Files already downloaded cannot be recalled. Any unused connection codes will also be cancelled.</p>
           {data?.disconnect_available !== true && <p role="status" className="text-xs text-amber-800 mb-3">Removing connections is temporarily unavailable. Existing connections remain active; please try again later.</p>}
           {connectionMessage && <p role="status" className="text-xs text-emerald-700 mb-3">{connectionMessage}</p>}
           {(data?.connected_gcs || []).length === 0 ? (
@@ -756,11 +766,16 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     <p className="font-semibold text-slate-900">{gc.company_name || 'General contractor'}</p>
                     {(gc.email || gc.phone) && <p className="text-slate-500 mt-1">{[gc.email, gc.phone].filter(Boolean).join(' · ')}</p>}
                   </div>
-                  <button type="button" disabled={data?.disconnect_available !== true || !!removingGc || !gc.gc_id} onClick={() => handleRemoveConnection(gc)}
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={data?.disconnect_available !== true || !!removingGc || !gc.gc_id}
+                    onClick={() => handleRemoveConnection(gc)}
                     aria-label={`Remove connection to ${gc.company_name || 'general contractor'}`}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                    className="text-xs"
+                  >
                     {removingGc === gc.gc_id ? 'Removing…' : 'Remove connection'}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -770,7 +785,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         <SubConnectionQr key={qrVersion} />
 
         {/* Footer info */}
-        <div className="text-center text-[11px] text-slate-400 py-4">
+        <div className="text-center text-xs text-slate-400 py-4">
           Subcontractor portal · need help? Contact your requesting general contractor or sign in with another account.
         </div>
       </main>

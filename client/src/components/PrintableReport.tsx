@@ -26,7 +26,7 @@ export function PrintableReport({ open, onClose, payload }: Props) {
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save as PDF
             </button>
-            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+            <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
               <X className="w-5 h-5" />
             </button>
           </div>

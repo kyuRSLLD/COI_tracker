@@ -1,3 +1,4 @@
+import { Button } from '../components/Button'
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -215,14 +216,11 @@ function SessionConnectionQr({ sessionToken }: { sessionToken: string }) {
         <h2 id="share-with-gc-heading" className="text-sm font-semibold text-slate-900">Share with a general contractor</h2>
       </div>
       <p className="text-xs text-slate-700">
-        You choose whether to connect one general contractor, granting them ongoing access to your profile and <strong>all current and future certificates of insurance (COIs) you own</strong>. The general contractor may also include anonymized insurance information in client reports they share. Only show or share this code with the intended general contractor.
+        Show this code to one general contractor. They get ongoing access to your profile and <strong>every certificate you upload, now and later</strong>. The code expires in 15 minutes.
       </p>
-      <p className="text-xs text-slate-600 mt-2">
-        The code expires after 15 minutes. No email is sent. Revoking an unclaimed QR code does not disconnect a general contractor who is already connected. Leaving this page does not revoke the code.
-      </p>
-      <button ref={openerRef} type="button" onClick={openDialog} className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900">
-        <QrCode className="h-4 w-4" aria-hidden="true" /> Show connection QR code
-      </button>
+      <Button ref={openerRef} type="button" variant="primary" onClick={openDialog} full className="sm:w-auto mt-4">
+        <QrCode className="w-4 h-4" /> Show connection QR code
+      </Button>
 
       {open && createPortal(
         <dialog ref={dialogRef} aria-modal="true" aria-labelledby="connection-qr-dialog-title" aria-describedby="connection-qr-scope" onCancel={(event) => { event.preventDefault(); setOpen(false) }} onKeyDown={(event) => {
@@ -244,10 +242,7 @@ function SessionConnectionQr({ sessionToken }: { sessionToken: string }) {
             </div>
 
             <p id="connection-qr-scope" className="mt-4 text-sm leading-relaxed text-slate-700">
-              You choose whether to connect one general contractor, granting them ongoing access to your profile and <strong>all current and future certificates of insurance (COIs) you own</strong>. The general contractor may also include anonymized insurance information in client reports they share. Only show or share this code with the intended general contractor.
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-slate-600">
-              The code expires after 15 minutes. No email is sent. Revoking an unclaimed QR code does not disconnect a general contractor who is already connected. Closing this dialog or leaving this page does not revoke an unexpired code.
+              Show this code to one general contractor. They get ongoing access to your profile and <strong>every certificate you upload, now and later</strong>. The code expires in 15 minutes.
             </p>
 
             {!code ? (
@@ -256,7 +251,7 @@ function SessionConnectionQr({ sessionToken }: { sessionToken: string }) {
                   <input type="checkbox" checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4 shrink-0" />
                   <span>I agree to give one general contractor ongoing access to my profile and all current and future COIs I own, including possible sharing of anonymized insurance information in client reports.</span>
                 </label>
-                <button type="button" disabled={!consent || busy} onClick={generate} className="min-h-[44px] rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40">
+                <button type="button" disabled={!consent || busy} onClick={generate} className="min-h-[44px] rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 active:bg-brand-800 disabled:opacity-40 shadow-xs transition">
                   {busy ? 'Generating…' : 'Generate QR code'}
                 </button>
               </div>
@@ -272,11 +267,15 @@ function SessionConnectionQr({ sessionToken }: { sessionToken: string }) {
                   <input id="gc-connection-link" ref={linkRef} readOnly value={link} onFocus={(event) => event.currentTarget.select()} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700" />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" disabled={busy} onClick={copyLink} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40">
-                    <Link2 className="h-4 w-4" aria-hidden="true" /> Copy link
-                  </button>
-                  <button type="button" disabled={busy} onClick={copyQr} className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40">Copy QR code</button>
-                  <button type="button" disabled={busy} onClick={revoke} className="min-h-[44px] rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-40">{busy ? 'Revoking…' : 'Revoke / cancel QR code'}</button>
+                  <Button type="button" variant="secondary" disabled={busy} onClick={copyLink}>
+                    <Link2 className="w-4 h-4" /> Copy link
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={busy} onClick={copyQr}>
+                    Copy QR code
+                  </Button>
+                  <Button type="button" variant="danger" disabled={busy} onClick={revoke}>
+                    {busy ? 'Revoking…' : 'Revoke / cancel QR code'}
+                  </Button>
                 </div>
               </div>
             )}

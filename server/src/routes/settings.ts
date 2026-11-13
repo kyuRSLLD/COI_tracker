@@ -13,13 +13,17 @@ settingsRouter.get('/', async (req: AuthRequest, res) => {
     let s = await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [req.user!.id])
     if (!s) {
       const id = uuidv4()
+      const u = await dbGet<any>('SELECT company_name, name FROM users WHERE id = ?', [req.user!.id])
+      const initialName = u?.company_name || u?.name || null
       await dbRun(
         `INSERT INTO gc_settings (id, user_id, company_name, expiration_warning_days, updated_at)
-         VALUES (?, ?, 'Your Company', 30, ?)`,
-        [id, req.user!.id, new Date().toISOString()]
+         VALUES (?, ?, ?, 30, ?)`,
+        [id, req.user!.id, initialName, new Date().toISOString()]
       )
       s = await dbGet('SELECT * FROM gc_settings WHERE id = ? AND user_id = ?', [id, req.user!.id])
     }
+    const u = await dbGet<any>('SELECT company_name, name FROM users WHERE id = ?', [req.user!.id])
+    if (!s.company_name) s.company_name = u?.company_name || u?.name || null
     res.json({ settings: s })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -95,10 +99,12 @@ settingsRouter.get('/qr-invite', async (req: AuthRequest, res) => {
       if (!s) return res.status(404).json({ error: 'Company settings not found' })
     }
     const origin = process.env.CLIENT_URL || 'https://safecoi.com'
+    const u = await dbGet<any>('SELECT company_name, name FROM users WHERE id = ?', [req.user!.id])
+    const cname = s.company_name || u?.company_name || u?.name || 'Your Company'
     res.json({
       invite_code: s.invite_code,
       invite_url: `${origin}/join/${s.invite_code}`,
-      company_name: s.company_name,
+      company_name: cname,
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -112,10 +118,12 @@ settingsRouter.post('/qr-invite/regenerate', async (req: AuthRequest, res) => {
     const code = 'join-' + crypto.randomBytes(18).toString('hex')
     await dbRun('UPDATE gc_settings SET invite_code = ? WHERE id = ? AND user_id = ?', [code, s.id, req.user!.id])
     const origin = process.env.CLIENT_URL || 'https://safecoi.com'
+    const u2 = await dbGet<any>('SELECT company_name, name FROM users WHERE id = ?', [req.user!.id])
+    const cname2 = s.company_name || u2?.company_name || u2?.name || 'Your Company'
     res.json({
       invite_code: code,
       invite_url: `${origin}/join/${code}`,
-      company_name: s.company_name,
+      company_name: cname2,
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })

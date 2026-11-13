@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, FolderPlus } from 'lucide-react'
 import type { Project } from '../types'
+import { Button } from './Button'
 import { apiProjects } from '../api'
 
 interface Props {
@@ -89,7 +90,7 @@ export function ProjectModal({ open, onClose, project, onSaved }: Props) {
               Group subcontractors by client project to track and share compliance per job.
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button onClick={onClose} className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -176,16 +177,16 @@ export function ProjectModal({ open, onClose, project, onSaved }: Props) {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
               disabled={loading}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 transition shadow-sm"
             >
               {loading ? 'Saving…' : project ? 'Save changes' : 'Create project'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

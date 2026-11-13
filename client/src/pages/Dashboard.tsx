@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
 import type { Stats, Subcontractor, COI, GCSettings } from '../types'
-import { apiStats, apiSubcontractors, apiCOIs, apiSettings, apiEmails } from '../api'
+import { Button } from '../components/Button'
+import { apiStats, apiSubcontractors, apiCOIs, apiSettings, apiEmails, ApiError } from '../api'
 import { StatsGrid } from '../components/StatsGrid'
 import { ComplianceScore } from '../components/ComplianceScore'
 import { ExpirationBadge } from '../components/ExpirationBadge'
@@ -45,17 +46,29 @@ export function Dashboard() {
       setSubs(subList.subcontractors)
       setPendingCois(pen.cois)
       setGcSettings(cfg.settings)
+    } catch (e: any) {
+      if (e instanceof ApiError && (e.status === 403 || e.message?.includes('GC access required'))) {
+        // no-op; handled by the guarded render below
+      }
     } finally {
       setLoading(false)
     }
   }
-
   useEffect(() => {
     load()
   }, [])
-
-  if (loading || !stats) {
+  if (loading) {
     return <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 text-center text-xs text-slate-400">Loading dashboard…</div>
+  }
+  if (!stats) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+        <p className="text-sm text-slate-700">This account has no contractor workspace. Open Staff, or pick a company to view.</p>
+        <Link to="/staff" className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-700 transition">
+          Open Staff
+        </Link>
+      </div>
+    )
   }
 
   return (
@@ -72,19 +85,21 @@ export function Dashboard() {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Dashboard</h1>
           <p className="text-xs text-slate-500 mt-0.5">Expirations, coverage limits, and compliance for your subcontractors.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
             onClick={() => setAddSubModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition shadow-sm"
+            className="flex-1 sm:flex-initial"
           >
-            <Plus className="w-3.5 h-3.5" /> Add subcontractor
-          </button>
-          <button
+            <Plus className="w-4 h-4" /> Add subcontractor
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => { setRequestSubId(undefined); setRequestModal(true) }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
+            className="flex-1 sm:flex-initial"
           >
-            <FileText className="w-3.5 h-3.5" /> Request a COI
-          </button>
+            <FileText className="w-4 h-4" /> Request a COI
+          </Button>
         </div>
       </div>
 
@@ -97,22 +112,22 @@ export function Dashboard() {
       {/* Compliance score + quick facts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} />
+          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} onAddSub={() => setAddSubModal(true)} />
         </div>
         <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
           <div>
             <div className="font-bold text-slate-900">Client portal</div>
-            <p className="text-slate-500 text-[11px] mt-1 leading-relaxed">
-              Clients see verified coverage without subcontractor contact info — inquiries route back to you.
+            <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+              Clients see coverage status only. Subcontractor contact details stay hidden, and questions come to you.
             </p>
           </div>
           <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-[11px]">
             <span className="text-slate-400 font-mono">{stats.share_links_count} active link{stats.share_links_count === 1 ? '' : 's'}</span>
             <Link
               to="/share/rcc-meridian-2026"
-              className="font-semibold text-slate-900 hover:underline"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
             >
-              Preview client view →
+              Preview client view
             </Link>
           </div>
         </div>
@@ -143,16 +158,16 @@ export function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-center">
                   <ExpirationBadge status="pending_review" size="sm" showCountdown={false} />
-                  <button
+                  <Button
+                    variant="primary"
                     onClick={() => { setReviewCoi(c); setReviewModal(true) }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 transition"
                   >
                     Review COI
-                  </button>
+                  </Button>
                   <Link
                     to="/subcontractors"
                     state={{ openSubId: c.subcontractor_id }}
-                    className="text-[11px] font-semibold text-sky-800 hover:underline"
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
                   >
                     Review document data
                   </Link>
@@ -167,8 +182,7 @@ export function Dashboard() {
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-card">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">Upcoming policy expirations (next 60 days)</h3>
-            <p className="text-xs text-slate-500">Track countdowns and send renewal reminders before coverage lapses.</p>
+            <h3 className="text-lg font-bold text-slate-900">Expiring in 60 days</h3>
           </div>
           <Link to="/subcontractors" className="text-xs font-bold text-brand-600 hover:text-brand-700 hidden sm:inline-flex items-center gap-1">
             View all subcontractors <ArrowRight className="w-3.5 h-3.5" />
@@ -209,15 +223,15 @@ export function Dashboard() {
                         <ExpirationBadge status={u.status} daysLeft={u.days_left} size="sm" showCountdown={false} />
                       </td>
                       <td className="py-3 text-right">
-                        <button
+                        <Button
+                          variant="secondary"
                           onClick={async () => {
                             await apiEmails.sendReminder(u.coi_id)
                             showToast(`Reminder queued for ${u.company_name} (simulated)`)
                           }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-950 bg-amber-50 border border-amber-300 hover:bg-amber-100 transition"
                         >
-                          <Send className="w-3 h-3" /> Remind
-                        </button>
+                          <Send className="w-3.5 h-3.5" /> Remind
+                        </Button>
                       </td>
                     </tr>
                   )
@@ -230,8 +244,7 @@ export function Dashboard() {
 
       {/* Trade breakdown */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-card">
-        <h3 className="text-lg font-bold text-slate-900">Compliance by trade</h3>
-        <p className="text-xs text-slate-500 mb-4">Identify which trades carry the most insurance risk on your projects.</p>
+        <h3 className="text-lg font-bold text-slate-900 mb-4">Compliance by trade</h3>
         <div className="space-y-3 text-xs">
           {stats.trades.map((t) => {
             const pct = t.total > 0 ? Math.round((t.compliant / t.total) * 100) : 100

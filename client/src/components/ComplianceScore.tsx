@@ -1,12 +1,14 @@
 import type { Scorecard } from '../types'
+import { Button } from './Button'
 
 interface Props {
   scorecard: Scorecard
   title?: string
   subtitle?: string
+  onAddSub?: () => void
 }
 
-export function ComplianceScore({ scorecard, title = 'Project Compliance Score', subtitle = 'Across all assigned subcontractors' }: Props) {
+export function ComplianceScore({ scorecard, title = 'Compliance', subtitle = 'Across all assigned subcontractors', onAddSub }: Props) {
   const score = Math.max(0, Math.min(100, scorecard.score))
   const total = scorecard.total || 0
   const compliant = scorecard.compliant || 0
@@ -25,6 +27,23 @@ export function ComplianceScore({ scorecard, title = 'Project Compliance Score',
 
   return (
     <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-card flex flex-col sm:flex-row items-center gap-6">
+      {total === 0 ? (
+        <div className="flex flex-col items-center justify-center text-center w-full py-2">
+          <p className="text-sm font-semibold text-slate-700">No subcontractors yet</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs">Add your first subcontractor to start tracking COIs and compliance.</p>
+          {onAddSub && (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={onAddSub}
+              className="mt-4"
+            >
+              Add subcontractor
+            </Button>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="relative flex items-center justify-center shrink-0">
         <svg width={size} height={size} className="-rotate-90">
           <circle cx={size / 2} cy={size / 2} r={r} stroke="#e2e8f0" strokeWidth={stroke} fill="none" />
@@ -70,6 +89,8 @@ export function ComplianceScore({ scorecard, title = 'Project Compliance Score',
           <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-400" />{pending} pending</span>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }

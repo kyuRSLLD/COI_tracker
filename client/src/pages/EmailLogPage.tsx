@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Mail, Search, Send, Check } from 'lucide-react'
 import type { EmailLog } from '../types'
+import { Button } from '../components/Button'
 import { apiEmails } from '../api'
 
 export function EmailLogPage() {
@@ -45,17 +46,16 @@ export function EmailLogPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Email & Reminder Audit Log</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Every COI request and expiration reminder is logged for proof-of-notice compliance. (Emails run in simulation mode until SMTP is configured in .env)
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Email log</h1>
+          <p className="text-xs text-slate-500 mt-1">Every COI request and expiration reminder sent, with date and recipient.</p>
         </div>
-        <button
+        <Button
+          variant="secondary"
           onClick={handleBatch}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition shadow-sm self-start sm:self-auto"
+          className="self-start sm:self-auto"
         >
-          <Send className="w-3.5 h-3.5" /> Remind all expiring (batch)
-        </button>
+          <Send className="w-4 h-4" /> Remind all expiring
+        </Button>
       </div>
 
       <div className="relative">

@@ -75,8 +75,10 @@ async function findInviteGc(inviteCode: string) {
   if (!/^join-[0-9a-f]{36}$/.test(inviteCode)) return undefined
   const rows = await dbAll('SELECT * FROM gc_settings WHERE invite_code = ?', [inviteCode])
   if (rows.length !== 1 || !rows[0].user_id) return undefined
-  const owner = await dbGet('SELECT id FROM users WHERE id = ? AND role = ?', [rows[0].user_id, 'gc'])
-  return owner ? rows[0] : undefined
+  const owner = await dbGet<any>('SELECT id, company_name, name FROM users WHERE id = ? AND role = ?', [rows[0].user_id, 'gc'])
+  if (!owner) return undefined
+  if (!rows[0].company_name) rows[0].company_name = owner.company_name || owner.name || null
+  return rows[0]
 }
 
 // Subcontractor dashboard: my profile, my COIs, requests, connected GCs

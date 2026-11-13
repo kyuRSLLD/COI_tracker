@@ -46,3 +46,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# python / smoke-test artifacts
+__pycache__/
+*.pyc
+.smoke-coi-isolated/
