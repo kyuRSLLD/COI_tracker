@@ -268,6 +268,7 @@ export const apiAdmin = {
 // Subcontractor portal
 export const apiSub = {
   my: (expectedToken?: string) => request<import('./types').SubcontractorDashboardData>('/api/sub/my', {}, true, expectedToken),
+  deleteCOI: (id: string, expectedToken?: string) => request<{ success: boolean }>(`/api/sub/cois/${id}`, { method: 'DELETE' }, true, expectedToken),
   quickUpload: (form: FormData, expectedToken?: string) =>
     request<import('./types').COI & { fields_source_tag?: string | null }>('/api/sub/quick-upload', { method: 'POST', body: form }, true, expectedToken),
   updateProfile: (body: Partial<import('./types').Subcontractor>) =>

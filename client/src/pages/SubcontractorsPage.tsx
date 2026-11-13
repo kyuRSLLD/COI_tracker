@@ -589,7 +589,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                 {selectedSub.cois.map((c) => (
                   <div key={c.id} className="p-4 rounded-xl border border-slate-200 bg-white">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
+                      <div className="flex-1">
                         <span className="font-bold text-slate-900 text-sm">{c.carrier}</span>
                         <span className="text-slate-400 text-xs"> · Policy {c.policy_number || '—'} · AM Best: {c.am_best_rating || 'n/a'}</span>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-['JetBrains_Mono']">

@@ -127,9 +127,13 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
       try {
         const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
         const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
         if (isTextractConfigured) {
-          const fields = await tryAnalyzeCoiDocument(req.file.buffer)
-          if (fields) await saveExtractedReview(coiId, stored.key || null, fields)
+          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          if (norm && isTextractCompatible(norm.mime)) {
+            const r = await tryAnalyzeCoiDocument(norm.buffer)
+            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)
+          }
         }
       } catch (e) { console.error('Upload portal auto-extraction failed:', e) }
     }

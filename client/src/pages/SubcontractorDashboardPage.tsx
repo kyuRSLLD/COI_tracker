@@ -673,6 +673,17 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       className="mt-3 mr-3 text-[11px] font-semibold text-indigo-700 hover:underline">
                       Review document data
                     </button>
+                    <button type="button" onClick={async () => {
+                        if (!window.confirm(`Delete your ${coi.carrier} certificate (Policy ${coi.policy_number || '—'})? Contractors who have it on file will no longer see it.`)) return
+                        try {
+                          await apiSub.deleteCOI(coi.id, sessionToken)
+                          load()
+                        } catch (e: any) { setError(e?.message || 'Delete failed') }
+                      }}
+                      className="mt-3 mr-3 text-[11px] font-semibold text-rose-600 hover:underline"
+                      title="Delete this certificate you uploaded">
+                      Delete certificate
+                    </button>
                     {coi.certificate_url && !coi.simulated_carrier_connect && (
                       <div className="mt-3 text-[11px]">
                         <button

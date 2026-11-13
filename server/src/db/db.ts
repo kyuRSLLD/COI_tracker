@@ -519,3 +519,34 @@ export async function initDatabase(): Promise<void> {
     console.warn('[db] companies backfill warning:', e?.message)
   }
 }
+
+// Subcontractor deletes their own COI (and its coverages). Authorization embedded in DELETE.
+export async function deleteOwnedSubCOI(id: string, subUserId: string): Promise<boolean> {
+  const deleteSql = `DELETE FROM cois WHERE id = ? AND owner_sub_user_id = ? AND owner_gc_user_id IS NULL`
+  if (isPostgres) {
+    const client = await getPgPool().connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(toPgSql(deleteSql), [id, subUserId])
+      if (result.rowCount) await client.query('DELETE FROM coi_coverages WHERE coi_id = $1', [id])
+      await client.query('COMMIT')
+      return Boolean(result.rowCount)
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally { client.release() }
+  }
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    await sqliteRun(db, 'BEGIN IMMEDIATE')
+    try {
+      const result = await sqliteRun(db, deleteSql, [id, subUserId])
+      if (result.changes) await sqliteRun(db, 'DELETE FROM coi_coverages WHERE coi_id = ?', [id])
+      await sqliteRun(db, 'COMMIT')
+      return Boolean(result.changes)
+    } catch (error) {
+      try { await sqliteRun(db, 'ROLLBACK') } catch { /* preserve */ }
+      throw error
+    }
+  })
+}

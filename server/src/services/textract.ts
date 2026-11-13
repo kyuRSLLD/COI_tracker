@@ -12,6 +12,26 @@ function getClient(): TextractClient {
   return client
 }
 // Normalize a raw field label or value for case-insensitive matching.
+
+
+// Normalize any date string (MM/DD/YYYY, YYYY-MM-DD, dots, dashes, slashes) to YYYY-MM-DD.
+export function normalizeDate(s?: string): string | undefined {
+  if (!s) return undefined
+  const t = s.trim()
+  const m1 = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
+  if (m1) return `${m1[1]}-${m1[2].padStart(2, '0')}-${m1[3].padStart(2, '0')}`
+  const m2 = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/)
+  if (m2) {
+    const y = m2[3].length === 2 ? `20${m2[3]}` : m2[3]
+    return `${y}-${m2[1].padStart(2, '0')}-${m2[2].padStart(2, '0')}`
+  }
+  return undefined
+}
+// Strip leading label noise ("U21AC...", "#", "NO.") from a policy number value.
+export function cleanPolicyNumber(s?: string): string | undefined {
+  if (!s) return undefined
+  return s.trim().replace(/^[#\s]+/, '').replace(/^(?:policy\s*#?|number|no[.:]?)\s*/i, '').trim() || undefined
+}
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
@@ -52,9 +72,16 @@ export interface CoiFieldDocument {
   source?: 'ocr' | 'manual' | 'mixed'
 }
 function extractDates(kv: Map<string, string>, prefix: string): { eff?: string; exp?: string } {
-  const eff = pick(kv, `${prefix} effective date`) || pick(kv, 'policy eff date')
-  const exp = pick(kv, `${prefix} expiration date`) || pick(kv, 'policy exp date')
-  return { eff, exp }
+  const eff = pick(kv, `${prefix} effective date`) || pick(kv, 'policy eff date') || pick(kv, 'policy effective')
+  const exp = pick(kv, `${prefix} expiration date`) || pick(kv, 'policy exp date') || pick(kv, 'policy expiration')
+  const out = { eff: normalizeDate(eff), exp: normalizeDate(exp) }
+  if (!out.eff || !out.exp) {
+    const dates: string[] = []
+    for (const v of kv.values()) { const d = normalizeDate(v); if (d && !dates.includes(d)) dates.push(d) }
+    if (!out.eff) out.eff = dates[0]
+    if (!out.exp) out.exp = dates[1]
+  }
+  return out
 }
 export function mapAnalysisToFields(analysis: AnalyzeDocumentCommandOutput): CoiFieldDocument {
   const kv = parseKv(analysis)
@@ -135,14 +162,26 @@ export async function analyzeCoiDocument(buffer: Buffer): Promise<{ fields: CoiF
   }))
   return { fields: mapAnalysisToFields(res), rawKvCount: (res.Blocks || []).filter(b => b.BlockType === 'KEY_VALUE_SET').length }
 }
-export async function tryAnalyzeCoiDocument(buffer: Buffer): Promise<CoiFieldDocument | null> {
-  if (!isTextractConfigured) return null
+export interface ExtractionResult {
+  ok: boolean
+  fields?: CoiFieldDocument
+  error?: string
+  errorCode?: string
+}
+export async function tryAnalyzeCoiDocument(buffer: Buffer): Promise<ExtractionResult> {
+  if (!isTextractConfigured) return { ok: false, error: 'Extraction service is not configured' }
   try {
     const { fields } = await analyzeCoiDocument(buffer)
     const empty = !fields.producer && !fields.insured && !fields.insurers && !fields.policies
-    return empty ? null : fields
-  } catch (err) {
+    return empty ? { ok: false, error: 'Textract could not find readable fields in this document' } : { ok: true, fields }
+  } catch (err: any) {
     console.error('Textract failed, falling back:', err)
-    return null
+    const name = err?.name || 'Error'
+    const msg = err?.message || String(err)
+    if (name === 'AccessDeniedException') return { ok: false, error: 'Textract access denied — the IAM policy has not taken effect yet (can take a few minutes)', errorCode: name }
+    if (name === 'UnsupportedDocumentException') return { ok: false, error: 'Unsupported file format — Textract accepts PNG, JPEG, PDF, and TIFF only (HEIC photos must be converted first)', errorCode: name }
+    if (name === 'BadDocumentException') return { ok: false, error: 'Could not read this document file', errorCode: name }
+    if (name === 'DocumentTooLargeException') return { ok: false, error: 'Document exceeds the 10 MB Textract limit', errorCode: name }
+    return { ok: false, error: `Textract error: ${msg}`, errorCode: name }
   }
 }

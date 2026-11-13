@@ -200,9 +200,13 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
       try {
         const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
         const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
         if (isTextractConfigured) {
-          const fields = await tryAnalyzeCoiDocument(req.file.buffer)
-          if (fields) await saveExtractedReview(coiId, stored.key || null, fields)
+          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          if (norm && isTextractCompatible(norm.mime)) {
+            const r = await tryAnalyzeCoiDocument(norm.buffer)
+            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)
+          }
         }
       } catch (e) { console.error('Upload auto-extraction failed:', e) }
     }
@@ -407,4 +411,15 @@ subPortalRouter.get('/sent-emails', requireSub, async (req: AuthRequest, res) =>
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
+})
+
+
+// Subcontractor deletes their own COI (and stored file record). Embedded ownership check.
+subPortalRouter.delete('/cois/:id', requireSub, async (req: AuthRequest, res) => {
+  try {
+    const { deleteOwnedSubCOI } = await import('../db/db.ts')
+    const deleted = await deleteOwnedSubCOI(req.params.id, req.user!.id)
+    if (!deleted) return res.status(404).json({ error: 'COI not found' })
+    res.json({ success: true })
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
 })
