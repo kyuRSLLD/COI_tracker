@@ -159,7 +159,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
               <span className="font-semibold text-slate-700">{file ? file.name : 'Choose a certificate file'}</span>
               <span className="text-[11px] text-slate-400">PDF, JPEG, or PNG up to 25 MB</span>
             </label>
-            <input id="coi-file" type="file" required accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs text-slate-600" />
+            <input id="coi-file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,application/pdf,image/png,image/jpeg,image/heic" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs text-slate-600" />
           </div>
 
           <div>

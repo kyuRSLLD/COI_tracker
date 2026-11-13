@@ -517,7 +517,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,image/png,image/jpeg"
+                accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,application/pdf,image/png,image/jpeg,image/heic"
                 onChange={(e) => { ++selectionVersion.current; closeReview(); setFile(e.target.files?.[0] || null); setUploadSuccess(false) }}
                 disabled={uploading}
                 className="hidden"
