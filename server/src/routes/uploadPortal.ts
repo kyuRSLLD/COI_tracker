@@ -123,6 +123,16 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
     // The submitted email is used only as a confirmation destination below.
     const stored = req.file ? await storeFile(req.file) : null
     const coiId = uuidv4()
+    if (req.file?.buffer && stored) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        if (isTextractConfigured) {
+          const fields = await tryAnalyzeCoiDocument(req.file.buffer)
+          if (fields) await saveExtractedReview(coiId, stored.key || null, fields)
+        }
+      } catch (e) { console.error('Upload portal auto-extraction failed:', e) }
+    }
     await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?)`,

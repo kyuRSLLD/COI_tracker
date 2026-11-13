@@ -1,7 +1,7 @@
 import express from 'express'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { dbGet, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
+import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
 import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
 
@@ -177,4 +177,52 @@ coiFieldsRouter.put('/:coiId', async (req: AuthRequest, res) => {
   } catch {
     return res.status(500).json({ error: 'Unable to save field review' })
   }
+})
+
+
+// Save machine-extracted fields on behalf of the system (post-upload). Never overwrites
+// an existing review and only succeeds while the certificate key still matches the
+// moment of extraction. Bumps the review revision exactly like a user save.
+export async function saveExtractedReview(coiId: string, certificateKey: string | null, details: unknown): Promise<boolean> {
+  const parsed = detailsSchema.safeParse(details)
+  if (!parsed.success) return false
+  const tag = sourceTag(coiId, certificateKey)
+  const rows = await dbAll<AccessRow>(
+    `SELECT c.id FROM cois c WHERE c.id = ? AND (c.certificate_key = ? OR (c.certificate_key IS NULL AND CAST(? AS TEXT) IS NULL))`,
+    [coiId, certificateKey, certificateKey],
+  )
+  if (rows.length !== 1) return false
+  try {
+    const res = await dbRun(
+      `INSERT OR REPLACE INTO coi_field_reviews (coi_id, source_tag, details_json) VALUES (?, ?, ?)`,
+      [coiId, tag, JSON.stringify(parsed.data)],
+    )
+    await dbRun(`INSERT OR REPLACE INTO coi_field_review_versions (coi_id, revision) VALUES (?, ?)`, [coiId, randomUUID()])
+    return true
+  } catch { return false }
+}
+export { detailsSchema }
+
+
+// Re-run Textract on the certificate of any authorized COI record and persist the
+// machine review (best-effort; failures report empty fields). Available to either owner.
+coiFieldsRouter.post('/:coiId/extract', async (req: AuthRequest, res) => {
+  try {
+    const row = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
+    if (!row || !validKey(row)) return res.status(404).json({ error: 'COI not found' })
+    if (!editable(row, req.user!.id)) return res.status(403).json({ error: 'Only the owner can run extraction on this review' })
+    const { getFileBuffer } = await import('../services/storage.ts')
+    const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+    if (!isTextractConfigured) return res.status(503).json({ error: 'Extraction service is not configured' })
+    if (!row.certificate_key) return res.status(400).json({ error: 'This certificate has no stored file to extract' })
+    const buffer = await getFileBuffer(row.certificate_key)
+    if (!buffer) return res.status(502).json({ error: 'Could not fetch the stored certificate' })
+    const fields = await tryAnalyzeCoiDocument(buffer)
+    if (!fields) return res.status(502).json({ error: 'Textract could not extract fields from this document' })
+    const ok = await saveExtractedReview(req.params.coiId, row.certificate_key, fields)
+    if (!ok) return res.status(500).json({ error: 'Could not persist extracted fields' })
+    const fresh = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
+    const body = fresh ? responseFor(fresh, req.user!.id) : null
+    return res.json({ details: body?.details, sourceTag: body?.sourceTag, reviewRevision: body?.reviewRevision })
+  } catch { return res.status(500).json({ error: 'Extraction failed' }) }
 })

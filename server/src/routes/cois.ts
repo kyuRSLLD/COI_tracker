@@ -143,6 +143,16 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
 
     const stored = req.file ? await storeFile(req.file) : undefined
     const id = uuidv4()
+    if (req.file?.buffer && stored) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        if (isTextractConfigured) {
+          const fields = await tryAnalyzeCoiDocument(req.file.buffer)
+          if (fields) await saveExtractedReview(id, stored.key || null, fields)
+        }
+      } catch (e) { console.error('GC upload auto-extraction failed:', e) }
+    }
     const now = new Date().toISOString()
     const inserted = await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)

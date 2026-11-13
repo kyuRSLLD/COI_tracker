@@ -305,6 +305,10 @@ export async function seed() {
     }
   }
 
+  // Connect the demo GC to all seeded subcontractors
+  for (const sub of createdSubs) {
+    await dbRun(`INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?)`, [userId, sub.id, nowISO])
+  }
   // 4. Projects
   const projectId = uuidv4()
   await dbRun(

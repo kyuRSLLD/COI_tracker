@@ -181,6 +181,10 @@ export const apiCoiFields = {
     request<CoiFieldsResponse>(`/api/coi-fields/${encodeURIComponent(id)}`, {
       method: 'PUT', body: JSON.stringify(body), signal,
     }, true, expectedToken),
+  extract: (id: string, expectedToken: string) =>
+    request<{ details?: CoiFields | null; sourceTag?: string; reviewRevision?: string }>(`/api/coi-fields/${encodeURIComponent(id)}/extract`, {
+      method: 'POST',
+    }, true, expectedToken),
 }
 
 // Projects

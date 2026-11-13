@@ -46,6 +46,7 @@ type FieldsReviewState = {
   editable: boolean
   saving: boolean
   openingOriginal: boolean
+  extracting: boolean
   conflicted: boolean
   error: string | null
 }
@@ -237,20 +238,43 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
     originalInFlight.current = false
     reviewBlocked.current = false
     setViewingCertificate(null)
-    setFieldsReview({ coi, loading: true, details: null, wasEmpty: false, sourceTag: '', reviewRevision: null, editable: false, saving: false, openingOriginal: false, conflicted: false, error: null })
+    setFieldsReview({ coi, loading: true, details: null, wasEmpty: false, sourceTag: '', reviewRevision: null, editable: false, saving: false, openingOriginal: false, extracting: false, conflicted: false, error: null })
     try {
       const result = await apiCoiFields.get(coi.id, sessionToken)
       if (!currentSession() || version !== fieldsVersion.current) return
       const editable = result.editable === true
-      setFieldsReview({ coi, loading: false, details: result.details === null && !editable ? null : editorDetails(result.details), wasEmpty: result.details === null, sourceTag: result.sourceTag, reviewRevision: result.reviewRevision, editable, saving: false, openingOriginal: false, conflicted: false, error: null })
+      setFieldsReview({ coi, loading: false, details: result.details === null && !editable ? null : editorDetails(result.details), wasEmpty: result.details === null, sourceTag: result.sourceTag, reviewRevision: result.reviewRevision, editable, saving: false, openingOriginal: false, extracting: false, conflicted: false, error: null })
     } catch (err: unknown) {
       if (!currentSession() || version !== fieldsVersion.current) return
-      setFieldsReview({ coi, loading: false, details: null, wasEmpty: false, sourceTag: '', reviewRevision: null, editable: false, saving: false, openingOriginal: false, conflicted: false, error: err instanceof Error ? err.message : 'Unable to load field review.' })
+      setFieldsReview({ coi, loading: false, details: null, wasEmpty: false, sourceTag: '', reviewRevision: null, editable: false, saving: false, openingOriginal: false, extracting: false, conflicted: false, error: err instanceof Error ? err.message : 'Unable to load field review.' })
     }
   }
 
   // A fresh URL is bound to the source tag, not to the possibly stale detail
   // row. Keep the editor's draft and its original revision untouched.
+  const runTextractExtract = async () => {
+    const review = fieldsReview
+    if (!review?.editable || review.loading || review.saving || review.extracting || review.conflicted || reviewBlocked.current || !currentSession()) return
+    const version = fieldsVersion.current
+    setFieldsReview(current => current && { ...current, extracting: true, error: null })
+    try {
+      const result = await apiCoiFields.extract(review.coi.id, sessionToken)
+      if (!currentSession() || version !== fieldsVersion.current) return
+      setFieldsReview(current => current && {
+        ...current,
+        details: editorDetails(result.details || null),
+        sourceTag: result.sourceTag || current.sourceTag,
+        reviewRevision: result.reviewRevision || current.reviewRevision,
+        extracting: false,
+        wasEmpty: false,
+      })
+      showToast('Fields extracted with Textract')
+    } catch (err: unknown) {
+      if (currentSession() && version === fieldsVersion.current) {
+        setFieldsReview(current => current && { ...current, extracting: false, error: err instanceof Error ? err.message : 'Extraction failed. Enter fields manually.' })
+      }
+    }
+  }
   const openFieldsOriginal = async () => {
     const review = fieldsReview
     if (!review?.sourceTag || review.conflicted || reviewBlocked.current || review.loading || review.saving || fieldsSaving.current || originalInFlight.current || !currentSession()) return
@@ -688,6 +712,11 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                 <button type="button" disabled={fieldsReview.saving || fieldsReview.openingOriginal || fieldsReview.conflicted} onClick={() => void openFieldsOriginal()} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   {fieldsReview.openingOriginal ? 'Refreshing link…' : 'View certificate file'} <FileText className="h-4 w-4" />
                 </button>
+                {fieldsReview.editable && (
+                  <button type="button" disabled={fieldsReview.saving || fieldsReview.openingOriginal || fieldsReview.extracting || fieldsReview.conflicted || !fieldsReview.coi.certificate_name} onClick={() => void runTextractExtract()} title={fieldsReview.coi.certificate_name ? 'Re-run AI extraction on the stored certificate' : 'No stored file on this record'} className="inline-flex items-center gap-1 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                    {fieldsReview.extracting ? 'Extracting…' : 'Extract with Textract'}
+                  </button>
+                )}
               </div>
             )}
             {fieldsReview.loading ? (
@@ -715,6 +744,11 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                 <div className="flex gap-2">
                   <button type="button" onClick={() => closeFieldsReview()} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
                   {fieldsReview.error && <button type="button" onClick={() => void openFieldsReview(fieldsReview.coi)} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800">Retry</button>}
+                  {fieldsReview.editable && fieldsReview.coi.certificate_name && (
+                    <button type="button" disabled={fieldsReview.extracting} onClick={() => void runTextractExtract()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                      {fieldsReview.extracting ? 'Extracting…' : 'Extract with Textract'}
+                    </button>
+                  )}
                 </div>
               </div>
             )}

@@ -195,6 +195,17 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
     const sub = await resolveSubProfile(req.user!)
     const stored = await storeFile(req.file)
     const coiId = uuidv4()
+    // Best-effort server extraction on every upload (PDFs included); failures are non-blocking.
+    if (req.file?.buffer) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        if (isTextractConfigured) {
+          const fields = await tryAnalyzeCoiDocument(req.file.buffer)
+          if (fields) await saveExtractedReview(coiId, stored.key || null, fields)
+        }
+      } catch (e) { console.error('Upload auto-extraction failed:', e) }
+    }
     const now = new Date().toISOString()
     await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_sub_user_id, carrier, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)

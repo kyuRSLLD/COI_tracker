@@ -143,3 +143,20 @@ export async function getFileViewUrl(key: string, _storedUrl?: string): Promise<
 }
 
 export { LOCAL_UPLOADS }
+
+
+// Fetch raw bytes for a stored certificate (PNG/JPEG/PDF) from S3. Used server-side
+// for Textract extraction. Not exposed directly over HTTP — authorization stays at the
+// route layer.
+export async function getFileBuffer(key: string): Promise<Buffer | null> {
+  const k = (key || '').trim()
+  if (!k) return null
+  const s3 = getS3()
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: k }))
+    const stream = res.Body as import('stream').Readable
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+    return Buffer.concat(chunks)
+  } catch { return null }
+}

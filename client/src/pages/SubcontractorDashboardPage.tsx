@@ -47,6 +47,7 @@ type ReviewState = {
   editable: boolean
   saving: boolean
   openingOriginal: boolean
+  extracting: boolean
   conflicted: boolean
   error: string | null
   progress: string | null
@@ -244,12 +245,36 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
     reviewController.current = new AbortController()
     setViewingCertificate(null)
     setReview({ version, coi, file: selectedFile, uploadSourceTag, loading: true, details: null,
-      sourceTag: null, reviewRevision: null, editable: false, saving: false, openingOriginal: false, conflicted: false, error: null, progress: null, ocrCanApply: false, ocrCanRetry: false, warnings: [] })
+      sourceTag: null, reviewRevision: null, editable: false, saving: false, openingOriginal: false, extracting: false, conflicted: false, error: null, progress: null, ocrCanApply: false, ocrCanRetry: false, warnings: [] })
     void loadReview(version, coi, selectedFile, uploadSourceTag)
   }
 
   // Refresh short-lived URLs at the moment of use without replacing the draft
   // or its original revision with newer review data from this lookup.
+  const runTextractExtract = async () => {
+    const r = review
+    if (!r?.editable || !r.sourceTag || r.saving || r.extracting || r.conflicted || saveInFlight.current || !active.current) return
+    const v = r.version
+    updateReview(v, c => ({ ...c, extracting: true, error: null }))
+    try {
+      const result = await apiCoiFields.extract(r.coi.id, sessionToken)
+      if (!active.current || !currentReview(v)) return
+      updateReview(v, c => ({
+        ...c,
+        details: result.details || emptyCoiFields(),
+        sourceTag: result.sourceTag || c.sourceTag,
+        reviewRevision: result.reviewRevision || c.reviewRevision,
+        extracting: false,
+        ocrText: '',
+        warnings: [],
+      }))
+      
+    } catch (err: unknown) {
+      if (active.current && currentReview(v)) {
+        updateReview(v, c => ({ ...c, extracting: false, error: err instanceof Error ? err.message : 'Extraction failed. Enter fields manually.' }))
+      }
+    }
+  }
   const openOriginal = async () => {
     if (!review?.sourceTag || review.conflicted || reviewBlocked.current || review.loading || review.saving || saveInFlight.current || originalInFlight.current || !currentReview(review.version)) return
     const { version, coi, sourceTag } = review
@@ -425,6 +450,11 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <button type="button" disabled={review.saving} onClick={() => closeReview()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Back to dashboard</button>
               <button type="button" disabled={review.saving || review.openingOriginal || review.conflicted} onClick={() => void openOriginal()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">{review.openingOriginal ? 'Refreshing link…' : 'View original certificate'}</button>
+              {review.editable && review.coi.certificate_name && (
+                <button type="button" disabled={review.saving || review.extracting || review.conflicted || Boolean(review.progress)} onClick={() => void runTextractExtract()} title="Re-run AI extraction on the stored certificate (images and PDFs)" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                  {review.extracting ? 'Extracting…' : 'Extract with Textract'}
+                </button>
+              )}
               <span className="text-xs text-slate-500">If the link expires, return here and open the certificate again.</span>
             </div>
             {review.imageUrl && <details className="mb-4 rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold">Preview uploaded image</summary><img src={review.imageUrl} alt="Uploaded certificate" className="mt-3 max-h-[60vh] max-w-full" /></details>}
