@@ -425,6 +425,19 @@ export async function initDatabase(): Promise<void> {
   // otherwise race in system catalogs. No legacy links imply consent.
   await withTransaction(async tx => {
     if (isPostgres) await tx.get('SELECT pg_advisory_xact_lock(736628415)')
+    // Review data is separate from compliance fields and follows the COI's
+    // lifecycle. The tag is a digest, never the document key or a stored URL.
+    await tx.run(`CREATE TABLE IF NOT EXISTS coi_field_reviews (
+      coi_id TEXT PRIMARY KEY REFERENCES cois(id) ON DELETE CASCADE,
+      source_tag TEXT NOT NULL,
+      details_json TEXT NOT NULL
+    )`)
+    // Independent write tokens prevent content ABA and preserve existing reviews
+    // without altering or backfilling any legacy rows.
+    await tx.run(`CREATE TABLE IF NOT EXISTS coi_field_review_versions (
+      coi_id TEXT PRIMARY KEY REFERENCES cois(id) ON DELETE CASCADE,
+      revision TEXT NOT NULL
+    )`)
     await tx.run(`CREATE TABLE IF NOT EXISTS sub_connection_qr_tokens (
       token_hash TEXT PRIMARY KEY,
       issuer_user_id TEXT NOT NULL,

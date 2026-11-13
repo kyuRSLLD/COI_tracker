@@ -9,6 +9,7 @@ import type {
   ClientSharePayload,
   UploadValidationPayload,
 } from './types'
+import type { CoiFields } from './lib/coiFields'
 
 const TOKEN_KEY = 'coi_token'
 const USER_KEY = 'coi_user'
@@ -158,6 +159,30 @@ export const apiCOIs = {
   expiring: (days = 30) => request<{ alerts: any[]; window_days: number }>(`/api/cois/alerts/expiring?days=${days}`),
 }
 
+export interface CoiFieldsResponse {
+  details: CoiFields | null
+  sourceTag: string
+  reviewRevision: string
+  certificateUrl: string | null
+  editable: boolean
+}
+
+// Bind requests to the identity whose dashboard is currently displayed.
+export const apiCoiFields = {
+  get: async (id: string, expectedToken: string, signal?: AbortSignal) => {
+    const result = await request<CoiFieldsResponse>(`/api/coi-fields/${encodeURIComponent(id)}`, { signal, cache: 'no-store' }, true, expectedToken)
+    if (!result || typeof result.sourceTag !== 'string' || !result.sourceTag || typeof result.reviewRevision !== 'string' || !result.reviewRevision ||
+        !(result.certificateUrl === null || typeof result.certificateUrl === 'string') || typeof result.editable !== 'boolean' || result.details === undefined) {
+      throw new Error('The review could not be safely loaded. Please reload and try again.')
+    }
+    return result
+  },
+  save: (id: string, body: { sourceTag: string; reviewRevision: string; details: CoiFields }, expectedToken: string, signal?: AbortSignal) =>
+    request<CoiFieldsResponse>(`/api/coi-fields/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: JSON.stringify(body), signal,
+    }, true, expectedToken),
+}
+
 // Projects
 export const apiProjects = {
   list: () => request<{ projects: Project[] }>('/api/projects'),
@@ -238,9 +263,9 @@ export const apiAdmin = {
 
 // Subcontractor portal
 export const apiSub = {
-  my: () => request<import('./types').SubcontractorDashboardData>('/api/sub/my'),
-  quickUpload: (form: FormData) =>
-    request<import('./types').COI>('/api/sub/quick-upload', { method: 'POST', body: form }),
+  my: (expectedToken?: string) => request<import('./types').SubcontractorDashboardData>('/api/sub/my', {}, true, expectedToken),
+  quickUpload: (form: FormData, expectedToken?: string) =>
+    request<import('./types').COI & { fields_source_tag?: string | null }>('/api/sub/quick-upload', { method: 'POST', body: form }, true, expectedToken),
   updateProfile: (body: Partial<import('./types').Subcontractor>) =>
     request<import('./types').Subcontractor>('/api/sub/profile', { method: 'POST', body: JSON.stringify(body) }),
   publicView: (subId: string) =>

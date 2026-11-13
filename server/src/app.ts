@@ -18,6 +18,7 @@ import { adminRouter } from './routes/admin.ts'
 import { subPortalRouter } from './routes/subPortal.ts'
 import { subConnectionQrRouter } from './routes/subConnectionQr.ts'
 import { localCertificatesRouter } from './routes/localCertificates.ts'
+import { coiFieldsRouter } from './routes/coiFields.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -33,6 +34,11 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   const app = express()
   // Includes parser failures, 404s, and authentication errors on this path.
   app.use('/api/connection-qr', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    next()
+  })
+  // Also cover preflights, invalid JSON, auth errors and 404s.
+  app.use('/api/coi-fields', (_req, res, next) => {
     res.set('Cache-Control', 'no-store')
     next()
   })
@@ -66,6 +72,7 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   app.use('/api/auth', authRouter)
   app.use('/api/subcontractors', subcontractorsRouter)
   app.use('/api/cois', coisRouter)
+  app.use('/api/coi-fields', coiFieldsRouter)
   app.use('/api/projects', projectsRouter)
   app.use('/api/client/share', clientViewRouter)
   app.use('/api/upload', uploadPortalRouter)
@@ -92,6 +99,7 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
     // Body-parser errors can include the raw request body, including tokens.
     const errorPath = _req.path.toLowerCase()
     if (errorPath.startsWith('/api/sub/join') || errorPath === '/api/connection-qr' || errorPath.startsWith('/api/connection-qr/') ||
+        errorPath === '/api/coi-fields' || errorPath.startsWith('/api/coi-fields/') ||
         errorPath === '/uploads' || errorPath.startsWith('/uploads/')) {
       const status = err?.status === 400 || err?.status === 413 ? err.status : 500
       return res.status(status).json({ error: status === 500 ? 'Unable to process request' : 'Invalid request' })

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { ShieldAlert, Printer, CheckCircle2, Building2, Phone, Mail, MapPin, ExternalLink, ShieldCheck } from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { ShieldAlert, Printer, ShieldCheck } from 'lucide-react'
 import type { ClientSharePayload } from '../types'
 import { apiClientView } from '../api'
 import { ComplianceScore } from '../components/ComplianceScore'
@@ -36,7 +36,35 @@ export function ClientSharePage() {
     )
   }
 
-  const { project, contractor, scorecard, subcontractors, generated_at } = data
+  // Whitelist the fields used in both views, even if the API ever returns more.
+  // In particular, never pass original documents or private contacts to the report.
+  const safeData: ClientSharePayload = {
+    project: { id: '', name: data.project.name, code: data.project.code, client_name: data.project.client_name },
+    contractor: { company_name: data.contractor.company_name },
+    scorecard: data.scorecard,
+    subcontractors: data.subcontractors.map((s, index) => {
+      const coi = s.cois?.[0] || s.best_coi
+      const summary = coi ? {
+        id: '', carrier: 'Withheld', effective_date: coi.effective_date, expiration_date: coi.expiration_date,
+        status: coi.status, simulated_carrier_connect: coi.simulated_carrier_connect,
+        coverages: coi.coverages?.map((coverage) => ({
+          type: coverage.type,
+          per_occurrence_limit: coverage.per_occurrence_limit,
+          aggregate_limit: coverage.aggregate_limit,
+          additional_insured: coverage.additional_insured,
+          waiver_of_subrogation: coverage.waiver_of_subrogation,
+        })),
+      } : null
+      return {
+        id: String(index), company_name: `Subcontractor ${index + 1}`, trade: 'Trade withheld',
+        computed_status: s.computed_status, days_left: s.days_left,
+        best_coi: summary, cois: summary ? [summary] : [],
+      }
+    }),
+    share: { token: '', created_at: data.share.created_at, expires_at: data.share.expires_at },
+    generated_at: data.generated_at,
+  }
+  const { project, contractor, scorecard, subcontractors, generated_at } = safeData
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -50,22 +78,11 @@ export function ClientSharePage() {
             <div>
               <div className="font-extrabold text-slate-900 text-base">{contractor.company_name}</div>
               <div className="text-xs text-slate-400">
-                {contractor.license_number && `Lic. ${contractor.license_number} · `}
                 Certificate of Insurance Compliance Portal
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            {contractor.phone && (
-              <a href={`tel:${contractor.phone}`} className="inline-flex items-center gap-1 hover:text-slate-900">
-                <Phone className="w-3.5 h-3.5" /> {contractor.phone}
-              </a>
-            )}
-            {contractor.email && (
-              <a href={`mailto:${contractor.email}`} className="inline-flex items-center gap-1 hover:text-slate-900">
-                <Mail className="w-3.5 h-3.5" /> {contractor.email}
-              </a>
-            )}
             <button
               onClick={() => setPrintOpen(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm"
@@ -83,7 +100,7 @@ export function ClientSharePage() {
           <div>
             <div className="font-bold">Compliance report</div>
             <div className="text-[11px] text-emerald-900/80 mt-0.5 leading-relaxed">
-              This report summarizes records on <strong>{project.name}</strong>; pending or simulated records are not verification of insurance. For any subcontractor-related question, please contact <strong>{contractor.company_name}</strong> directly — subcontractor direct-contact information is omitted by design.
+              This report summarizes records on <strong>{project.name}</strong>; it does not verify insurance with carriers. Pending or simulated records are not verification of insurance. For any subcontractor-related question, please contact <strong>{contractor.company_name}</strong> directly — subcontractor direct-contact information is omitted by design.
             </div>
           </div>
         </div>
@@ -98,11 +115,6 @@ export function ClientSharePage() {
               <h1 className="text-3xl font-extrabold text-slate-900 mt-1">{project.name}</h1>
               <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {project.code && <span className="font-['JetBrains_Mono']">Code: {project.code}</span>}
-                {project.address && (
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-slate-400" /> {project.address}
-                  </span>
-                )}
                 {project.client_name && <span>Client: {project.client_name}</span>}
               </p>
             </div>
@@ -125,7 +137,7 @@ export function ClientSharePage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900">Subcontractors on this project</h2>
-              <p className="text-xs text-slate-500">Coverage types, limits, carriers, and expiration dates on file.</p>
+              <p className="text-xs text-slate-500">Coverage types, limits, and expiration dates on file.</p>
             </div>
           </div>
 
@@ -135,12 +147,9 @@ export function ClientSharePage() {
                 <tr className="border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[11px] bg-slate-50/70">
                   <th className="py-3 pl-3 pr-3">Subcontractor</th>
                   <th className="py-3 pr-3">Trade</th>
-                  <th className="py-3 pr-3">Carrier / AM Best</th>
-                  <th className="py-3 pr-3">Policy #</th>
                   <th className="py-3 pr-3">Expires</th>
                   <th className="py-3 pr-3">Coverage summary</th>
                   <th className="py-3 pr-3">Endorsements</th>
-                  <th className="py-3 pr-3">Certificate</th>
                   <th className="py-3 pr-3 text-right">Status</th>
                 </tr>
               </thead>
@@ -156,19 +165,16 @@ export function ClientSharePage() {
                     <tr key={s.id} className="hover:bg-slate-50/70 align-top">
                       <td className="py-3.5 pl-3 pr-3 font-bold text-slate-900">{s.company_name}</td>
                       <td className="py-3.5 pr-3 text-slate-600">{s.trade}</td>
-                      <td className="py-3.5 pr-3 text-slate-700">
-                        <div className="font-semibold">{coi?.carrier || '—'}</div>
+                      <td className="py-3.5 pr-3 font-semibold text-slate-900 font-['JetBrains_Mono']">
+                        {coi?.expiration_date || '—'}
                         {coi?.simulated_carrier_connect && <div className="text-amber-800 font-semibold">Simulated — not verified</div>}
-                        <div className="text-[11px] text-slate-400">{coi?.am_best_rating ? `AM Best: ${coi.am_best_rating}` : ''}</div>
                       </td>
-                      <td className="py-3.5 pr-3 font-['JetBrains_Mono'] text-slate-600">{coi?.policy_number || '—'}</td>
-                      <td className="py-3.5 pr-3 font-semibold text-slate-900 font-['JetBrains_Mono']">{coi?.expiration_date || '—'}</td>
                       <td className="py-3.5 pr-3 text-slate-600">
                         {coi?.coverages && coi.coverages.length > 0 ? (
                           <div className="space-y-0.5 text-[11px]">
                             {coi.coverages.map((cv, i) => (
                               <div key={i}>
-                                <span className="font-semibold">{cv.type}:</span> {cv.per_occurrence_limit || 'limits verified'}
+                                <span className="font-semibold">{cv.type}:</span> {cv.per_occurrence_limit?.trim() || 'Limit not provided'}
                                 {cv.aggregate_limit && ` / ${cv.aggregate_limit} agg`}
                               </div>
                             ))}
@@ -178,20 +184,6 @@ export function ClientSharePage() {
                         )}
                       </td>
                       <td className="py-3.5 pr-3 text-[11px] text-slate-600">{endorsements}</td>
-                      <td className="py-3.5 pr-3">
-                        {coi?.certificate_url ? (
-                          <a
-                            href={coi.certificate_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline"
-                          >
-                            View <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
                       <td className="py-3.5 pr-3 text-right">
                         <ExpirationBadge status={s.computed_status} daysLeft={s.days_left} />
                       </td>
@@ -210,7 +202,7 @@ export function ClientSharePage() {
         </footer>
       </main>
 
-      <PrintableReport open={printOpen} onClose={() => setPrintOpen(false)} payload={data} />
+      <PrintableReport open={printOpen} onClose={() => setPrintOpen(false)} payload={safeData} />
     </div>
   )
 }

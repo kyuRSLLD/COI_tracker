@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
+import { sourceTag } from './coiFields.ts'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -218,6 +219,9 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
     )
     const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
     coi.coverages = []
+    // Bind the tag to this upload's inserted key, not a later re-read which
+    // could already contain a concurrent replacement's key.
+    coi.fields_source_tag = sourceTag(coiId, stored.key || null)
     coi.certificate_url = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null
     delete coi.certificate_key
     delete coi.reviewer_notes
