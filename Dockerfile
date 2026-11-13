@@ -19,6 +19,7 @@ RUN npm run build
 FROM node:26-alpine AS runner
 
 WORKDIR /app
+RUN apk add --no-cache libheif imagemagick imagemagick-heic
 ENV NODE_ENV=production
 ENV PORT=5001
 
