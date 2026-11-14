@@ -178,7 +178,7 @@ export async function tryAnalyzeCoiDocument(buffer: Buffer): Promise<ExtractionR
     console.error('Textract failed, falling back:', err)
     const name = err?.name || 'Error'
     const msg = err?.message || String(err)
-    if (name === 'AccessDeniedException') return { ok: false, error: 'Textract access denied — the IAM policy has not taken effect yet (can take a few minutes)', errorCode: name }
+    if (name === 'AccessDeniedException') return { ok: false, error: msg ? `Textract access denied: ${msg}` : 'Textract access denied — the IAM policy has not taken effect yet (can take a few minutes)', errorCode: name }
     if (name === 'UnsupportedDocumentException') return { ok: false, error: 'Unsupported file format — Textract accepts PNG, JPEG, PDF, and TIFF only (HEIC photos must be converted first)', errorCode: name }
     if (name === 'BadDocumentException') return { ok: false, error: 'Could not read this document file', errorCode: name }
     if (name === 'DocumentTooLargeException') return { ok: false, error: 'Document exceeds the 10 MB Textract limit', errorCode: name }
