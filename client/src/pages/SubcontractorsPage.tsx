@@ -1,4 +1,5 @@
 import { formatDisplayDate } from '../lib/date'
+import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
@@ -66,7 +67,7 @@ function editorDetails(details: FieldsDetails | null): FieldsDetails {
     policies: (details?.policies ?? []).map((policy) => ({
       type: policy.type ?? '', insurerLetter: policy.insurerLetter ?? '', policyNumber: policy.policyNumber ?? '',
       effectiveDate: policy.effectiveDate ?? '', expirationDate: policy.expirationDate ?? '',
-      limits: (policy.limits ?? []).map((limit) => ({ label: limit.label ?? '', amount: limit.amount ?? '' })),
+      limits: (policy.limits ?? []).map((limit) => ({ label: limit.label ?? '', amount: limit?.amount ? formatAmount(limit.amount) : '' })),
     })),
     source: details?.source ?? 'manual',
   }

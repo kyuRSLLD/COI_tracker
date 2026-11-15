@@ -1,4 +1,5 @@
 import { formatDisplayDate } from '../lib/date'
+import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
 import {
@@ -31,7 +32,7 @@ function normalizeFields(value: CoiFields | null): CoiFields {
     policies: (value.policies || []).map(item => ({
       type: item.type ?? '', insurerLetter: item.insurerLetter ?? '', policyNumber: item.policyNumber ?? '',
       effectiveDate: item.effectiveDate ?? '', expirationDate: item.expirationDate ?? '',
-      limits: (item.limits || []).map(limit => ({ label: limit.label ?? '', amount: limit.amount ?? '' })),
+      limits: (item.limits || []).map(limit => ({ label: limit.label ?? '', amount: limit?.amount ? formatAmount(limit.amount) : '' })),
     })),
   }
 }
@@ -208,7 +209,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
       if (selectedFile && (!uploadSourceTag || uploadSourceTag !== result.sourceTag)) {
         reviewBlocked.current = true
         updateReview(version, current => ({ ...current, loading: false, file: null, imageUrl: undefined,
-          details: normalizeFields(result.details), sourceTag: result.sourceTag, reviewRevision: result.reviewRevision,
+          details: normalizeFields(result.details ?? null), sourceTag: result.sourceTag, reviewRevision: result.reviewRevision,
           editable: false, conflicted: true, error: 'The uploaded file could not be matched to the current certificate. Close and reopen the review to reload the current document. The uploaded image was not previewed or extracted.' }))
         return
       }
@@ -216,7 +217,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         try { previewUrl.current = URL.createObjectURL(selectedFile) } catch { /* Preview is optional. */ }
       }
       updateReview(version, current => ({
-        ...current, loading: false, details: normalizeFields(result.details), sourceTag: result.sourceTag, reviewRevision: result.reviewRevision,
+        ...current, loading: false, details: normalizeFields(result.details ?? null), sourceTag: result.sourceTag, reviewRevision: result.reviewRevision,
         imageUrl: previewUrl.current || undefined,
         editable: result.editable, ocrCanApply: result.details === null, error: null,
       }))
@@ -263,7 +264,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
       if (!active.current || !currentReview(v)) return
       updateReview(v, c => ({
         ...c,
-        details: result.details || emptyCoiFields(),
+        details: normalizeFields(result.details ?? null),
         sourceTag: result.sourceTag || c.sourceTag,
         reviewRevision: result.reviewRevision || c.reviewRevision,
         extracting: false,

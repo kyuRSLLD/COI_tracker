@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
 import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
+import { normalizeAmount } from '../services/aiExtract.ts'
 
 export const coiFieldsRouter = express.Router()
 
@@ -82,13 +83,25 @@ function editable(row: AccessRow, userId: string): boolean {
 // This sentinel is outside the UUID token space. Legacy reviews without a
 // version remain readable and use it until their first successful save.
 const NO_REVIEW_REVISION = 'no-review'
+function formatDetailsAmounts(d: any) {
+  if (!d || !Array.isArray(d.policies)) return d
+  return {
+    ...d,
+    policies: d.policies.map((p: any) => ({
+      ...p,
+      limits: Array.isArray(p?.limits)
+        ? p.limits.map((l: any) => ({ ...l, amount: l?.amount ? normalizeAmount(l.amount) ?? l.amount : l?.amount }))
+        : p?.limits,
+    })),
+  }
+}
 function responseFor(row: AccessRow, userId: string) {
   const tag = sourceTag(row.id, row.certificate_key)
   let details: z.infer<typeof detailsSchema> | null = null
   if (row.source_tag === tag && typeof row.details_json === 'string') {
     try {
       const parsed = detailsSchema.safeParse(JSON.parse(row.details_json))
-      if (parsed.success) details = parsed.data
+      if (parsed.success) details = formatDetailsAmounts(parsed.data)
     } catch { /* malformed stored reviews are never exposed */ }
   }
   return { details, sourceTag: tag,

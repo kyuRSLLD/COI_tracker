@@ -1,6 +1,6 @@
 import { formatAmount } from '../lib/currency'
 import { AlertCircle, ArrowUpRight, FileText, Info, Plus, Trash2 } from 'lucide-react'
-import { useId, useState, type ClipboardEvent } from 'react'
+import { useId, useState, useEffect, type ClipboardEvent } from 'react'
 import type { CoiFields } from '../lib/coiFields'
 
 export interface CoiFieldsReviewProps {
@@ -147,7 +147,7 @@ function validationIssues(details: CoiFields): string[] {
     check(`${name} expiration date`, policy.expirationDate, 64)
     if (policy.limits.length > MAX_LIMITS) issues.push(`${name}: remove limits until there are ${MAX_LIMITS} or fewer`)
     policy.limits.forEach((limit, limitIndex) => {
-      check(`${name}, limit ${limitIndex + 1} label`, limit.label, 256)
+      check(`${name}, limit ${limitIndex + 1}`, limit.label, 256)
       check(`${name}, limit ${limitIndex + 1} amount`, limit.amount, 128)
     })
   })
@@ -164,6 +164,21 @@ function hasFieldValues(details: CoiFields): boolean {
 export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, editable, error, ocrText, ocrWarnings, originalUrl }: CoiFieldsReviewProps) {
   const id = useId()
   const readOnly = !editable || saving
+  // One-time format of any existing unformatted limit amounts on mount
+  useEffect(() => {
+    let changed = false
+    const next = details.policies.map((p) => {
+      const limits = p.limits.map((l) => {
+        if (!l.amount) return l
+        const f = formatAmount(l.amount)
+        if (f && f !== '—' && f !== l.amount) { changed = true; return { ...l, amount: f } }
+        return l
+      })
+      return { ...p, limits }
+    })
+    if (changed) onChange({ ...details, policies: next })
+  }, [])
+
   const documentUrl = safeOriginalUrl(originalUrl)
   const issues = validationIssues(details)
   const noFieldValues = !hasFieldValues(details)
@@ -334,7 +349,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
                       <div className="mt-3 space-y-3">
                         {policy.limits.map((limit, limitIndex) => (
                           <div key={limitIndex} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                            <Field label={`Limit ${limitIndex + 1} label`} value={limit.label} maxLength={256} onChange={(v) => updateLimit(index, limitIndex, 'label', v)} readOnly={readOnly} />
+                            <Field label={`Limit ${limitIndex + 1}`} value={limit.label} maxLength={256} onChange={(v) => updateLimit(index, limitIndex, 'label', v)} readOnly={readOnly} />
                             <Field label={`Limit ${limitIndex + 1} amount`} value={limit.amount} maxLength={128} onChange={(v) => updateLimit(index, limitIndex, 'amount', v)} readOnly={readOnly} placeholder="$1,000,000.00" onBlur={() => { const f = formatAmount(limit.amount); if (f && f !== '—' && f !== limit.amount) updateLimit(index, limitIndex, 'amount', f) }} />
                             {editable && <button type="button" className={removeButtonClass} disabled={saving} aria-label={`Remove limit ${limitIndex + 1} from policy ${index + 1}`} onClick={() => update({ ...details, policies: details.policies.map((p, i) => i === index ? { ...p, limits: p.limits.filter((_, j) => j !== limitIndex) } : p) })}><Trash2 aria-hidden="true" className="h-4 w-4" /> Remove</button>}
                           </div>

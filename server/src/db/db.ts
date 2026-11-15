@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
 import { v4 as uuidv4 } from 'uuid'
+import { normalizeAmount } from '../services/aiExtract.ts'
 
 dotenv.config()
 
@@ -517,6 +518,29 @@ export async function initDatabase(): Promise<void> {
     }
   } catch (e: any) {
     console.warn('[db] companies backfill warning:', e?.message)
+  }
+  try {
+    const rows = await dbAll<{ coi_id: string; details_json: string }>('SELECT coi_id, details_json FROM coi_field_reviews')
+    for (const r of rows) {
+      try {
+        const d = JSON.parse(r.details_json)
+        if (!Array.isArray(d?.policies)) continue
+        let changed = false
+        for (const p of d.policies) {
+          for (const l of p?.limits || []) {
+            if (l?.amount) {
+              const f = normalizeAmount(l.amount)
+              if (f && f !== l.amount) { l.amount = f; changed = true }
+            }
+          }
+        }
+        if (changed) {
+          await dbRun('UPDATE coi_field_reviews SET details_json = ? WHERE coi_id = ?', [JSON.stringify(d), r.coi_id])
+        }
+      } catch {}
+    }
+  } catch (e: any) {
+    console.warn('[db] limit amounts backfill warning:', e?.message)
   }
 }
 
