@@ -1,3 +1,4 @@
+import { formatAmount } from '../lib/currency'
 import { AlertCircle, ArrowUpRight, FileText, Info, Plus, Trash2 } from 'lucide-react'
 import { useId, useState, type ClipboardEvent } from 'react'
 import type { CoiFields } from '../lib/coiFields'
@@ -24,13 +25,14 @@ type FieldProps = {
   multiline?: boolean
   type?: 'text' | 'email' | 'tel'
   maxLength: number
+  onBlur?: () => void
 }
 
 const inputClass = 'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 read-only:bg-slate-50 read-only:text-slate-700'
 const smallButtonClass = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50'
 const removeButtonClass = 'inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50'
 
-function Field({ label, value, onChange, readOnly, placeholder, multiline, type = 'text', maxLength }: FieldProps) {
+function Field({ label, value, onChange, readOnly, placeholder, multiline, type = 'text', maxLength, onBlur }: FieldProps) {
   const fieldId = useId()
   const hintId = `${fieldId}-hint`
   const [pasteRejected, setPasteRejected] = useState(false)
@@ -63,6 +65,7 @@ function Field({ label, value, onChange, readOnly, placeholder, multiline, type 
           readOnly={readOnly}
           placeholder={readOnly ? undefined : placeholder}
           rows={3}
+          onBlur={onBlur}
         />
       ) : (
         <input
@@ -77,6 +80,7 @@ function Field({ label, value, onChange, readOnly, placeholder, multiline, type 
           onPaste={handlePaste}
           readOnly={readOnly}
           placeholder={readOnly ? undefined : placeholder}
+          onBlur={onBlur}
         />
       )}
       <span id={hintId} aria-live="polite" className={`mt-1 block text-xs ${overLimit ? 'font-semibold text-rose-700' : 'text-slate-500'}`}>
@@ -315,8 +319,8 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
                     <div className="lg:col-span-3"><Field label="Type of insurance" value={policy.type} maxLength={256} onChange={(v) => updatePolicy(index, 'type', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-3"><Field label="Insurer letter" value={policy.insurerLetter} maxLength={32} onChange={(v) => updatePolicy(index, 'insurerLetter', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-2"><Field label="Policy number" value={policy.policyNumber} maxLength={256} onChange={(v) => updatePolicy(index, 'policyNumber', v)} readOnly={readOnly} /></div>
-                    <div className="lg:col-span-2"><Field label="Effective date" value={policy.effectiveDate} maxLength={64} onChange={(v) => updatePolicy(index, 'effectiveDate', v)} readOnly={readOnly} placeholder="As shown on document" /></div>
-                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} readOnly={readOnly} placeholder="As shown on document" /></div>
+                    <div className="lg:col-span-2"><Field label="Effective date" value={policy.effectiveDate} maxLength={64} onChange={(v) => updatePolicy(index, 'effectiveDate', v)} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
+                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
                   </div>
                   <div className="mt-5 border-t border-slate-200 pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -331,7 +335,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
                         {policy.limits.map((limit, limitIndex) => (
                           <div key={limitIndex} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                             <Field label={`Limit ${limitIndex + 1} label`} value={limit.label} maxLength={256} onChange={(v) => updateLimit(index, limitIndex, 'label', v)} readOnly={readOnly} />
-                            <Field label={`Limit ${limitIndex + 1} amount`} value={limit.amount} maxLength={128} onChange={(v) => updateLimit(index, limitIndex, 'amount', v)} readOnly={readOnly} />
+                            <Field label={`Limit ${limitIndex + 1} amount`} value={limit.amount} maxLength={128} onChange={(v) => updateLimit(index, limitIndex, 'amount', v)} readOnly={readOnly} placeholder="$1,000,000.00" onBlur={() => { const f = formatAmount(limit.amount); if (f && f !== '—' && f !== limit.amount) updateLimit(index, limitIndex, 'amount', f) }} />
                             {editable && <button type="button" className={removeButtonClass} disabled={saving} aria-label={`Remove limit ${limitIndex + 1} from policy ${index + 1}`} onClick={() => update({ ...details, policies: details.policies.map((p, i) => i === index ? { ...p, limits: p.limits.filter((_, j) => j !== limitIndex) } : p) })}><Trash2 aria-hidden="true" className="h-4 w-4" /> Remove</button>}
                           </div>
                         ))}

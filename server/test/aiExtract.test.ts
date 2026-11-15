@@ -1,14 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs'
-import { normalizeDate, cleanPolicyNumber, tryAnalyzeCoiDocument, isOcrConfigured, isTextractConfigured } from '../src/services/aiExtract.ts'
+import { normalizeDate, cleanPolicyNumber, normalizeAmount, tryAnalyzeCoiDocument, isOcrConfigured, isTextractConfigured } from '../src/services/aiExtract.ts'
 
 test('normalizeDate parses US, ISO and dotted formats', () => {
-  assert.equal(normalizeDate('01/15/2026'), '2026-01-15')
-  assert.equal(normalizeDate('2026-03-01'), '2026-03-01')
-  assert.equal(normalizeDate('2026.04.05'), '2026-04-05')
+  assert.equal(normalizeDate('01/15/2026'), '01/15/2026')
+  assert.equal(normalizeDate('2026-03-01'), '03/01/2026')
+  assert.equal(normalizeDate('2026.04.05'), '04/05/2026')
   assert.equal(normalizeDate('not-a-date'), undefined)
   assert.equal(normalizeDate(''), undefined)
+})
+
+test('normalizeAmount formats as currency with two decimals', () => {
+  assert.equal(normalizeAmount('1000000'), '$1,000,000.00')
+  assert.equal(normalizeAmount('$2,000,000'), '$2,000,000.00')
+  assert.equal(normalizeAmount('500000.5'), '$500,000.50')
+  assert.equal(normalizeAmount(''), undefined)
+  assert.equal(normalizeAmount('not-a-number'), 'not-a-number')
 })
 
 test('cleanPolicyNumber strips prefixes', () => {

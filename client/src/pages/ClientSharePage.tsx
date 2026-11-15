@@ -1,3 +1,5 @@
+import { formatAmount } from '../lib/currency'
+import { formatDisplayDate } from '../lib/date'
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { ShieldAlert, Printer, ShieldCheck } from 'lucide-react'
@@ -45,7 +47,7 @@ export function ClientSharePage() {
     subcontractors: data.subcontractors.map((s, index) => {
       const coi = s.cois?.[0] || s.best_coi
       const summary = coi ? {
-        id: '', carrier: 'Withheld', effective_date: coi.effective_date, expiration_date: coi.expiration_date,
+        id: '', carrier: 'Withheld', effective_date: formatDisplayDate(coi.effective_date), expiration_date: formatDisplayDate(coi.expiration_date),
         status: coi.status, simulated_carrier_connect: coi.simulated_carrier_connect,
         coverages: coi.coverages?.map((coverage) => ({
           type: coverage.type,
@@ -166,7 +168,7 @@ export function ClientSharePage() {
                       <td className="py-3.5 pl-3 pr-3 font-bold text-slate-900">{s.company_name}</td>
                       <td className="py-3.5 pr-3 text-slate-600">{s.trade}</td>
                       <td className="py-3.5 pr-3 font-semibold text-slate-900 font-['JetBrains_Mono']">
-                        {coi?.expiration_date || '—'}
+                        {formatDisplayDate(coi?.expiration_date)}
                         {coi?.simulated_carrier_connect && <div className="text-amber-800 font-semibold">Simulated — not verified</div>}
                       </td>
                       <td className="py-3.5 pr-3 text-slate-600">
@@ -174,8 +176,8 @@ export function ClientSharePage() {
                           <div className="space-y-0.5 text-[11px]">
                             {coi.coverages.map((cv, i) => (
                               <div key={i}>
-                                <span className="font-semibold">{cv.type}:</span> {cv.per_occurrence_limit?.trim() || 'Limit not provided'}
-                                {cv.aggregate_limit && ` / ${cv.aggregate_limit} agg`}
+                                <span className="font-semibold">{cv.type}:</span> {formatAmount(cv.per_occurrence_limit) !== '—' ? formatAmount(cv.per_occurrence_limit) : 'Limit not provided'}
+                                {cv.aggregate_limit && ` / ${formatAmount(cv.aggregate_limit)} agg`}
                               </div>
                             ))}
                           </div>

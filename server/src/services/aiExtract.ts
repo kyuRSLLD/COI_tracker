@@ -43,11 +43,11 @@ export function normalizeDate(s?: string): string | undefined {
   if (!s) return undefined
   const t = s.trim()
   const m1 = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
-  if (m1) return `${m1[1]}-${m1[2].padStart(2, '0')}-${m1[3].padStart(2, '0')}`
+  if (m1) return `${m1[2].padStart(2, '0')}/${m1[3].padStart(2, '0')}/${m1[1]}`
   const m2 = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/)
   if (m2) {
     const y = m2[3].length === 2 ? `20${m2[3]}` : m2[3]
-    return `${y}-${m2[1].padStart(2, '0')}-${m2[2].padStart(2, '0')}`
+    return `${m2[1].padStart(2, '0')}/${m2[2].padStart(2, '0')}/${y}`
   }
   return undefined
 }
@@ -57,9 +57,13 @@ export function cleanPolicyNumber(s?: string): string | undefined {
   return s.trim().replace(/^[#\s]+/, '').replace(/^(?:policy\s*#?|number|no[.:]?)\s*/i, '').trim() || undefined
 }
 
-function normalizeAmount(s?: string): string | undefined {
+export function normalizeAmount(s?: string): string | undefined {
   if (!s) return undefined
-  return s.replace(/[\$,]/g, '').trim() || undefined
+  const raw = s.replace(/[$,]/g, '').trim()
+  if (!raw) return undefined
+  const n = parseFloat(raw)
+  if (!Number.isFinite(n)) return s.trim() || undefined
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // Convert the first page of a PDF into a PNG buffer. Prefers `pdftoppm`
@@ -132,18 +136,18 @@ const SYSTEM_PROMPT = `You extract structured fields from Certificate of Insuran
     "type": "General Liability",
     "insurerLetter": "A",
     "policyNumber": "...",
-    "effectiveDate": "YYYY-MM-DD",
-    "expirationDate": "YYYY-MM-DD",
+    "effectiveDate": "MM/DD/YYYY",
+    "expirationDate": "MM/DD/YYYY",
     "limits": [{"label": "each occurrence", "amount": "1000000"}]
   }]
 }
 Rules:
 - Omit any field not visible in the document.
-- Dates MUST be YYYY-MM-DD. Convert MM/DD/YYYY or DD/MM/YYYY accordingly.
+- Dates MUST be MM/DD/YYYY. Convert YYYY-MM-DD or other formats accordingly.
 - List all insurers under "insurers" with their letter (A, B, C...) and NAIC number (the 5-digit insurance company code under the NAIC # column, if shown).
 - Capture every insurer affording coverage on the certificate (INSURER A, INSURER B, INSURER C, etc.).
 - Extract every policy line (common types: General Liability, Automobile Liability, Umbrella/Excess Liability, Workers Compensation). Use the exact insurer letter column.
-- Amounts must be numeric without commas or currency symbols (e.g. 1000000, not $1,000,000).`
+- Amounts must be formatted as currency with two decimals, for example $1,000,000.00 (not 1000000).`
 
 const USER_PROMPT = 'Extract all insurance certificate fields visible in this document image: producer (agency), insured company information, insurers affording coverage with NAIC numbers, and every policy line with type of insurance, policy number, effective date, expiration date, and all coverage limits.'
 

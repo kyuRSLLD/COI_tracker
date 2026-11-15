@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '../lib/date'
 import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
 import {
@@ -645,7 +646,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       <div className="flex items-center gap-2 text-slate-400 text-[11px]">
                         <span>Pol. {coi.policy_number || '—'}</span>
                         <span>·</span>
-                        <span>{coi.effective_date || 'Not provided'} → {days === null ? 'Expiration not provided' : coi.expiration_date}</span>
+                        <span>{formatDisplayDate(coi.effective_date) !== '—' ? formatDisplayDate(coi.effective_date) : 'Not provided'} → {days === null ? 'Expiration not provided' : formatDisplayDate(coi.expiration_date)}</span>
                       </div>
                     </div>
 

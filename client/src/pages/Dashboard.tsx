@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '../lib/date'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
@@ -153,7 +154,7 @@ export function Dashboard() {
                 <div>
                   <div className="font-bold text-slate-900">{c.company_name}</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    {c.trade} · {c.carrier} · exp. {c.expiration_date}
+                    {c.trade} · {c.carrier} · exp. {formatDisplayDate(c.expiration_date)}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-center">
@@ -213,7 +214,7 @@ export function Dashboard() {
                       <td className="py-3 pr-3 font-bold text-slate-900">{u.company_name}</td>
                       <td className="py-3 pr-3 text-slate-600">{u.trade}</td>
                       <td className="py-3 pr-3 text-slate-600">{u.carrier}</td>
-                      <td className="py-3 pr-3 font-semibold text-slate-900">{u.expiration_date}</td>
+                      <td className="py-3 pr-3 font-semibold text-slate-900">{formatDisplayDate(u.expiration_date)}</td>
                       <td className="py-3 pr-3">
                         <span className={`font-['JetBrains_Mono'] font-bold ${isExp ? 'text-rose-700' : u.days_left <= 30 ? 'text-amber-700' : 'text-slate-600'}`}>
                           {isExp ? `${Math.abs(u.days_left)}d ago` : `in ${u.days_left}d`}

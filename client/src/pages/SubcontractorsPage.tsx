@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '../lib/date'
 import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
@@ -492,7 +493,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                       )}
                     </td>
                     <td className="py-3.5 pr-3 font-semibold text-slate-900 font-['JetBrains_Mono']">
-                      {s.best_coi?.expiration_date || '—'}
+                      {formatDisplayDate(s.best_coi?.expiration_date)}
                     </td>
                     <td className="py-3.5 pr-3">
                       <ExpirationBadge status={s.computed_status} daysLeft={s.days_left} />
@@ -607,7 +608,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                         <span className="font-bold text-slate-900 text-sm">{c.carrier}</span>
                         <span className="text-slate-400 text-xs"> · Policy {c.policy_number || '—'} · AM Best: {c.am_best_rating || 'n/a'}</span>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-['JetBrains_Mono']">
-                          Effective {c.effective_date} → Expires {c.expiration_date}
+                          Effective {formatDisplayDate(c.effective_date)} → Expires {formatDisplayDate(c.expiration_date)}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 self-start sm:self-center">
