@@ -452,8 +452,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
               <button type="button" disabled={review.saving} onClick={() => closeReview()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Back to dashboard</button>
               <button type="button" disabled={review.saving || review.openingOriginal || review.conflicted} onClick={() => void openOriginal()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">{review.openingOriginal ? 'Refreshing link…' : 'View original certificate'}</button>
               {review.editable && review.coi.certificate_name && (
-                <button type="button" disabled={review.saving || review.extracting || review.conflicted || Boolean(review.progress)} onClick={() => void runTextractExtract()} title="Re-run AI extraction on the stored certificate (images and PDFs)" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                  {review.extracting ? 'Extracting…' : 'Extract with Textract'}
+                <button type="button" disabled={review.saving || review.extracting || review.conflicted || Boolean(review.progress)} onClick={() => void runTextractExtract()} title="Auto-fill insurance fields using AI (images and PDFs)" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                  {review.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
                 </button>
               )}
               <span className="text-xs text-slate-500">If the link expires, return here and open the certificate again.</span>

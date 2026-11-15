@@ -269,7 +269,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
         extracting: false,
         wasEmpty: false,
       })
-      showToast('Fields extracted with Textract')
+      showToast('Fields auto-filled with AI')
     } catch (err: unknown) {
       if (currentSession() && version === fieldsVersion.current) {
         setFieldsReview(current => current && { ...current, extracting: false, error: err instanceof Error ? err.message : 'Extraction failed. Enter fields manually.' })
@@ -727,8 +727,8 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                   {fieldsReview.openingOriginal ? 'Refreshing link…' : 'View certificate file'} <FileText className="h-4 w-4" />
                 </button>
                 {fieldsReview.editable && (
-                  <button type="button" disabled={fieldsReview.saving || fieldsReview.openingOriginal || fieldsReview.extracting || fieldsReview.conflicted || !fieldsReview.coi.certificate_name} onClick={() => void runTextractExtract()} title={fieldsReview.coi.certificate_name ? 'Re-run AI extraction on the stored certificate' : 'No stored file on this record'} className="inline-flex items-center gap-1 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                    {fieldsReview.extracting ? 'Extracting…' : 'Extract with Textract'}
+                  <button type="button" disabled={fieldsReview.saving || fieldsReview.openingOriginal || fieldsReview.extracting || fieldsReview.conflicted || !fieldsReview.coi.certificate_name} onClick={() => void runTextractExtract()} title={fieldsReview.coi.certificate_name ? 'Auto-fill insurance fields using AI' : 'No stored file on this record'} className="inline-flex items-center gap-1 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                    {fieldsReview.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
                   </button>
                 )}
               </div>
@@ -760,7 +760,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                   {fieldsReview.error && <button type="button" onClick={() => void openFieldsReview(fieldsReview.coi)} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800">Retry</button>}
                   {fieldsReview.editable && fieldsReview.coi.certificate_name && (
                     <button type="button" disabled={fieldsReview.extracting} onClick={() => void runTextractExtract()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                      {fieldsReview.extracting ? 'Extracting…' : 'Extract with Textract'}
+                      {fieldsReview.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
                     </button>
                   )}
                 </div>
