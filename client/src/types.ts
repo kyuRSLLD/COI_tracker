@@ -316,3 +316,41 @@ export interface UserPhone {
   is_primary?: number | boolean
   created_at: string
 }
+
+export interface AdminCoiValidationItem {
+  id: string
+  carrier: string
+  am_best_rating?: string | null
+  policy_number?: string | null
+  effective_date: string
+  expiration_date: string
+  days_left: number | null
+  status: 'pending_review' | 'compliant' | 'needs_revision' | 'rejected' | string
+  reviewer_notes?: string | null
+  review_date?: string | null
+  created_at: string
+  updated_at: string
+  sub_company_name?: string | null
+  trade?: string | null
+  sub_email?: string | null
+  gc_company_name?: string | null
+  gc_email?: string | null
+  has_file: boolean
+  file_name?: string | null
+  file_size?: number | null
+  review_source?: 'ocr' | 'mixed' | 'manual' | null
+  review_insured?: string | null
+  review_producer?: string | null
+  review_policy_count: number
+  review_limit_count: number
+  ai_pending: boolean
+  review_details?: any
+}
+export interface AdminCoiCounts {
+  pending: number
+  all: number
+  compliant: number
+  needs_revision: number
+  rejected: number
+  no_file: number
+}

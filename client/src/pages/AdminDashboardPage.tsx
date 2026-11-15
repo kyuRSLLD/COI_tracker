@@ -1,9 +1,11 @@
 import { Button } from '../components/Button'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { apiAdmin, apiMe } from '../api'
-import type { AdminOverview, AdminCompany, AdminUser, User } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw } from 'lucide-react'
+import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts } from '../types'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText } from 'lucide-react'
+import { formatDisplayDate } from '../lib/date'
+import { formatAmount } from '../lib/currency'
 
 export function AdminDashboardPage() {
   const [overview, setOverview] = useState<AdminOverview | null>(null)
@@ -19,6 +21,15 @@ export function AdminDashboardPage() {
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
+  const [coiQueue, setCoiQueue] = useState<AdminCoiValidationItem[]>([])
+  const [coiCounts, setCoiCounts] = useState<AdminCoiCounts | null>(null)
+  const [coiLoading, setCoiLoading] = useState(false)
+  const [coiError, setCoiError] = useState<string | null>(null)
+  const [coiFilter, setCoiFilter] = useState<'pending' | 'ai_pending' | 'compliant' | 'needs_revision' | 'rejected' | 'all'>('pending')
+  const [coiSearch, setCoiSearch] = useState('')
+  const [selectedCoiIds, setSelectedCoiIds] = useState<Set<string>>(new Set())
+  const [coiBusy, setCoiBusy] = useState<Record<string, string>>({})
+  const [expandedCoiId, setExpandedCoiId] = useState<string | null>(null)
 
   const notify = (msg: string) => {
     setStatusMsg(msg)
@@ -50,6 +61,100 @@ export function AdminDashboardPage() {
   useEffect(() => {
     load()
   }, [])
+  const loadCoiQueue = useCallback(async (filter = coiFilter, search = coiSearch) => {
+    try {
+      setCoiLoading(true)
+      setCoiError(null)
+      const data = await apiAdmin.cois({ filter, search: search.trim() || undefined, limit: 200 })
+      setCoiQueue(data.items)
+      setCoiCounts(data.counts)
+    } catch (err: any) {
+      setCoiError(err?.message || 'Failed to load validation queue')
+    } finally {
+      setCoiLoading(false)
+    }
+  }, [coiFilter, coiSearch])
+  useEffect(() => {
+    loadCoiQueue(coiFilter, coiSearch)
+  }, [coiFilter])
+  const setBusy = (id: string, action: string | null) =>
+    setCoiBusy((prev) => (action ? { ...prev, [id]: action } : (({ [id]: _, ...rest }) => rest)(prev)))
+  const handleValidate = async (id: string) => {
+    try {
+      setBusy(id, 'validating')
+      await apiAdmin.validateCoi(id)
+      notify('COI validated — marked compliant')
+      setSelectedCoiIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'Validation failed')
+    } finally {
+      setBusy(id, null)
+    }
+  }
+  const handleExtract = async (id: string) => {
+    try {
+      setBusy(id, 'extracting')
+      await apiAdmin.extractCoi(id)
+      notify('AI validation completed — fields auto-filled (pending verification)')
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'AI validation failed')
+    } finally {
+      setBusy(id, null)
+    }
+  }
+  const handleSetStatus = async (id: string, status: string) => {
+    try {
+      setBusy(id, 'saving')
+      await apiAdmin.setCoiStatus(id, status)
+      notify(`Status updated to ${status}`)
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'Update failed')
+    } finally {
+      setBusy(id, null)
+    }
+  }
+  const handleViewCert = async (id: string) => {
+    try {
+      const { url } = await apiAdmin.coiCertificateUrl(id)
+      if (url) window.open(url, '_blank')
+    } catch (err: any) {
+      notify(err?.message || 'Could not open certificate')
+    }
+  }
+  const handleBatchValidate = async () => {
+    const ids = Array.from(selectedCoiIds)
+    if (!ids.length) return
+    try {
+      setCoiLoading(true)
+      const res = await apiAdmin.batchValidateCois(ids)
+      notify(`${res.validated} COIs validated and marked compliant`)
+      setSelectedCoiIds(new Set())
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'Batch validation failed')
+    } finally {
+      setCoiLoading(false)
+    }
+  }
+  const handleBatchExtract = async () => {
+    const ids = Array.from(selectedCoiIds)
+    if (!ids.length) return
+    try {
+      setCoiLoading(true)
+      const res = await apiAdmin.batchExtractCois(ids)
+      const ok = res.results.filter((r) => r.ok).length
+      notify(`AI validation finished: ${ok}/${res.results.length} succeeded`)
+      setSelectedCoiIds(new Set())
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'Batch AI validation failed')
+    } finally {
+      setCoiLoading(false)
+    }
+  }
 
   const handlePlanChange = async (id: string, plan: string) => {
     try {
@@ -158,7 +263,7 @@ export function AdminDashboardPage() {
           </span>
           <Button
             variant="secondary"
-            onClick={load}
+            onClick={() => { void load(); void loadCoiQueue() }}
             disabled={loading}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
@@ -231,15 +336,19 @@ export function AdminDashboardPage() {
           </div>
           <div className="text-[11px] font-mono text-slate-500 mt-0.5">per paying subscriber</div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
+        <button
+          type="button"
+          onClick={() => { setCoiFilter('pending'); document.getElementById('validation-queue')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className="bg-white border border-slate-200 rounded-xl p-3 text-left hover:border-slate-400 transition cursor-pointer"
+        >
           <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">COIs on file</div>
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
             {overview ? overview.platform.cois : '—'}
           </div>
-          <div className="text-[11px] font-mono text-amber-700 mt-0.5">
-            {overview?.platform.pending_reviews ?? 0} pending review
+          <div className="text-[11px] font-mono text-amber-700 mt-0.5 font-bold">
+            {overview?.platform.pending_reviews ?? 0} pending review →
           </div>
-        </div>
+        </button>
         <div className="bg-white border border-slate-200 rounded-xl p-3">
           <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Subs tracked</div>
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
@@ -311,6 +420,481 @@ export function AdminDashboardPage() {
           </div>
 
         </div>
+      </div>
+
+      {/* Validation queue */}
+      <div id="validation-queue" className="bg-white border border-slate-200 rounded-xl p-4 scroll-mt-6">
+        <div className="flex flex-col gap-3 pb-3 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">
+              COIs needing validation
+            </h2>
+            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+              Review submitted certificates, auto-filled AI data, and push validation
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="text-xs"
+              onClick={() => { void loadCoiQueue(coiFilter, coiSearch); void load() }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${coiLoading ? 'animate-spin' : ''}`} /> Refresh queue
+            </Button>
+          </div>
+        </div>
+
+        {/* Filter chips */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+          {[
+            { key: 'pending', label: 'Pending validation', count: coiCounts?.pending, cls: 'bg-amber-100 text-amber-900 border-amber-300' },
+            { key: 'ai_pending', label: 'AI pending verification', cls: 'bg-amber-50 text-amber-900 border-amber-200' },
+            { key: 'compliant', label: 'Compliant', count: coiCounts?.compliant, cls: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+            { key: 'needs_revision', label: 'Needs revision', count: coiCounts?.needs_revision, cls: 'bg-orange-100 text-orange-900 border-orange-300' },
+            { key: 'rejected', label: 'Rejected', count: coiCounts?.rejected, cls: 'bg-rose-100 text-rose-900 border-rose-300' },
+            { key: 'all', label: 'All', count: coiCounts?.all, cls: 'bg-slate-100 text-slate-800 border-slate-200' },
+          ].map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setCoiFilter(f.key as typeof coiFilter)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold font-mono transition min-h-[36px] flex items-center gap-1.5 ${
+                coiFilter === f.key ? `${f.cls} ring-2 ring-slate-800 ring-offset-1` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {f.label}
+              {f.count !== undefined && <span className="font-bold">{f.count}</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* Search & batch bar */}
+        <div className="mt-3 flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search by company, trade, carrier, policy #, or GC…"
+              value={coiSearch}
+              onChange={(e) => setCoiSearch(e.target.value)}
+              className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-full"
+            />
+          </div>
+          {selectedCoiIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="primary" className="text-xs" onClick={handleBatchValidate}>
+                <CheckCircle2 className="w-3.5 h-3.5" /> Validate selected ({selectedCoiIds.size})
+              </Button>
+              <Button variant="secondary" className="text-xs" onClick={handleBatchExtract}>
+                <Sparkles className="w-3.5 h-3.5" /> Run AI on selected
+              </Button>
+              <button
+                type="button"
+                onClick={() => setSelectedCoiIds(new Set())}
+                className="text-xs text-slate-500 hover:underline font-mono"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+
+        {coiError && (
+          <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 font-mono">
+            {coiError}
+          </div>
+        )}
+
+        {/* Desktop table */}
+        <div className="mt-3 overflow-x-auto hidden md:block">
+          <table className="w-full text-left text-xs font-mono min-w-[960px]">
+            <thead>
+              <tr className="text-[10px] uppercase text-slate-400 border-b border-slate-100">
+                <th className="py-2 pr-2 w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={coiQueue.length > 0 && selectedCoiIds.size === coiQueue.length}
+                    onChange={(e) =>
+                      setSelectedCoiIds(e.target.checked ? new Set(coiQueue.map((c) => c.id)) : new Set())
+                    }
+                  />
+                </th>
+                <th className="py-2 pr-3">Subcontractor</th>
+                <th className="py-2 pr-3">Carrier / policy</th>
+                <th className="py-2 pr-3">Dates</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">AI data</th>
+                <th className="py-2 pr-3">GC</th>
+                <th className="py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {coiQueue.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center text-slate-400 py-8">
+                    {coiLoading ? 'Loading queue…' : 'No COIs match this filter'}
+                  </td>
+                </tr>
+              ) : (
+                coiQueue.map((item) => {
+                  const busy = coiBusy[item.id]
+                  const isExp = item.days_left !== null && item.days_left < 0
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50 align-top">
+                      <td className="py-2.5 pr-2 pt-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedCoiIds.has(item.id)}
+                          onChange={(e) =>
+                            setSelectedCoiIds((prev) => {
+                              const s = new Set(prev)
+                              e.target.checked ? s.add(item.id) : s.delete(item.id)
+                              return s
+                            })
+                          }
+                          aria-label={`Select ${item.sub_company_name || 'COI'}`}
+                        />
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="font-bold text-slate-900">{item.sub_company_name || '—'}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {item.trade || '—'} {item.sub_email ? `· ${item.sub_email}` : ''}
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="font-bold text-slate-800">{item.carrier || '—'}</div>
+                        <div className="text-[11px] text-slate-500">{item.policy_number || 'No policy #'}</div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div>{formatDisplayDate(item.effective_date)} → {formatDisplayDate(item.expiration_date)}</div>
+                        <div className="text-[11px]">
+                          <span className={`font-bold ${isExp ? 'text-rose-700' : (item.days_left ?? 999) <= 30 ? 'text-amber-700' : 'text-slate-500'}`}>
+                            {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : '—'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          item.status === 'compliant'
+                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                            : item.status === 'pending_review'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : item.status === 'needs_revision'
+                            ? 'bg-orange-100 text-orange-900 border border-orange-300'
+                            : item.status === 'rejected'
+                            ? 'bg-rose-100 text-rose-900 border border-rose-300'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {item.status === 'pending_review' ? 'Pending validation' : item.status === 'needs_revision' ? 'Needs revision' : item.status === 'compliant' ? 'Compliant' : item.status}
+                        </span>
+                        {item.review_date && (
+                          <div className="text-[10px] text-slate-400 mt-0.5">verified {formatDisplayDate(item.review_date)}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {item.review_source ? (
+                          <div className="space-y-0.5">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                              item.review_source === 'ocr'
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : item.review_source === 'mixed'
+                                ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {item.review_source === 'ocr' ? 'AI auto-filled' : item.review_source === 'mixed' ? 'AI · edited' : 'Manual'}
+                            </span>
+                            {item.ai_pending && (
+                              <div className="text-[10px] text-amber-800 font-bold">pending verification</div>
+                            )}
+                            {item.review_insured && (
+                              <div className="text-[11px] text-slate-600 truncate max-w-[200px]" title={item.review_insured}>
+                                insured: {item.review_insured}
+                              </div>
+                            )}
+                            <div className="text-[10px] text-slate-400">
+                              {item.review_policy_count} policies · {item.review_limit_count} limits
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">No AI data</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="text-slate-800 font-bold">{item.gc_company_name || '—'}</div>
+                        <div className="text-[10px] text-slate-400">{item.gc_email || ''}</div>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                          <Button
+                            variant="primary"
+                            className="text-xs !py-1 !px-2.5"
+                            onClick={() => handleValidate(item.id)}
+                            disabled={busy === 'validating'}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {busy === 'validating' ? 'Validating…' : 'Validate'}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            className="text-xs !py-1 !px-2.5"
+                            onClick={() => handleExtract(item.id)}
+                            disabled={!item.has_file || busy === 'extracting'}
+                            title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
+                          >
+                            <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
+                            {busy === 'extracting' ? 'Extracting…' : 'Run AI'}
+                          </Button>
+                          {item.has_file && (
+                            <Button
+                              variant="secondary"
+                              className="text-xs !py-1 !px-2"
+                              onClick={() => handleViewCert(item.id)}
+                              title="View certificate PDF/image"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="secondary"
+                            className="text-xs !py-1 !px-2"
+                            onClick={() => setExpandedCoiId(expandedCoiId === item.id ? null : item.id)}
+                            title="Toggle extracted details"
+                          >
+                            {expandedCoiId === item.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </Button>
+                          <select
+                            aria-label={`Set status for ${item.sub_company_name || 'COI'}`}
+                            value={item.status}
+                            onChange={(e) => handleSetStatus(item.id, e.target.value)}
+                            disabled={busy === 'saving'}
+                            className="text-[11px] font-mono border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-slate-500"
+                          >
+                            <option value="pending_review">Pending validation</option>
+                            <option value="compliant">Compliant</option>
+                            <option value="needs_revision">Needs revision</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="mt-3 space-y-3 md:hidden">
+          {coiQueue.length === 0 ? (
+            <div className="text-center text-slate-400 py-6 text-xs font-mono">
+              {coiLoading ? 'Loading queue…' : 'No COIs match this filter'}
+            </div>
+          ) : (
+            coiQueue.map((item) => {
+              const busy = coiBusy[item.id]
+              const isExp = item.days_left !== null && item.days_left < 0
+              return (
+                <div key={item.id} className="rounded-xl border border-slate-200 p-3 text-xs font-mono space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedCoiIds.has(item.id)}
+                        onChange={(e) =>
+                          setSelectedCoiIds((prev) => {
+                            const s = new Set(prev)
+                            e.target.checked ? s.add(item.id) : s.delete(item.id)
+                            return s
+                          })
+                        }
+                        aria-label={`Select ${item.sub_company_name || 'COI'}`}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 truncate">{item.sub_company_name || '—'}</div>
+                        <div className="text-[11px] text-slate-500">{item.trade || '—'}</div>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${
+                      item.status === 'compliant'
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                        : item.status === 'pending_review'
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}>
+                      {item.status === 'pending_review' ? 'Pending validation' : item.status}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-600">
+                    <span className="font-bold">{item.carrier || '—'}</span> · {item.policy_number || 'No policy #'}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {formatDisplayDate(item.effective_date)} → {formatDisplayDate(item.expiration_date)}
+                    {' '}·{' '}
+                    <span className={`font-bold ${isExp ? 'text-rose-700' : 'text-slate-700'}`}>
+                      {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {item.review_source ? (
+                      <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 rounded-full px-2 py-0.5 font-bold">
+                        {item.review_source === 'ocr' ? 'AI auto-filled' : item.review_source}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">No AI data</span>
+                    )}
+                    {item.ai_pending && <span className="text-[10px] text-amber-800 font-bold">pending verification</span>}
+                  </div>
+                  {item.gc_company_name && (
+                    <div className="text-[10px] text-slate-400">GC: {item.gc_company_name}</div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-1 pt-1">
+                    <Button
+                      variant="primary"
+                      className="text-xs !py-1 !px-2.5 flex-1"
+                      onClick={() => handleValidate(item.id)}
+                      disabled={busy === 'validating'}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {busy === 'validating' ? 'Validating…' : 'Validate'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className="text-xs !py-1 !px-2.5"
+                      onClick={() => handleExtract(item.id)}
+                      disabled={!item.has_file || busy === 'extracting'}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      {busy === 'extracting' ? 'Extracting…' : 'Run AI'}
+                    </Button>
+                    {item.has_file && (
+                      <Button
+                        variant="secondary"
+                        className="text-xs !py-1 !px-2"
+                        onClick={() => handleViewCert(item.id)}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="secondary"
+                      className="text-xs !py-1 !px-2"
+                      onClick={() => setExpandedCoiId(expandedCoiId === item.id ? null : item.id)}
+                    >
+                      {expandedCoiId === item.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                  <div>
+                    <select
+                      aria-label={`Set status for ${item.sub_company_name || 'COI'}`}
+                      value={item.status}
+                      onChange={(e) => handleSetStatus(item.id, e.target.value)}
+                      disabled={busy === 'saving'}
+                      className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
+                    >
+                      <option value="pending_review">Pending validation</option>
+                      <option value="compliant">Compliant</option>
+                      <option value="needs_revision">Needs revision</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Expandable details panel */}
+        {expandedCoiId && (() => {
+          const item = coiQueue.find((c) => c.id === expandedCoiId)
+          if (!item) return null
+          const d: any = item.review_details
+          return (
+            <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">
+                  Extracted details — {item.sub_company_name || 'COI'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedCoiId(null)}
+                  className="text-slate-400 hover:text-slate-700"
+                >
+                  <ChevronUp className="w-4 h-4 inline" /> close
+                </button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-[10px] uppercase text-slate-400">Insured (policyholder company)</div>
+                  <div className="font-bold text-slate-900">{d?.insured?.name || '—'}</div>
+                  <div className="text-slate-500 text-[11px]">{d?.insured?.address || ''}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-slate-400">Producer (agency/broker)</div>
+                  <div className="font-bold text-slate-900">{d?.producer?.name || '—'}</div>
+                  <div className="text-slate-500 text-[11px]">
+                    {[d?.producer?.phone, d?.producer?.email].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase text-slate-400 mb-1">Insurers affording coverage</div>
+                {Array.isArray(d?.insurers) && d.insurers.length > 0 ? (
+                  <div className="space-y-1">
+                    {d.insurers.map((ins: any, i: number) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="font-bold text-slate-800 w-6">[{ins.letter || '-'}]</span>
+                        <span className="text-slate-900 flex-1">{ins.name || '—'}</span>
+                        <span className="text-slate-500">NAIC #{ins.naic || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-slate-400">No insurers</div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] uppercase text-slate-400 mb-1">Policies &amp; limits</div>
+                {Array.isArray(d?.policies) && d.policies.length > 0 ? (
+                  <div className="space-y-2">
+                    {d.policies.map((p: any, i: number) => (
+                      <div key={i} className="p-2 rounded bg-white border border-slate-200">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <span className="font-bold text-slate-900">{p.type || 'Policy'}</span>
+                          <span className="text-slate-500">
+                            #{p.policyNumber || '—'} · Insurer {p.insurerLetter || '—'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600">
+                          {formatDisplayDate(p.effectiveDate)} → {formatDisplayDate(p.expirationDate)}
+                        </div>
+                        {Array.isArray(p.limits) && p.limits.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                            {p.limits.map((l: any, j: number) => (
+                              <span key={j} className="bg-slate-100 rounded px-1.5 py-0.5 text-slate-700">
+                                {l.label ? `${l.label}: ` : ''}{formatAmount(l.amount)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-slate-400">No policy lines</div>
+                )}
+              </div>
+              {item.reviewer_notes && (
+                <div>
+                  <div className="text-[10px] uppercase text-slate-400">Reviewer notes</div>
+                  <div className="text-slate-700 italic">{item.reviewer_notes}</div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Companies */}

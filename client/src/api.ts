@@ -263,6 +263,28 @@ export const apiAdmin = {
   deleteUser: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
   resetDemoData: () => request<{ success: boolean; message: string }>('/api/admin/danger/reset', { method: 'POST' }),
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
+  cois: (params?: { status?: string; filter?: string; search?: string; limit?: number; offset?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.status) q.set('status', params.status)
+    if (params?.filter) q.set('filter', params.filter)
+    if (params?.search) q.set('search', params.search)
+    if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.offset) q.set('offset', String(params.offset))
+    const s = q.toString()
+    return request<{ items: import('./types').AdminCoiValidationItem[]; counts: import('./types').AdminCoiCounts }>(`/api/admin/cois${s ? `?${s}` : ''}`)
+  },
+  validateCoi: (id: string, notes?: string) =>
+    request<{ coi: unknown }>(`/api/admin/cois/${id}/validate`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  extractCoi: (id: string) =>
+    request<{ success: boolean; fields?: unknown }>(`/api/admin/cois/${id}/extract`, { method: 'POST' }),
+  setCoiStatus: (id: string, status: string, notes?: string) =>
+    request<{ success: boolean }>(`/api/admin/cois/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, notes }) }),
+  batchValidateCois: (ids: string[]) =>
+    request<{ validated: number }>('/api/admin/cois/batch-validate', { method: 'POST', body: JSON.stringify({ ids }) }),
+  batchExtractCois: (ids: string[]) =>
+    request<{ results: Array<{ id: string; ok: boolean; error?: string }> }>('/api/admin/cois/batch-extract', { method: 'POST', body: JSON.stringify({ ids }) }),
+  coiCertificateUrl: (id: string) =>
+    request<{ url: string }>(`/api/admin/cois/${id}/certificate-url`),
 }
 
 // Subcontractor portal
