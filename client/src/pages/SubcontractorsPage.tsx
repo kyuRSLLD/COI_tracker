@@ -269,7 +269,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
         extracting: false,
         wasEmpty: false,
       })
-      showToast('Fields auto-filled with AI')
+      showToast('Fields auto-filled with AI — pending verification')
     } catch (err: unknown) {
       if (currentSession() && version === fieldsVersion.current) {
         setFieldsReview(current => current && { ...current, extracting: false, error: err instanceof Error ? err.message : 'Extraction failed. Enter fields manually.' })

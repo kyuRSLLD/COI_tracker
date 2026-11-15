@@ -269,6 +269,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         ocrText: '',
         warnings: [],
       }))
+      setReviewSaved(true)
       
     } catch (err: unknown) {
       if (active.current && currentReview(v)) {
@@ -500,7 +501,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         {error && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</div>
         )}
-        {reviewSaved && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Document data saved. These details are not independently verified.</p>}
+        {reviewSaved && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Document data saved — pending verification. These details are not independently verified.</p>}
 
         {/* Two main actions */}
         <div className="grid md:grid-cols-2 gap-5">

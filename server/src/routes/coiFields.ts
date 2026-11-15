@@ -193,13 +193,18 @@ export async function saveExtractedReview(coiId: string, certificateKey: string 
   )
   if (rows.length !== 1) return false
   try {
-    const res = await dbRun(
-      `INSERT OR REPLACE INTO coi_field_reviews (coi_id, source_tag, details_json) VALUES (?, ?, ?)`,
+    await dbRun(
+      `INSERT INTO coi_field_reviews (coi_id, source_tag, details_json) VALUES (?, ?, ?)
+       ON CONFLICT(coi_id) DO UPDATE SET source_tag = excluded.source_tag, details_json = excluded.details_json`,
       [coiId, tag, JSON.stringify(parsed.data)],
     )
-    await dbRun(`INSERT OR REPLACE INTO coi_field_review_versions (coi_id, revision) VALUES (?, ?)`, [coiId, randomUUID()])
+    await dbRun(
+      `INSERT INTO coi_field_review_versions (coi_id, revision) VALUES (?, ?)
+       ON CONFLICT(coi_id) DO UPDATE SET revision = excluded.revision`,
+      [coiId, randomUUID()],
+    )
     return true
-  } catch { return false }
+  } catch (err) { console.error('saveExtractedReview failed:', err); return false }
 }
 export { detailsSchema }
 
@@ -219,11 +224,11 @@ coiFieldsRouter.post('/:coiId/extract', async (req: AuthRequest, res) => {
     if (!buffer) return res.status(502).json({ error: 'Could not fetch the stored certificate' })
     const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
     const norm = await normalizeImage(buffer)
-    if (!norm || !isTextractCompatible(norm.mime)) return res.status(400).json({ error: 'Unsupported file format — Textract accepts PNG, JPEG, PDF, and TIFF only (HEIC photos are converted automatically when supported)' })
+    if (!norm || !isTextractCompatible(norm.mime)) return res.status(400).json({ error: 'Unsupported file format — PNG, JPEG, PDF, TIFF, and HEIC photos are supported' })
     const r = await tryAnalyzeCoiDocument(norm.buffer)
-    if (!r.ok || !r.fields) return res.status(502).json({ error: r.error || 'Textract could not extract fields from this document' })
+    if (!r.ok || !r.fields) return res.status(502).json({ error: r.error || 'The AI could not extract fields from this document' })
     const ok = await saveExtractedReview(req.params.coiId, row.certificate_key, r.fields)
-    if (!ok) return res.status(500).json({ error: 'Could not persist extracted fields' })
+    if (!ok) return res.status(500).json({ error: 'Could not save the extracted fields — please try again' })
     const fresh = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
     const body = fresh ? responseFor(fresh, req.user!.id) : null
     return res.json({ details: body?.details, sourceTag: body?.sourceTag, reviewRevision: body?.reviewRevision })

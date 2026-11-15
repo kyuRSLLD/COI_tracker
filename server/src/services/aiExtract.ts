@@ -140,11 +140,12 @@ const SYSTEM_PROMPT = `You extract structured fields from Certificate of Insuran
 Rules:
 - Omit any field not visible in the document.
 - Dates MUST be YYYY-MM-DD. Convert MM/DD/YYYY or DD/MM/YYYY accordingly.
-- List all insurers under "insurers" with their letter (A, B, C...) and NAIC number if shown.
+- List all insurers under "insurers" with their letter (A, B, C...) and NAIC number (the 5-digit insurance company code under the NAIC # column, if shown).
+- Capture every insurer affording coverage on the certificate (INSURER A, INSURER B, INSURER C, etc.).
 - Extract every policy line (common types: General Liability, Automobile Liability, Umbrella/Excess Liability, Workers Compensation). Use the exact insurer letter column.
 - Amounts must be numeric without commas or currency symbols (e.g. 1000000, not $1,000,000).`
 
-const USER_PROMPT = 'Extract all insurance certificate fields visible in this document image.'
+const USER_PROMPT = 'Extract all insurance certificate fields visible in this document image: producer (agency), insured company information, insurers affording coverage with NAIC numbers, and every policy line with type of insurance, policy number, effective date, expiration date, and all coverage limits.'
 
 function coerceString(v: unknown): string | undefined {
   if (typeof v === 'string') {

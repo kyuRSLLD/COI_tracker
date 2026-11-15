@@ -164,7 +164,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
   const issues = validationIssues(details)
   const noFieldValues = !hasFieldValues(details)
   const noMappedFields = details.source === 'ocr' && noFieldValues
-  const sourceLabel = details.source === 'ocr' ? (noMappedFields ? 'OCR processed — no fields mapped' : 'OCR field candidates') : details.source === 'mixed' ? 'OCR processed and manually edited' : 'Manually entered'
+  const sourceLabel = details.source === 'ocr' ? (noMappedFields ? 'AI processed — no fields mapped' : 'AI auto-filled') : details.source === 'mixed' ? 'AI auto-filled · manually edited' : 'Manually entered'
   // Both review callers pass the backend error message rather than its status.
   const displayError = error && /^(Invalid field review|Request failed \(400\))$/i.test(error.trim())
     ? 'The server could not accept this review. Check the field character limits and the maximum numbers of insurers, policies, and limits below, then try again. Your edits are still here. If the problem continues, contact support.'
@@ -205,6 +205,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
           <p className="mt-2 text-sm leading-6 text-slate-600">Compare these details with the original certificate and correct any errors. Leave unknown information blank.</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{sourceLabel}</span>
+            <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">Pending verification</span>
             {!editable && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">Read only</span>}
           </div>
         </div>
@@ -219,8 +220,8 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
       <div className="mb-5 flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-5 text-amber-950">
         <Info aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
         <div>
-          <p className="font-bold">Document data only — not independently confirmed or insurance verification</p>
-          <p className="mt-1 text-amber-900">All fields and OCR-recognized text may be inaccurate or incomplete and are not independently verified. Dates and limits are not proof of coverage. Compare everything with the original certificate. Treat this document and its contents as confidential; share only with authorized people.</p>
+          <p className="font-bold">Document data — pending verification</p>
+          <p className="mt-1 text-amber-900">All fields are AI auto-filled or user-entered and are not independently verified. Compare everything with the original certificate. Dates and limits are not proof of coverage.</p>
         </div>
       </div>
 
@@ -256,7 +257,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
         </section>
 
         <section aria-label="Insured" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <SectionHeading number="02" title="Insured" description="The person or organization named as insured." />
+          <SectionHeading number="02" title="Insured (policyholder company)" description="The company or person named as insured on the certificate." />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Insured name" value={details.insured.name} maxLength={256} onChange={(v) => updateInsured('name', v)} readOnly={readOnly} />
             <Field label="Address" value={details.insured.address} maxLength={2000} onChange={(v) => updateInsured('address', v)} readOnly={readOnly} multiline />
