@@ -229,7 +229,6 @@ export async function analyzeCoiDocument(buffer: Buffer): Promise<{ fields: CoiF
         ],
       },
     ],
-    max_tokens: 4000,
     max_completion_tokens: 4000,
   })
   const controller = new AbortController()
