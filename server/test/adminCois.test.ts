@@ -370,3 +370,34 @@ test('11. queue items include is_expired boolean', async () => {
     server.close()
   }
 })
+
+test('12. a newly uploaded expired COI is flagged is_expired=true in the queue with negative days_left', async () => {
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const base = `http://127.0.0.1:${address.port}`
+  try {
+    const admin = await createAdmin()
+    const sub = await dbGet<any>('SELECT id FROM subcontractors LIMIT 1')
+    const coiId = randomUUID()
+    const now = new Date().toISOString()
+    await dbRun(
+      `INSERT INTO cois (id, subcontractor_id, carrier, status, effective_date, expiration_date, created_at, updated_at) VALUES (?, ?, 'Acme', 'pending_review', '2025-10-15', '2026-10-15', ?, ?)`,
+      [coiId, sub.id, now, now],
+    )
+    const res = await fetch(`${base}/api/admin/cois?filter=pending`, {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    })
+    assert.equal(res.status, 200)
+    const body: any = await res.json()
+    const item = body.items.find((i: any) => i.id === coiId)
+    assert.ok(item)
+    assert.equal(item.is_expired, true)
+    assert.ok(item.days_left < 0)
+    assert.equal(item.status, 'pending_review')
+  } finally {
+    server.close()
+  }
+})

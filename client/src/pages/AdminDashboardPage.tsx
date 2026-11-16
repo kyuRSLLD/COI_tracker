@@ -886,25 +886,29 @@ export function AdminDashboardPage() {
                             >
                               Review
                             </Link>
-                            <button
-                              type="button"
-                              onClick={() => handleExtract(item.id)}
-                              disabled={!item.has_file || busy === 'extracting'}
-                              title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
-                              className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
-                            >
-                              <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
-                              {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleValidate(item.id)}
-                              disabled={busy === 'validating'}
-                              className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {busy === 'validating' ? 'Saving…' : 'Validate'}
-                            </button>
+                            {!isExp && (
+                              <button
+                                type="button"
+                                onClick={() => handleExtract(item.id)}
+                                disabled={!item.has_file || busy === 'extracting'}
+                                title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
+                                className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
+                              >
+                                <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
+                                {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
+                              </button>
+                            )}
+                            {!isExp && (
+                              <button
+                                type="button"
+                                onClick={() => handleValidate(item.id)}
+                                disabled={busy === 'validating'}
+                                className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {busy === 'validating' ? 'Saving…' : 'Validate'}
+                              </button>
+                            )}
                             {item.has_file && (
                               <button
                                 type="button"
