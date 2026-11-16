@@ -23,8 +23,8 @@ export function isRealEmailConfigured(): boolean {
   return emailMode() !== 'simulated'
 }
 
-let smtpTransporter: nodemailer.Transporter | null = null
-function getSmtpTransporter(): nodemailer.Transporter {
+let smtpTransporter: any | null = null
+function getSmtpTransporter(): any {
   if (!smtpTransporter) {
     smtpTransporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,

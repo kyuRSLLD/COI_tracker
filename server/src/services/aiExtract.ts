@@ -284,7 +284,7 @@ export async function analyzeCoiDocument(buffer: Buffer): Promise<{ fields: CoiF
 }
 
 export async function tryAnalyzeCoiDocument(buffer: Buffer): Promise<ExtractionResult> {
-  if (!isOcrConfigured) return { ok: false, error: 'AI extraction is not configured — add OPENAI_API_KEY to Railway variables', errorCode: 'NotConfigured' }
+  if (!isOcrConfigured()) return { ok: false, error: 'AI extraction is not configured — add OPENAI_API_KEY to Railway variables', errorCode: 'NotConfigured' }
   try {
     const { fields } = await analyzeCoiDocument(buffer)
     const empty = !fields.producer && !fields.insured && !fields.insurers && !fields.policies

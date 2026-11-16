@@ -86,7 +86,7 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const cois = await dbAll(
-      `SELECT c.*, r.source_tag AS review_source_tag FROM cois c
+      `SELECT c.*, r.source_tag AS review_source_tag, r.details_json AS review_details_json FROM cois c
        LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
        WHERE c.subcontractor_id = ? AND (
         (c.owner_gc_user_id IS NOT NULL AND EXISTS (
@@ -100,6 +100,8 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
     for (const coi of cois) {
       coi.coverages = await dbAll('SELECT * FROM coi_coverages WHERE coi_id = ?', [coi.id])
       for (const coverage of coi.coverages) delete coverage.notes
+      try { coi.review_details = coi.review_details_json ? JSON.parse(coi.review_details_json) : null } catch { coi.review_details = null }
+      delete coi.review_details_json
       // The stored URL may be a legacy simulation marker, so label it before
       // replacing the stored URL with a safe view URL.
       Object.assign(coi, labelSimulatedCarrierCOI(coi))
@@ -199,21 +201,6 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
     const sub = await resolveSubProfile(req.user!)
     const stored = await storeFile(req.file)
     const coiId = uuidv4()
-    // Best-effort server extraction on every upload (PDFs included); failures are non-blocking.
-    if (req.file?.buffer) {
-      try {
-        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
-        const { saveExtractedReview } = await import('../routes/coiFields.ts')
-        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
-        if (isTextractConfigured) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
-          if (norm && isTextractCompatible(norm.mime)) {
-            const r = await tryAnalyzeCoiDocument(norm.buffer)
-            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)
-          }
-        }
-      } catch (e) { console.error('Upload auto-extraction failed:', e) }
-    }
     const now = new Date().toISOString()
     await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_sub_user_id, carrier, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
@@ -236,6 +223,21 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
         now,
       ]
     )
+    // Best-effort server extraction on every upload (PDFs included); failures are non-blocking.
+    if (req.file?.buffer) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
+        if (isTextractConfigured()) {
+          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          if (norm && isTextractCompatible(norm.mime)) {
+            const r = await tryAnalyzeCoiDocument(norm.buffer)
+            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)
+          }
+        }
+      } catch (e) { console.error('Upload auto-extraction failed:', e) }
+    }
     const coi = await dbGet('SELECT * FROM cois WHERE id = ?', [coiId])
     coi.coverages = []
     // Bind the tag to this upload's inserted key, not a later re-read which

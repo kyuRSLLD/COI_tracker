@@ -247,20 +247,106 @@ export function AdminCoiReviewPage() {
 
               {/* Extracted fields */}
               {data?.extracted && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-2 text-xs">
-                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
-                    <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Extracted data</span>
-                    <span className="text-[10px] text-slate-400 font-mono">source: {coi?.review_source || 'AI'}</span>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3 text-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Extracted data (all fields)</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      (coi?.review_source || data.extracted?.source || 'ocr') === 'manual'
+                        ? 'bg-slate-100 text-slate-700'
+                        : 'bg-amber-100 text-amber-900'
+                    }`}>
+                      {(coi?.review_source || data.extracted?.source || 'ocr') === 'manual' ? 'manual review' : 'AI extraction · pending validation'}
+                    </span>
                   </div>
-                  <div className="space-y-1">
-                    {data.extracted.insured?.name && <div><span className="text-slate-400">Insured:</span> <span className="font-semibold text-slate-900">{data.extracted.insured.name}</span></div>}
-                    {data.extracted.insurer?.name && <div><span className="text-slate-400">Insurer:</span> {data.extracted.insurer.name} {data.extracted.insurer.naic && <span className="font-mono text-slate-500">· NAIC {data.extracted.insurer.naic}</span>}</div>}
-                    {data.extracted.policies?.slice(0, 3).map((po: any, i: number) => (
-                      <div key={i} className="pt-1 text-[11px] font-mono text-slate-600">
-                        {po.type} · {po.policy_number} · {po.effective_date}–{po.expiration_date}
+                  {/* Producer */}
+                  {(data.extracted.producer?.name || data.extracted.producer?.phone || data.extracted.producer?.email || data.extracted.producer?.address) && (
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Producer / Agent</div>
+                      {data.extracted.producer?.name && <div className="font-semibold text-slate-900">{data.extracted.producer.name}</div>}
+                      <div className="flex flex-wrap gap-3 text-slate-600 text-[11px]">
+                        {data.extracted.producer?.phone && <a href={`tel:${data.extracted.producer.phone}`} className="hover:text-ink">{data.extracted.producer.phone}</a>}
+                        {data.extracted.producer?.email && <a href={`mailto:${data.extracted.producer.email}`} className="hover:text-ink">{data.extracted.producer.email}</a>}
                       </div>
-                    ))}
-                  </div>
+                      {data.extracted.producer?.address && <div className="text-[11px] text-slate-500">{data.extracted.producer.address}</div>}
+                    </div>
+                  )}
+                  {/* Insured */}
+                  {(data.extracted.insured?.name || data.extracted.insured?.address) && (
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Insured</div>
+                      {data.extracted.insured?.name && <div className="font-semibold text-slate-900">{data.extracted.insured.name}</div>}
+                      {data.extracted.insured?.address && <div className="text-[11px] text-slate-500">{data.extracted.insured.address}</div>}
+                    </div>
+                  )}
+                  {/* Insurers affording coverage */}
+                  {(() => {
+                    const insurers: Array<{ letter?: string; name?: string; naic?: string }> =
+                      data.extracted.insurers && Array.isArray(data.extracted.insurers) && data.extracted.insurers.length
+                        ? data.extracted.insurers
+                        : data.extracted.insurer?.name
+                        ? [{ letter: 'A', name: data.extracted.insurer.name, naic: data.extracted.insurer.naic }]
+                        : []
+                    return insurers.length ? (
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 space-y-1.5">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Insurers affording coverage ({insurers.length})</div>
+                        <div className="space-y-1">
+                          {insurers.map((ins, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-medium text-slate-900 truncate">
+                                <span className="font-mono text-slate-400 mr-1.5">{ins.letter || '—'}:</span>
+                                {ins.name || '—'}
+                              </span>
+                              <span className="font-mono text-slate-500 shrink-0">{ins.naic ? `NAIC ${ins.naic}` : 'no NAIC'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
+                  {/* Policies & limits */}
+                  {(() => {
+                    const policies: any[] = Array.isArray(data.extracted.policies) ? data.extracted.policies : []
+                    return policies.length ? (
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Policies & coverage limits ({policies.length})</div>
+                        <div className="space-y-2">
+                          {policies.map((po: any, idx) => {
+                            const pn = po.policyNumber || po.policy_number
+                            const eff = po.effectiveDate || po.effective_date
+                            const exp = po.expirationDate || po.expiration_date
+                            const limits: Array<{ name?: string; label?: string; amount?: string | number }> = Array.isArray(po.limits) ? po.limits : []
+                            return (
+                              <div key={idx} className="p-2.5 rounded-lg border border-slate-200 bg-white space-y-1.5">
+                                <div className="flex flex-wrap items-center justify-between gap-1">
+                                  <span className="font-semibold text-slate-900 text-[11px]">
+                                    {po.insurerLetter ? <span className="font-mono text-slate-400 mr-1">[{po.insurerLetter}]</span> : null}
+                                    {po.type || 'Coverage'}
+                                  </span>
+                                  <span className="font-mono text-[11px] text-slate-500">{pn ? `Pol. ${pn}` : '—'}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-mono">
+                                  {eff || exp ? `${eff || '—'} → ${exp || '—'}` : 'no dates'}
+                                </div>
+                                {limits.length > 0 && (
+                                  <div className="pt-1 border-t border-slate-100 space-y-0.5">
+                                    {limits.map((l, j) => (
+                                      <div key={j} className="flex items-center justify-between gap-2 text-[10px]">
+                                        <span className="text-slate-600 truncate">{l.name || l.label || `Limit ${j + 1}`}</span>
+                                        <span className="font-mono text-slate-900 font-semibold shrink-0">{l.amount != null && l.amount !== '' ? String(l.amount) : '—'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
+                  <p className="text-[10px] text-slate-400 italic">
+                    Machine-extracted fields for review only — verify against the certificate image before validating.
+                  </p>
                 </div>
               )}
               {/* Note to subcontractor */}

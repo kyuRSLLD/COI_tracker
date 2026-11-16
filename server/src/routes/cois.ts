@@ -143,20 +143,6 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
 
     const stored = req.file ? await storeFile(req.file) : undefined
     const id = uuidv4()
-    if (req.file?.buffer && stored) {
-      try {
-        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
-        const { saveExtractedReview } = await import('../routes/coiFields.ts')
-        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
-        if (isTextractConfigured) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
-          if (norm && isTextractCompatible(norm.mime)) {
-            const r = await tryAnalyzeCoiDocument(norm.buffer)
-            if (r.ok && r.fields) await saveExtractedReview(id, stored.key || null, r.fields)
-          }
-        }
-      } catch (e) { console.error('GC upload auto-extraction failed:', e) }
-    }
     const now = new Date().toISOString()
     const inserted = await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
@@ -170,6 +156,20 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
     )
     if (!inserted.changes) return res.status(404).json({ error: 'Subcontractor not found' })
 
+    if (req.file?.buffer && stored) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
+        if (isTextractConfigured()) {
+          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          if (norm && isTextractCompatible(norm.mime)) {
+            const r = await tryAnalyzeCoiDocument(norm.buffer)
+            if (r.ok && r.fields) await saveExtractedReview(id, stored.key || null, r.fields, { overwrite: false })
+          }
+        }
+      } catch (e) { console.error('GC upload auto-extraction failed:', e) }
+    }
     let coverages: any[] = []
     if (req.body.coverages) {
       try {

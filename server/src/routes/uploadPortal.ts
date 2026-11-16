@@ -123,20 +123,6 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
     // The submitted email is used only as a confirmation destination below.
     const stored = req.file ? await storeFile(req.file) : null
     const coiId = uuidv4()
-    if (req.file?.buffer && stored) {
-      try {
-        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
-        const { saveExtractedReview } = await import('../routes/coiFields.ts')
-        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
-        if (isTextractConfigured) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
-          if (norm && isTextractCompatible(norm.mime)) {
-            const r = await tryAnalyzeCoiDocument(norm.buffer)
-            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)
-          }
-        }
-      } catch (e) { console.error('Upload portal auto-extraction failed:', e) }
-    }
     await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?)`,
@@ -144,6 +130,20 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
         stored ? stored.url : null, stored ? stored.key : null, stored ? stored.filename : null,
         stored ? stored.size : null, stored ? stored.mime : null, now, now]
     )
+    if (req.file?.buffer && stored) {
+      try {
+        const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
+        const { saveExtractedReview } = await import('../routes/coiFields.ts')
+        const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
+        if (isTextractConfigured()) {
+          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          if (norm && isTextractCompatible(norm.mime)) {
+            const r = await tryAnalyzeCoiDocument(norm.buffer)
+            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields, { overwrite: false })
+          }
+        }
+      } catch (e) { console.error('Upload portal auto-extraction failed:', e) }
+    }
     for (const cv of coverages) {
       await dbRun(
         `INSERT INTO coi_coverages (id, coi_id, type, per_occurrence_limit, aggregate_limit, additional_insured, waiver_of_subrogation, notes)

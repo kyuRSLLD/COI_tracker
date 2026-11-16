@@ -530,9 +530,24 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
           </div>
 
           {primaryCoi ? (() => {
-            const v = coiVerificationBadge(primaryCoi)
+            const rd = primaryCoi.review_details
+            const carrier = (rd?.insurers?.[0]?.name || primaryCoi.carrier || 'Not provided').trim()
+            const firstPolicy = rd?.policies?.[0]
+            const policyNumber = (firstPolicy?.policyNumber || firstPolicy?.policy_number || primaryCoi.policy_number || '').trim() || null
+            const eff = formatDisplayDate(primaryCoi.effective_date)
             const days = daysUntil(primaryCoi.expiration_date)
-            const exp = coiExpiryBadge(days)
+            const exp = days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)
+            const insuredName = (rd?.insured?.name || sub?.company_name || '—').trim()
+            const insuredAddr = rd?.insured?.address || null
+            const producerName = rd?.producer?.name || null
+            const producerPhone = rd?.producer?.phone || null
+            const producerEmail = rd?.producer?.email || null
+            const producerAddr = rd?.producer?.address || null
+            const allInsurers: Array<{ letter?: string; name?: string; naic?: string }> =
+              rd?.insurers && rd.insurers.length ? rd.insurers : carrier && carrier !== 'Not provided' ? [{ name: carrier }] : []
+            const allPolicies: any[] = rd?.policies && rd.policies.length ? rd.policies : []
+            const v = coiVerificationBadge(primaryCoi)
+            const expBadge = coiExpiryBadge(days)
             const coverageCount = (primaryCoi.coverages || []).length
             return (
               <div
@@ -554,7 +569,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     </div>
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-lg font-bold text-slate-900">{primaryCoi.carrier}</span>
+                        <span className="text-lg font-bold text-slate-900">{carrier}</span>
                         {primaryCoi.am_best_rating && (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                             AM Best {primaryCoi.am_best_rating}
@@ -562,7 +577,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                         )}
                       </div>
                       <p className="text-xs font-mono text-slate-500 mt-0.5">
-                        Pol. {primaryCoi.policy_number || '—'}{sub?.trade ? ` · ${sub.trade}` : ''}
+                        Pol. {policyNumber || '—'}{sub?.trade ? ` · ${sub.trade}` : ''}
                       </p>
                     </div>
                   </div>
@@ -572,8 +587,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       {v.label}
                     </span>
                     {!primaryCoi.simulated_carrier_connect && (
-                      <span className={`px-2.5 py-1 rounded-full border text-xs font-medium ${exp.cls}`}>
-                        {exp.label}
+                      <span className={`px-2.5 py-1 rounded-full border text-xs font-medium ${expBadge.cls}`}>
+                        {expBadge.label}
                       </span>
                     )}
                     <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${cardExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
@@ -592,32 +607,40 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                   <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                     <div>
                       <dt className="text-[11px] text-slate-400">Carrier</dt>
-                      <dd className="font-semibold text-slate-900 truncate">{primaryCoi.carrier}</dd>
+                      <dd className="font-semibold text-slate-900 truncate">{carrier}</dd>
                     </div>
                     <div>
                       <dt className="text-[11px] text-slate-400">Policy #</dt>
-                      <dd className="font-mono font-semibold text-slate-900 truncate">{primaryCoi.policy_number || '—'}</dd>
+                      <dd className="font-mono font-semibold text-slate-900 truncate">{policyNumber || '—'}</dd>
                     </div>
                     <div>
                       <dt className="text-[11px] text-slate-400">Coverage period</dt>
                       <dd className="text-slate-900">
-                        {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'} → {days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)}
+                        {eff !== '—' ? eff : 'Not provided'} → {exp}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-[11px] text-slate-400">Insured</dt>
-                      <dd className="text-slate-900 truncate">{sub?.company_name || '—'}</dd>
+                      <dd className="text-slate-900 truncate">{insuredName}</dd>
                     </div>
-                    <div>
-                      <dt className="text-[11px] text-slate-400">Trade</dt>
-                      <dd className="text-slate-900 truncate">{sub?.trade || '—'}</dd>
-                    </div>
+                    {producerName ? (
+                      <div>
+                        <dt className="text-[11px] text-slate-400">Producer / agent</dt>
+                        <dd className="text-slate-900 truncate">{producerName}</dd>
+                      </div>
+                    ) : (
+                      <div>
+                        <dt className="text-[11px] text-slate-400">Trade</dt>
+                        <dd className="text-slate-900 truncate">{sub?.trade || '—'}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt className="text-[11px] text-slate-400">Verification status</dt>
                       <dd className="font-semibold text-slate-900 flex items-center gap-1">
                         <span className={`w-2 h-2 rounded-full ${v.dot}`} />
-                        {v.label} {primaryCoi.review_source_tag && (
-                          <span className="text-[11px] text-slate-400 font-normal">({primaryCoi.review_source_tag === 'human' ? 'reviewed' : 'AI assist'})</span>
+                        {v.label}
+                        {rd && primaryCoi.status === 'pending_review' && (
+                          <span className="text-[11px] text-slate-400 font-normal">(AI extracted · pending validation)</span>
                         )}
                       </dd>
                     </div>
@@ -635,6 +658,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     </div>
                   )}
                 </div>
+
                 {/* Coverage chips (detailed per-line pills) */}
                 {coverageCount > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -649,6 +673,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     ))}
                   </div>
                 )}
+
                 {/* File link */}
                 {primaryCoi.certificate_url && !primaryCoi.simulated_carrier_connect && (
                   <div className="mt-3 text-xs" onClick={e => e.stopPropagation()}>
@@ -669,6 +694,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 <p className="mt-3 text-[11px] text-slate-400 group-hover:text-slate-600 transition">
                   {cardExpanded ? 'Click to collapse full summary' : 'Click to expand full summary & sharing'}
                 </p>
+
                 {/* Actions row */}
                 <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2" onClick={e => e.stopPropagation()}>
                   <div className="flex flex-wrap items-center gap-2">
@@ -683,7 +709,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     type="button"
                     variant="danger"
                     onClick={async () => {
-                      if (!window.confirm(`Delete your ${primaryCoi.carrier} certificate (Policy ${primaryCoi.policy_number || '—'})? Contractors who have it on file will no longer see it. This cannot be undone.`)) return
+                      if (!window.confirm(`Delete your ${carrier} certificate (Policy ${policyNumber || '—'})? Contractors who have it on file will no longer see it. This cannot be undone.`)) return
                       try {
                         await apiSub.deleteCOI(primaryCoi.id, sessionToken)
                         load()
@@ -703,7 +729,85 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       <span><strong>On file since:</strong> {primaryCoi.created_at ? formatDisplayDate(primaryCoi.created_at.slice(0, 10)) : '—'}</span>
                       <span className="text-[11px] text-slate-400">Detailed coverage lines with limits are listed below</span>
                     </div>
-                    {(primaryCoi.coverages || []).length > 0 && (
+
+                    {/* Producer panel */}
+                    {(producerName || producerPhone || producerEmail || producerAddr) && (
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Producer / Agent</div>
+                        {producerName && <div className="font-semibold text-slate-900">{producerName}</div>}
+                        <div className="flex flex-wrap gap-3 text-slate-600 text-[11px]">
+                          {producerPhone && <a href={`tel:${producerPhone}`} className="hover:text-ink">{producerPhone}</a>}
+                          {producerEmail && <a href={`mailto:${producerEmail}`} className="hover:text-ink">{producerEmail}</a>}
+                        </div>
+                        {producerAddr && <div className="text-[11px] text-slate-500">{producerAddr}</div>}
+                      </div>
+                    )}
+
+                    {/* Insured panel */}
+                    {(insuredName || insuredAddr) && (
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Insured</div>
+                        <div className="font-semibold text-slate-900">{insuredName}</div>
+                        {insuredAddr && <div className="text-[11px] text-slate-500">{insuredAddr}</div>}
+                      </div>
+                    )}
+
+                    {/* All insurers */}
+                    {allInsurers.length > 0 && (
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Insurers affording coverage ({allInsurers.length})</div>
+                        <div className="space-y-1">
+                          {allInsurers.map((ins, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-medium text-slate-900 truncate">
+                                <span className="font-mono text-slate-400 mr-1.5">{ins.letter || '—'}:</span>
+                                {ins.name || '—'}
+                              </span>
+                              <span className="font-mono text-slate-500 shrink-0">{ins.naic ? `NAIC ${ins.naic}` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Policies & limits */}
+                    {allPolicies.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-slate-900">Policies & coverage limits ({allPolicies.length})</p>
+                        <div className="space-y-2">
+                          {allPolicies.map((po: any, idx) => {
+                            const pn = po.policyNumber || po.policy_number
+                            const peff = formatDisplayDate(po.effectiveDate || po.effective_date)
+                            const pexp = formatDisplayDate(po.expirationDate || po.expiration_date)
+                            const limits: Array<{ name?: string; label?: string; amount?: string | number }> = Array.isArray(po.limits) ? po.limits : []
+                            return (
+                              <div key={idx} className="p-3 rounded-xl border border-slate-200 bg-white space-y-2 text-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-1">
+                                  <span className="font-semibold text-slate-900">
+                                    {po.insurerLetter ? <span className="font-mono text-slate-400 mr-1">[{po.insurerLetter}]</span> : null}
+                                    {po.type || 'Coverage'}
+                                  </span>
+                                  <span className="font-mono text-slate-500">{pn ? `Pol. ${pn}` : '—'}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-mono">
+                                  {peff !== '—' || pexp !== '—' ? `${peff} → ${pexp}` : 'no dates'}
+                                </div>
+                                {limits.length > 0 && (
+                                  <div className="pt-2 border-t border-slate-100 space-y-1">
+                                    {limits.map((l, j) => (
+                                      <div key={j} className="flex items-center justify-between gap-2 text-[11px]">
+                                        <span className="text-slate-600 truncate">{l.name || l.label || `Limit ${j + 1}`}</span>
+                                        <span className="font-mono text-slate-900 font-semibold shrink-0">{l.amount != null && l.amount !== '' ? formatAmount(String(l.amount)) : '—'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : (primaryCoi.coverages || []).length > 0 ? (
                       <div>
                         <p className="text-xs font-semibold text-slate-900 mb-2">Coverage lines</p>
                         <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden text-xs">
@@ -717,7 +821,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                           ))}
                         </div>
                       </div>
-                    )}
+                    ) : null}
+
                     <div className="rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-blue-900">
                       <div className="flex items-center gap-2">
                         <QrCode className="w-5 h-5 text-indigo-600 shrink-0" />
@@ -734,7 +839,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
               </div>
             )
           })() : (
-            <div
+                        <div
               role="button"
               tabIndex={0}
               onClick={openQr}

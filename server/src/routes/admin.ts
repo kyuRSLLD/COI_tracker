@@ -548,7 +548,7 @@ adminRouter.post('/cois/:id/extract', requireAdmin, async (req, res) => {
     if (!target.certificate_key) return res.status(400).json({ error: 'This certificate has no stored file to extract' })
     const { getFileBuffer } = await import('../services/storage.ts')
     const { tryAnalyzeCoiDocument, isOcrConfigured } = await import('../services/aiExtract.ts')
-    if (!isOcrConfigured) return res.status(503).json({ error: 'AI extraction service is not configured (OPENAI_API_KEY missing)' })
+    if (!isOcrConfigured()) return res.status(503).json({ error: 'AI extraction service is not configured (OPENAI_API_KEY missing)' })
     const buffer = await getFileBuffer(target.certificate_key)
     if (!buffer) return res.status(502).json({ error: 'Could not fetch the stored certificate' })
     const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
@@ -557,7 +557,7 @@ adminRouter.post('/cois/:id/extract', requireAdmin, async (req, res) => {
     const r = await tryAnalyzeCoiDocument(norm.buffer)
     if (!r.ok || !r.fields) return res.status(502).json({ error: r.error || 'The AI could not extract fields from this document' })
     const { saveExtractedReview } = await import('./coiFields.ts')
-    const ok = await saveExtractedReview(target.id, target.certificate_key, r.fields)
+    const ok = await saveExtractedReview(target.id, target.certificate_key, r.fields, { overwrite: true })
     if (!ok) return res.status(500).json({ error: 'Could not save the extracted fields — please try again' })
     res.json({ success: true, fields: r.fields })
   } catch (err: any) {
@@ -638,7 +638,7 @@ adminRouter.post('/cois/batch-extract', requireAdmin, async (req, res) => {
     const slice = ids.slice(0, 10)
     const { getFileBuffer } = await import('../services/storage.ts')
     const { tryAnalyzeCoiDocument, isOcrConfigured } = await import('../services/aiExtract.ts')
-    if (!isOcrConfigured) return res.status(503).json({ error: 'AI extraction service is not configured' })
+    if (!isOcrConfigured()) return res.status(503).json({ error: 'AI extraction service is not configured' })
     const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
     const { saveExtractedReview } = await import('./coiFields.ts')
     const results: Array<{ id: string; ok: boolean; error?: string }> = []
@@ -652,7 +652,7 @@ adminRouter.post('/cois/batch-extract', requireAdmin, async (req, res) => {
         if (!norm || !isTextractCompatible(norm.mime)) { results.push({ id, ok: false, error: 'unsupported format' }); continue }
         const r = await tryAnalyzeCoiDocument(norm.buffer)
         if (!r.ok || !r.fields) { results.push({ id, ok: false, error: r.error || 'extraction failed' }); continue }
-        const ok = await saveExtractedReview(id, target.certificate_key, r.fields)
+        const ok = await saveExtractedReview(id, target.certificate_key, r.fields, { overwrite: true })
         results.push({ id, ok: Boolean(ok) })
       } catch (e: any) {
         results.push({ id, ok: false, error: e?.message || 'failed' })
@@ -685,7 +685,7 @@ adminRouter.get('/cois/:id/review', requireAdmin, async (req, res) => {
     )
     if (rev?.details_json) try { extracted = JSON.parse(rev.details_json) } catch {}
     const { getFileViewUrl } = await import('../services/storage.ts')
-    let certUrl: string | null = null; if (row.certificate_key) { try { certUrl = await getFileViewUrl(row.certificate_key, 600) } catch {} }
+    let certUrl: string | null = null; if (row.certificate_key) { try { certUrl = await getFileViewUrl(row.certificate_key) } catch {} }
     const checks: Array<{ name: string; value: string; result: 'pass' | 'warn' | 'fail' }> = []
     const insNorm = normCompany(extracted?.insured?.name)
     const subNorm = normCompany(row.sub_company_name)
