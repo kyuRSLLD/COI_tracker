@@ -4,6 +4,7 @@ import { apiAdmin } from '../api'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
 import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles } from 'lucide-react'
+import { isExpiredDate, formatDisplayDate } from '../lib/date'
 
 interface Check {
   name: string
@@ -81,6 +82,7 @@ export function AdminCoiReviewPage() {
   }
 
   const coi = data?.coi
+  const isExpired = isExpiredDate(coi?.expiration_date)
   const fails = data?.checks.filter((c) => c.result === 'fail').length ?? 0
   const score = data?.score ?? 0
 
@@ -101,6 +103,11 @@ export function AdminCoiReviewPage() {
                 fails > 0 ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
               }`}>
                 {fails > 0 ? `Failed · ${fails} check${fails > 1 ? 's' : ''}` : 'Needs review'}
+              </span>
+            )}
+            {isExpired && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono">
+                Expired — no validation needed
               </span>
             )}
           </div>
@@ -164,87 +171,101 @@ export function AdminCoiReviewPage() {
             {/* RIGHT: verdict + checks + ladder + decision */}
             <section className="lg:col-span-5 space-y-4">
               {/* Score badge + verdict */}
-              <div className={`p-4 rounded-xl border flex items-start gap-4 ${
-                score < 60
-                  ? 'bg-rose-50/70 border-rose-200'
-                  : score < 90
-                  ? 'bg-amber-50/70 border-amber-200'
-                  : 'bg-emerald-50/70 border-emerald-200'
-              }`}>
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center font-display font-bold text-xl text-white shrink-0 ${
-                  score < 60 ? 'bg-rose-600' : score < 90 ? 'bg-amber-600' : 'bg-emerald-600'
+              {isExpired ? (
+                <div className="p-4 rounded-xl border bg-rose-50 border-rose-200 flex items-start gap-3 text-xs">
+                  <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-rose-900 text-sm">Policy expired on {formatDisplayDate(coi?.expiration_date)}</p>
+                    <p className="text-rose-800 mt-1">No further validation needed — this certificate has already expired. The extracted document data below is shown for reference only.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className={`p-4 rounded-xl border flex items-start gap-4 ${
+                  score < 60
+                    ? 'bg-rose-50/70 border-rose-200'
+                    : score < 90
+                    ? 'bg-amber-50/70 border-amber-200'
+                    : 'bg-emerald-50/70 border-emerald-200'
                 }`}>
-                  {score}
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center font-display font-bold text-xl text-white shrink-0 ${
+                    score < 60 ? 'bg-rose-600' : score < 90 ? 'bg-amber-600' : 'bg-emerald-600'
+                  }`}>
+                    {score}
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-ink">{verdictTitle(data)}</p>
+                    <p className="text-slate-600 mt-1">{verdictParagraph(data)}</p>
+                  </div>
                 </div>
-                <div className="text-sm">
-                  <p className="font-semibold text-ink">{verdictTitle(data)}</p>
-                  <p className="text-slate-600 mt-1">{verdictParagraph(data)}</p>
-                </div>
-              </div>
-
+              )}
               {/* Automated checks */}
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
-                <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Automated checks</p>
-                <div className="divide-y divide-slate-100 text-xs">
-                  {data.checks.map((c, i) => {
-                    const chip = RESULT_CHIP[c.result]
-                    return (
-                      <div key={i} className="py-2 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-700">{c.name}</p>
-                          <p className="text-[11px] text-slate-500 truncate">{c.value}</p>
+              {!isExpired && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+                  <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Automated checks</p>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {data.checks.map((c, i) => {
+                      const chip = RESULT_CHIP[c.result]
+                      return (
+                        <div key={i} className="py-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-slate-700">{c.name}</p>
+                            <p className="text-[11px] text-slate-500 truncate">{c.value}</p>
+                          </div>
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${chip.bg}`}>
+                            {chip.label}
+                          </span>
                         </div>
-                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${chip.bg}`}>
-                          {chip.label}
-                        </span>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-
+              )}
               {/* Verification ladder */}
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
-                <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Verification ladder</p>
-                <ol className="space-y-2 text-xs">
-                  <li className="flex items-center gap-3">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0 ${fails > 0 ? 'bg-rose-600' : 'bg-emerald-600'}`}>
-                      {fails > 0 ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    </span>
-                    <span className="flex-1 font-medium text-slate-700">Digital checks</span>
-                    <span className="text-[11px] text-slate-500">{fails > 0 ? `${fails} failed` : 'passed'}</span>
-                  </li>
-                  <li className="flex items-center gap-3">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${ladder.emailSent ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                      2
-                    </span>
-                    <span className="flex-1">
-                      <span className="font-medium text-slate-700">Email agent</span>
-                      {data.extracted?.producer?.name && (
-                        <span className="text-[11px] text-slate-500 block truncate">{data.extracted.producer.name}</span>
-                      )}
-                    </span>
-                    <button
-                      onClick={() => setLadder((l) => ({ ...l, emailSent: true }))}
-                      disabled={ladder.emailSent}
-                      className="text-[11px] font-medium px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-60 inline-flex items-center gap-1"
-                    >
-                      <Mail className="w-3 h-3" /> {ladder.emailSent ? 'Sent' : 'Send now'}
-                    </button>
-                  </li>
-                  <li className="flex items-center gap-3 opacity-60">
-                    <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold shrink-0">3</span>
-                    <span className="flex-1 text-slate-600 font-medium">AI call to agent</span>
-                    <span className="text-[11px] text-slate-500">after 7 days · planned</span>
-                  </li>
-                  <li className="flex items-center gap-3 opacity-60">
-                    <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold shrink-0">4</span>
-                    <span className="flex-1 text-slate-600 font-medium">AI call to insurer</span>
-                    <span className="text-[11px] text-slate-500">planned</span>
-                  </li>
-                </ol>
-              </div>
-
+              {!isExpired && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                    <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Verification ladder</p>
+                    <p className="text-[11px] text-slate-400">staff ops only</p>
+                  </div>
+                  <ol className="space-y-2 text-xs">
+                    <li className="flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0 ${fails > 0 ? 'bg-rose-600' : 'bg-emerald-600'}`}>
+                        {fails > 0 ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      </span>
+                      <span className="flex-1 font-medium text-slate-700">Digital checks</span>
+                      <span className="text-[11px] text-slate-500">{fails > 0 ? `${fails} failed` : 'passed'}</span>
+                    </li>
+                    <li className="flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${ladder.emailSent ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                        2
+                      </span>
+                      <span className="flex-1">
+                        <span className="font-medium text-slate-700">Email agent</span>
+                        {data.extracted?.producer?.name && (
+                          <span className="text-[11px] text-slate-500 block truncate">{data.extracted.producer.name}</span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => setLadder((l) => ({ ...l, emailSent: true }))}
+                        disabled={ladder.emailSent}
+                        className="text-[11px] font-medium px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-60 inline-flex items-center gap-1"
+                      >
+                        <Mail className="w-3 h-3" /> {ladder.emailSent ? 'Sent' : 'Send now'}
+                      </button>
+                    </li>
+                    <li className="flex items-center gap-3 opacity-60">
+                      <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold shrink-0">3</span>
+                      <span className="flex-1 text-slate-600 font-medium">AI call to agent</span>
+                      <span className="text-[11px] text-slate-500">after 7 days · planned</span>
+                    </li>
+                    <li className="flex items-center gap-3 opacity-60">
+                      <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold shrink-0">4</span>
+                      <span className="flex-1 text-slate-600 font-medium">AI call to insurer</span>
+                      <span className="text-[11px] text-slate-500">planned</span>
+                    </li>
+                  </ol>
+                </div>
+              )}
               {/* Extracted fields */}
               {data?.extracted && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3 text-xs">
@@ -364,24 +385,30 @@ export function AdminCoiReviewPage() {
               </div>
 
               {/* Decision buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => decide('rejected')}
-                    disabled={saving}
-                    className="min-h-[44px] px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                  <Button variant="secondary" onClick={() => decide('needs_revision')} disabled={saving} className="border-amber-400 text-amber-800 hover:bg-amber-50">
-                    Request revision
+              {isExpired ? (
+                <div className="p-3 rounded-lg bg-slate-100 text-slate-600 text-xs text-center font-medium">
+                  Validation actions are disabled for expired certificates
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => decide('rejected')}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                    <Button variant="secondary" onClick={() => decide('needs_revision')} disabled={saving} className="border-amber-400 text-amber-800 hover:bg-amber-50">
+                      Request revision
+                    </Button>
+                  </div>
+                  <Button variant="secondary" onClick={() => decide('compliant')} disabled={saving} className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                    Override & approve…
                   </Button>
                 </div>
-                <Button variant="secondary" onClick={() => decide('compliant')} disabled={saving} className="border-slate-300 text-slate-700 hover:bg-slate-50">
-                  Override & approve…
-                </Button>
-              </div>
+              )}
             </section>
           </div>
         )}

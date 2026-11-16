@@ -283,3 +283,90 @@ test('8. dedicated review endpoint returns coi details checks score and cert url
     server.close()
   }
 })
+
+test('9. expired COI cannot be validated — returns 400', async () => {
+  const admin = await createAdmin()
+  const now = new Date().toISOString()
+  const subId = randomUUID()
+  await dbRun(`INSERT INTO subcontractors (id, company_name, trade, created_at, updated_at) VALUES (?, 'Expired Sub', 'Electrical', ?, ?)`, [subId, now, now])
+  const expiredCoiId = randomUUID()
+  await dbRun(
+    `INSERT INTO cois (id, subcontractor_id, carrier, status, effective_date, expiration_date, created_at, updated_at)
+     VALUES (?, ?, 'Liberty', 'pending_review', '01/01/2026', '10/01/2026', ?, ?)`,
+    [expiredCoiId, subId, now, now],
+  )
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res = await fetch(`${base}/api/admin/cois/${expiredCoiId}/validate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/json' },
+    })
+    assert.equal(res.status, 400)
+    const body: any = await res.json()
+    assert.match(body.error, /expired/)
+  } finally {
+    server.close()
+  }
+})
+
+test('10. review endpoint reports policy_expired: true for past expiration date', async () => {
+  const admin = await createAdmin()
+  const now = new Date().toISOString()
+  const subId = randomUUID()
+  await dbRun(`INSERT INTO subcontractors (id, company_name, trade, created_at, updated_at) VALUES (?, 'Expired Sub 2', 'Electrical', ?, ?)`, [subId, now, now])
+  const expiredCoiId = randomUUID()
+  await dbRun(
+    `INSERT INTO cois (id, subcontractor_id, carrier, status, effective_date, expiration_date, created_at, updated_at)
+     VALUES (?, ?, 'Liberty', 'pending_review', '01/01/2026', '10/01/2026', ?, ?)`,
+    [expiredCoiId, subId, now, now],
+  )
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res = await (await fetch(`${base}/api/admin/cois/${expiredCoiId}/review`, {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    })).json() as any
+    assert.equal(res.policy_expired, true)
+  } finally {
+    server.close()
+  }
+})
+
+test('11. queue items include is_expired boolean', async () => {
+  const admin = await createAdmin()
+  const now = new Date().toISOString()
+  const subId = randomUUID()
+  await dbRun(`INSERT INTO subcontractors (id, company_name, trade, created_at, updated_at) VALUES (?, 'Expired Sub 3', 'Electrical', ?, ?)`, [subId, now, now])
+  const expiredCoiId = randomUUID()
+  await dbRun(
+    `INSERT INTO cois (id, subcontractor_id, carrier, status, effective_date, expiration_date, created_at, updated_at)
+     VALUES (?, ?, 'Liberty', 'pending_review', '01/01/2026', '10/01/2026', ?, ?)`,
+    [expiredCoiId, subId, now, now],
+  )
+  const futureCoiId = randomUUID()
+  await dbRun(
+    `INSERT INTO cois (id, subcontractor_id, carrier, status, effective_date, expiration_date, created_at, updated_at)
+     VALUES (?, ?, 'Liberty', 'pending_review', '01/01/2026', '10/01/2027', ?, ?)`,
+    [futureCoiId, subId, now, now],
+  )
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res = await (await fetch(`${base}/api/admin/cois?filter=pending`, {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    })).json() as any
+    const expItem = res.items.find((i: any) => i.id === expiredCoiId)
+    const futItem = res.items.find((i: any) => i.id === futureCoiId)
+    assert.equal(expItem.is_expired, true)
+    assert.equal(futItem.is_expired, false)
+  } finally {
+    server.close()
+  }
+})

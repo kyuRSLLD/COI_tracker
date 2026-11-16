@@ -20,6 +20,7 @@ function queueResult(item: AdminCoiValidationItem): { label: string; chip: strin
   if (item.status === 'compliant') return { label: 'Compliant', chip: 'badge-pass' }
   if (item.status === 'rejected') return { label: 'Rejected', chip: 'badge-fail' }
   if (item.status === 'needs_revision') return { label: 'Needs revision', chip: 'badge-warn' }
+  if ((item.days_left ?? 0) < 0) return { label: 'Expired', chip: 'badge-fail' }
   if (item.insured_match === false || (item.carrier && !item.insurer_naic)) return { label: 'Failed', chip: 'badge-fail' }
   if (item.insurer_is_parent || item.ai_pending) return { label: 'Needs review', chip: 'badge-warn' }
   return { label: 'Awaiting agent', chip: 'badge-info' }
@@ -877,6 +878,7 @@ export function AdminDashboardPage() {
                           </span>
                         </td>
                         <td className="py-2.5 text-right w-[360px] min-w-[360px]">
+                          <div className="flex flex-col items-end gap-1">
                           <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                             <Link
                               to={`/staff/coi/${item.id}`}
@@ -925,6 +927,8 @@ export function AdminDashboardPage() {
                               <option value="needs_revision">Needs revision</option>
                               <option value="rejected">Rejected</option>
                             </select>
+                          </div>
+                          {isExp && <span className="text-[10px] text-slate-400 italic">Expired — no validation needed</span>}
                           </div>
                         </td>
                       </tr>
@@ -983,15 +987,17 @@ export function AdminDashboardPage() {
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
                     <Link to={`/staff/coi/${item.id}`} className="btn-marker h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0 shadow-sm">Review</Link>
-                    <button
-                      type="button"
-                      onClick={() => handleExtract(item.id)}
-                      disabled={!item.has_file || busy === 'extracting'}
-                      className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
-                    >
-                      <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
-                      {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
-                    </button>
+                    {!isExp && (
+                      <button
+                        type="button"
+                        onClick={() => handleExtract(item.id)}
+                        disabled={!item.has_file || busy === 'extracting'}
+                        className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
+                        {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
+                      </button>
+                    )}
                     <select
                       value={item.status}
                       onChange={(e) => handleSetStatus(item.id, e.target.value)}

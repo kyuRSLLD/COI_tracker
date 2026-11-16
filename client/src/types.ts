@@ -353,6 +353,7 @@ export interface AdminCoiValidationItem {
   review_policy_count: number
   review_limit_count: number
   ai_pending: boolean
+  is_expired?: boolean
   review_details?: any
 }
 export interface AdminCoiCounts {

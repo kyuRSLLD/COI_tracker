@@ -1,4 +1,4 @@
-import { formatDisplayDate } from '../lib/date'
+import { formatDisplayDate, daysFromNow, isExpiredDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
@@ -535,7 +535,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             const firstPolicy = rd?.policies?.[0]
             const policyNumber = (firstPolicy?.policyNumber || firstPolicy?.policy_number || primaryCoi.policy_number || '').trim() || null
             const eff = formatDisplayDate(primaryCoi.effective_date)
-            const days = daysUntil(primaryCoi.expiration_date)
+            const days = daysFromNow(primaryCoi.expiration_date)
+            const expired = isExpiredDate(primaryCoi.expiration_date)
             const exp = days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)
             const insuredName = (rd?.insured?.name || sub?.company_name || '—').trim()
             const insuredAddr = rd?.insured?.address || null
@@ -638,8 +639,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       <dt className="text-[11px] text-slate-400">Verification status</dt>
                       <dd className="font-semibold text-slate-900 flex items-center gap-1">
                         <span className={`w-2 h-2 rounded-full ${v.dot}`} />
-                        {v.label}
-                        {rd && primaryCoi.status === 'pending_review' && (
+                        {expired ? 'Expired — upload a renewed certificate' : v.label}
+                        {!expired && rd && primaryCoi.status === 'pending_review' && (
                           <span className="text-[11px] text-slate-400 font-normal">(AI extracted · pending validation)</span>
                         )}
                       </dd>
@@ -729,6 +730,11 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       <span><strong>On file since:</strong> {primaryCoi.created_at ? formatDisplayDate(primaryCoi.created_at.slice(0, 10)) : '—'}</span>
                       <span className="text-[11px] text-slate-400">Detailed coverage lines with limits are listed below</span>
                     </div>
+                    {expired && (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
+                        <strong className="text-rose-900">This certificate expired on {exp}.</strong> Upload a renewed certificate to restore verified status — expired policies are not under active validation.
+                      </div>
+                    )}
 
                     {/* Producer panel */}
                     {(producerName || producerPhone || producerEmail || producerAddr) && (

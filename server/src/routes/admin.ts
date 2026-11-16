@@ -471,6 +471,7 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
         review_policy_count: reviewPolicies,
         review_limit_count: reviewLimits,
         ai_pending: reviewSource === 'ocr' || reviewSource === 'mixed',
+        is_expired: daysLeft !== null && daysLeft < 0,
         insurer_is_parent: isHoldingCompany(r.carrier),
         insured_match: (() => {
           const ins = normCompany(reviewInsured); const sub = normCompany(r.sub_company_name)
@@ -513,6 +514,10 @@ adminRouter.post('/cois/:id/validate', requireAdmin, async (req, res) => {
     const now = new Date().toISOString()
     const target = await dbGet<CoiRow>('SELECT * FROM cois WHERE id = ?', [req.params.id])
     if (!target) return res.status(404).json({ error: 'COI not found' })
+    const exp = parseAnyDate(target.expiration_date)
+    if (exp && exp.getTime() < Date.now()) {
+      return res.status(400).json({ error: 'This certificate has expired and cannot be validated' })
+    }
     await dbRun(
       `UPDATE cois SET status = 'compliant', review_date = ?, reviewer_notes = COALESCE(?, reviewer_notes), updated_at = ?
        WHERE id = ?`,
@@ -718,7 +723,7 @@ adminRouter.get('/cois/:id/review', requireAdmin, async (req, res) => {
     const passes = checks.filter((c) => c.result === 'pass').length
     const fails = checks.filter((c) => c.result === 'fail').length
     const score = Math.max(0, Math.min(100, Math.round((passes / Math.max(1, checks.length)) * 100) - fails * 10))
-    res.json({ coi: row, extracted, certUrl, checks, score })
+    res.json({ coi: row, extracted, certUrl, checks, score, policy_expired: daysLeft !== null && daysLeft < 0 })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
