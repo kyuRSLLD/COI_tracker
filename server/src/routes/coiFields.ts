@@ -233,7 +233,7 @@ coiFieldsRouter.post('/:coiId/extract', async (req: AuthRequest, res) => {
     if (!editable(row, req.user!.id)) return res.status(403).json({ error: 'Only the owner can run extraction on this review' })
     const { getFileBuffer } = await import('../services/storage.ts')
     const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
-    if (!isTextractConfigured) return res.status(503).json({ error: 'Extraction service is not configured' })
+    if (!isTextractConfigured()) return res.status(503).json({ error: 'Extraction service is not configured' })
     if (!row.certificate_key) return res.status(400).json({ error: 'This certificate has no stored file to extract' })
     const buffer = await getFileBuffer(row.certificate_key)
     if (!buffer) return res.status(502).json({ error: 'Could not fetch the stored certificate' })

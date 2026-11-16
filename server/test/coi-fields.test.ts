@@ -95,7 +95,7 @@ test('field reviews are scoped, validated, non-public and tied to the current ce
   const details = {
     producer: { name: 'SENSITIVE REVIEW DATA', address: '', phone: '', email: '' }, insured: { name: '', address: '' },
     insurers: [{ letter: 'A', name: 'Carrier', naic: '' }],
-    policies: [{ type: 'GL', insurerLetter: 'A', policyNumber: 'private policy', effectiveDate: '', expirationDate: '', limits: [{ label: 'Each occurrence', amount: '$1,000,000' }] }],
+    policies: [{ type: 'GL', insurerLetter: 'A', policyNumber: 'private policy', effectiveDate: '', expirationDate: '', limits: [{ label: 'Each occurrence', amount: '$1,000,000.00' }] }],
     source: 'manual',
   }
   const saved = await request('gc-a', 'gc-owned', 'PUT', { sourceTag: gc.body.sourceTag, reviewRevision: gc.body.reviewRevision, details })

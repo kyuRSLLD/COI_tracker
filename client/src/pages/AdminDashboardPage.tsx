@@ -1,11 +1,14 @@
 import { Button } from '../components/Button'
+import { StaffSidebar } from '../components/StaffSidebar'
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { apiAdmin, apiMe } from '../api'
 import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText } from 'lucide-react'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download } from 'lucide-react'
 import { formatDisplayDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
+
+type GrowthRange = '7d' | '30d' | '90d' | '12m'
 
 const GC_PLANS: Array<{ plan: string; price: number }> = [
   { plan: 'Free Demo', price: 0 },
@@ -13,7 +16,17 @@ const GC_PLANS: Array<{ plan: string; price: number }> = [
   { plan: 'Pro GC', price: 29 },
 ]
 
+function queueResult(item: AdminCoiValidationItem): { label: string; chip: string } {
+  if (item.status === 'compliant') return { label: 'Compliant', chip: 'badge-pass' }
+  if (item.status === 'rejected') return { label: 'Rejected', chip: 'badge-fail' }
+  if (item.status === 'needs_revision') return { label: 'Needs revision', chip: 'badge-warn' }
+  if (item.insured_match === false || (item.carrier && !item.insurer_naic)) return { label: 'Failed', chip: 'badge-fail' }
+  if (item.insurer_is_parent || item.ai_pending) return { label: 'Needs review', chip: 'badge-warn' }
+  return { label: 'Awaiting agent', chip: 'badge-info' }
+}
+
 export function AdminDashboardPage() {
+  const navigate = useNavigate()
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [companies, setCompanies] = useState<AdminCompany[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -31,10 +44,19 @@ export function AdminDashboardPage() {
     newPlan: 'General Contractor',
     reason: '',
   })
+  const [roleModal, setRoleModal] = useState<{ open: boolean; user: AdminUser | null; newRole: 'admin' | 'gc' | 'pro_gc' | 'sub' }>({
+    open: false,
+    user: null,
+    newRole: 'gc',
+  })
+  const [resetModalOpen, setResetModalOpen] = useState(false)
+  const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [excludeTest, setExcludeTest] = useState(false)
   const [testFlagLoading, setTestFlagLoading] = useState<string | null>(null)
+  const [growthRange, setGrowthRange] = useState<GrowthRange>('30d')
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
+
   const [coiQueue, setCoiQueue] = useState<AdminCoiValidationItem[]>([])
   const [coiCounts, setCoiCounts] = useState<AdminCoiCounts | null>(null)
   const [coiLoading, setCoiLoading] = useState(false)
@@ -50,13 +72,14 @@ export function AdminDashboardPage() {
     setTimeout(() => setStatusMsg(null), 3500)
   }
 
-  const load = async (excludeTestOverride?: boolean) => {
+  const load = async (excludeTestOverride?: boolean, rangeOverride?: GrowthRange) => {
     try {
       setLoading(true)
       setError(null)
       const xt = excludeTestOverride ?? excludeTest
+      const rg = rangeOverride ?? growthRange
       const [ov, comps, usrs, meData] = await Promise.all([
-        apiAdmin.overview({ exclude_test: xt }),
+        apiAdmin.overview({ exclude_test: xt, range: rg }),
         apiAdmin.companies(),
         apiAdmin.users(),
         apiMe().catch(() => null),
@@ -67,33 +90,36 @@ export function AdminDashboardPage() {
       if (meData?.user) setMe(meData.user)
       setLastRefreshed(new Date())
     } catch (err: any) {
-      setError(err?.message || 'Failed to load')
+      setError(err?.message || 'Failed to load dashboard')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    load()
-  }, [])
   const loadCoiQueue = useCallback(async (filter = coiFilter, search = coiSearch) => {
     try {
       setCoiLoading(true)
       setCoiError(null)
-      const data = await apiAdmin.cois({ filter, search: search.trim() || undefined, limit: 200 })
-      setCoiQueue(data.items)
-      setCoiCounts(data.counts)
+      const res = await apiAdmin.coiQueue({ status: filter, search, limit: 100 })
+      setCoiQueue(res.items)
+      setCoiCounts(res.counts)
     } catch (err: any) {
       setCoiError(err?.message || 'Failed to load validation queue')
     } finally {
       setCoiLoading(false)
     }
   }, [coiFilter, coiSearch])
+
+  useEffect(() => { load() }, [])
+
   useEffect(() => {
-    loadCoiQueue(coiFilter, coiSearch)
-  }, [coiFilter])
+    const t = setTimeout(() => { loadCoiQueue(coiFilter, coiSearch) }, 300)
+    return () => clearTimeout(t)
+  }, [coiSearch, coiFilter, loadCoiQueue])
+
   const setBusy = (id: string, action: string | null) =>
     setCoiBusy((prev) => (action ? { ...prev, [id]: action } : (({ [id]: _, ...rest }) => rest)(prev)))
+
   const handleValidate = async (id: string) => {
     try {
       setBusy(id, 'validating')
@@ -107,6 +133,7 @@ export function AdminDashboardPage() {
       setBusy(id, null)
     }
   }
+
   const handleExtract = async (id: string) => {
     try {
       setBusy(id, 'extracting')
@@ -119,6 +146,7 @@ export function AdminDashboardPage() {
       setBusy(id, null)
     }
   }
+
   const handleSetStatus = async (id: string, status: string) => {
     try {
       setBusy(id, 'saving')
@@ -131,6 +159,7 @@ export function AdminDashboardPage() {
       setBusy(id, null)
     }
   }
+
   const handleViewCert = async (id: string) => {
     try {
       const { url } = await apiAdmin.coiCertificateUrl(id)
@@ -139,6 +168,7 @@ export function AdminDashboardPage() {
       notify(err?.message || 'Could not open certificate')
     }
   }
+
   const handleBatchValidate = async () => {
     const ids = Array.from(selectedCoiIds)
     if (!ids.length) return
@@ -154,6 +184,7 @@ export function AdminDashboardPage() {
       setCoiLoading(false)
     }
   }
+
   const handleBatchExtract = async () => {
     const ids = Array.from(selectedCoiIds)
     if (!ids.length) return
@@ -174,6 +205,7 @@ export function AdminDashboardPage() {
   const openPlanModal = (c: AdminCompany) => {
     setPlanModal({ open: true, company: c, newPlan: c.plan || 'General Contractor', reason: '' })
   }
+
   const confirmPlanChange = async () => {
     if (!planModal.company) return
     try {
@@ -188,6 +220,7 @@ export function AdminDashboardPage() {
       setSavingPlanId(null)
     }
   }
+
   const handleToggleTest = async (c: AdminCompany) => {
     try {
       setTestFlagLoading(c.id)
@@ -212,6 +245,12 @@ export function AdminDashboardPage() {
     } finally {
       setSavingRoleId(null)
     }
+  }
+
+  const confirmRoleChange = async () => {
+    if (!roleModal.user) return
+    await handleRoleChange(roleModal.user.id, roleModal.newRole)
+    setRoleModal({ open: false, user: null, newRole: 'gc' })
   }
 
   const handleDeleteCompany = async (c: AdminCompany) => {
@@ -241,15 +280,19 @@ export function AdminDashboardPage() {
   }
 
   const handleResetData = async () => {
-    if (!confirm('Reset all demo data? This restores the full demo dataset (companies, users, COIs, growth history).'))
-      return
     try {
       await apiAdmin.resetDemoData()
       notify('Reset to fresh demo data')
+      setResetModalOpen(false)
       await load()
     } catch (err: any) {
       notify(err?.message || 'Reset failed')
     }
+  }
+
+  const handleSignOut = () => {
+    localStorage.removeItem('token')
+    window.location.href = '/login'
   }
 
   const filteredCompanies = useMemo(() => {
@@ -283,6 +326,7 @@ export function AdminDashboardPage() {
     if (!list.some((pl) => pl.plan === 'Enterprise')) list.push({ plan: 'Enterprise', count: 0, mrr: 0 })
     return list
   }, [overview])
+
   const totalSignups = overview?.users.total ?? 0
   const paidSubs = overview?.revenue.paying_subscribers ?? 0
   const paidPct = totalSignups ? Math.round((paidSubs / totalSignups) * 100) : 0
@@ -293,9 +337,12 @@ export function AdminDashboardPage() {
   const withCompliant = overview?.platform.verified_cois ?? 0
   const withCompliantPct = totalComp ? Math.round((Math.min(withCompliant, totalComp) / totalComp) * 100) : 0
 
+  const growthEntries = overview?.growth || []
+  const maxGrowth = Math.max(1, ...growthEntries.map((g) => g.new_users))
+
   const reviewNext = () => {
     const first = coiQueue.find((c) => c.status === 'pending_review' || c.ai_pending) || coiQueue[0]
-    if (first) setExpandedCoiId(first.id)
+    if (first) navigate(`/staff/coi/${first.id}`)
   }
 
   useEffect(() => {
@@ -322,525 +369,529 @@ export function AdminDashboardPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [coiQueue, expandedCoiId])
 
-  const maxGrowth = Math.max(1, ...(overview?.growth.map((g) => g.new_users) || [1]))
+  const statusBadge = (s?: string) =>
+    s === 'compliant' ? 'badge-pass' : s === 'rejected' ? 'badge-fail' : 'badge-warn'
+
+  const roleLabel = (r?: string) =>
+    r === 'admin' ? 'Admin' : r === 'pro_gc' ? 'Pro GC' : r === 'sub' ? 'Sub C' : 'GC'
+
+  const compHealth = (c: AdminCompany) => {
+    if (c.status !== 'active') return { label: 'Past due', cls: 'badge-fail' }
+    if ((c.subcontractor_count ?? 0) === 0) return { label: 'No subs yet', cls: 'badge-warn' }
+    return { label: 'Active', cls: 'badge-pass' }
+  }
+
+  const exportCompaniesCsv = () => {
+    const header = ['Company', 'Owner', 'Owner Email', 'Plan', 'MRR', 'Subs', 'Projects', 'Health', 'Joined', 'Test'].join(',')
+    const rows = filteredCompanies.map((c) => {
+      const h = (c.status !== 'active' ? 'Past due' : (c.subcontractor_count ?? 0) === 0 ? 'No subs yet' : 'Active')
+      return [c.name, c.owner_name || '', c.owner_email || '', c.plan, c.mrr || 0, c.subcontractor_count ?? 0, c.project_count ?? 0, h, (c.created_at || '').slice(0, 10), c.is_test ? 'yes' : 'no']
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',')
+    })
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `companies-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff</h1>
-          <p className="text-xs text-slate-500 mt-0.5">All companies and users</p>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 text-xs w-full sm:w-auto">
-          <span className="text-slate-400 font-mono hidden sm:inline">
-            {lastRefreshed.toLocaleTimeString()}
-          </span>
-          <Button
-            variant="secondary"
-            onClick={() => { void load(); void loadCoiQueue() }}
-            disabled={loading}
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </Button>
-          <Button
-            variant="danger"
-            onClick={handleResetData}
-            title="Restore full demo dataset (companies, users, COIs, growth history)"
-          >
-            <RotateCcw className="w-4 h-4" /> Reset demo data
-          </Button>
-          <Link
-            to="/dashboard"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
-          >
-            Contractor view
-          </Link>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-        <button
-          type="button"
-          onClick={() => { const next = !excludeTest; setExcludeTest(next); void load(next) }}
-          className={`min-h-[44px] px-3 py-2 rounded-lg border flex items-center gap-2 transition ${
-            excludeTest
-              ? 'bg-slate-900 text-white font-bold border-slate-900'
-              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-          }`}
-        >
-          <span className={`w-3 h-3 rounded-sm border inline-flex items-center justify-center text-[9px] ${
-            excludeTest ? 'bg-white text-slate-900 border-white font-bold' : 'border-slate-400'
-          }`}>{excludeTest ? '\u2713' : ''}</span>
-          Exclude test &amp; demo accounts
-        </button>
-        <span className="text-[11px] text-slate-400">
-          MRR, paying subscribers, plans, and growth cards filter demo accounts
-        </span>
-      </div>
-
-      {statusMsg && (
-        <div className="text-xs font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-          {statusMsg}
-        </div>
-      )}
-      {overview?.email?.simulated !== false ? (
-        <div className="text-xs font-mono text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
-          <span>Email: simulated mode — no real provider configured. Outgoing mail is recorded in the log but not delivered.</span>
-          <span className="text-[10px] text-amber-700">staff only</span>
-        </div>
-      ) : (
-        <div className="text-xs font-mono text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
-          <span>Email: live delivery enabled ({overview?.email?.mode?.toUpperCase()}) — outgoing mail is really delivered.</span>
-          <span className="text-[10px] text-emerald-700">staff only</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="text-xs font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-          {error}
-        </div>
-      )}
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Users</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            {overview ? overview.users.total : '—'}
-          </div>
-          <div className="text-[11px] font-mono text-emerald-700 mt-0.5">
-            +{overview?.users.new_this_month ?? 0} this month
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">MRR</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            ${overview ? overview.revenue.mrr.toLocaleString() : '0'}
-          </div>
-          <div className="text-[11px] font-mono text-slate-500 mt-0.5">
-            ${overview ? overview.revenue.arr.toLocaleString() : '0'} ARR
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Paying</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            {overview ? overview.revenue.paying_subscribers : '—'}
-          </div>
-          <div className="text-[11px] font-mono text-slate-500 mt-0.5">
-            of {overview?.platform.companies ?? 0} companies
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">ARPU</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            ${overview ? overview.revenue.arpu : '—'}
-          </div>
-          <div className="text-[11px] font-mono text-slate-500 mt-0.5">per paying subscriber</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setCoiFilter('pending'); document.getElementById('validation-queue')?.scrollIntoView({ behavior: 'smooth' }) }}
-          className="bg-white border border-slate-200 rounded-xl p-3 text-left hover:border-slate-400 transition cursor-pointer"
-        >
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">COIs on file</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            {overview ? overview.platform.cois : '—'}
-          </div>
-          <div className="text-[11px] font-mono text-amber-700 mt-0.5 font-bold">
-            {overview?.platform.pending_reviews ?? 0} pending review →
-          </div>
-        </button>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Subs tracked</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            {overview ? overview.platform.subcontractors : '—'}
-          </div>
-          <div className="text-[11px] font-mono text-slate-500 mt-0.5">
-            {overview?.platform.client_share_links ?? 0} share links
-          </div>
-        </div>
-      </div>
-
-      {/* Revenue & growth */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">Revenue by plan</h2>
-          </div>
-          <div className="overflow-x-auto"><div className="min-w-[420px] divide-y divide-slate-100 text-xs font-mono">
-            <div className="grid grid-cols-4 gap-2 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-              <div>Plan</div>
-              <div className="text-right">Price</div>
-              <div className="text-right">Subs</div>
-              <div className="text-right">MRR</div>
-            </div>
-            {plans.map((p) => {
-              const price = overview?.revenue.available_plans.find((ap) => ap.plan === p.plan)?.price ?? (p.plan === 'Enterprise' ? 59 : 0)
-              return (
-                <div key={p.plan} className="grid grid-cols-4 gap-2 py-2 items-center">
-                  <div>
-                    <span className="font-semibold text-slate-900">{p.plan}</span>
-                    {p.plan === 'Subcontractor' && (
-                      <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1 font-mono">
-                        · free for subcontractors
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-right text-slate-600">${price}</div>
-                  <div className="text-right text-slate-600">{p.count}</div>
-                  <div className="text-right font-bold text-emerald-800">${p.mrr.toLocaleString()}</div>
-                </div>
-              )
-            })}
-          </div>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">Sign-ups</h2>
-            <span className="text-[11px] font-mono text-slate-400">new users / month</span>
-          </div>
-          <div className="space-y-2 pt-3 font-mono text-xs">
-            {overview && overview.growth.length > 0 ? (
-              overview.growth.map((g) => (
-                <div key={g.month} className="flex items-center gap-2">
-                  <span className="w-16 text-[11px] text-slate-500">{g.month}</span>
-                  <div className="flex-1 bg-slate-100 rounded h-3 overflow-hidden">
-                    <div
-                      className="bg-slate-800 h-3 rounded"
-                      style={{ width: `${Math.max(6, (g.new_users / maxGrowth) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="w-8 text-right font-bold text-slate-900 text-[11px]">+{g.new_users}</span>
-                </div>
-              ))
-            ) : (
-              <div className="text-center text-slate-400 text-xs py-6">no data</div>
-            )}
-          </div>
-
-        </div>
-      </div>
-
-      {/* Activation funnel */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">Activation funnel</h2>
-          <span className="text-[11px] font-mono text-slate-400">Signed up → On paid plan → Added ≥1 sub → ≥1 compliant COI</span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-[10px] text-slate-400 uppercase">Signed up</div>
-            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{totalSignups}</div>
-          </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-[10px] text-slate-400 uppercase">On paid plan</div>
-            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{paidSubs}</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">{paidPct}% of sign-ups</div>
-          </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-[10px] text-slate-400 uppercase">Added ≥ 1 sub</div>
-            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{withSubs}</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">{withSubsPct}% of companies</div>
-          </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-[10px] text-slate-400 uppercase">≥ 1 compliant COI</div>
-            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{withCompliant}</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">{withCompliantPct}% of companies</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Validation queue */}
-      <div id="validation-queue" className="bg-white border border-slate-200 rounded-xl p-4 scroll-mt-6">
-        <div className="flex flex-col gap-3 pb-3 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+    <StaffSidebar user={me} onSignOut={handleSignOut} pendingQueueCount={coiCounts?.pending}>
+      <div className="max-w-7xl mx-auto space-y-5">
+        {/* Header greeting & action menu */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#CFDAF3]">
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">
-              COIs needing validation
-            </h2>
-            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-              Review submitted certificates, auto-filled AI data, and push validation
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
+              Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {overview?.platform.companies ?? 0} companies · {coiCounts?.pending ?? overview?.platform.pending_reviews ?? 0} certificates waiting
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              className="text-xs"
-              onClick={() => { void loadCoiQueue(coiFilter, coiSearch); void load() }}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${coiLoading ? 'animate-spin' : ''}`} /> Refresh queue
-            </Button>
-            <Button
-              className="text-xs"
-              onClick={reviewNext}
-              disabled={coiQueue.length === 0}
-              title="Open the next pending certificate for review (or press J/K)"
-            >
-              Review next →
-            </Button>
-          </div>
-        </div>
-
-        {/* Filter chips */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-          {[
-            { key: 'pending', label: 'Pending validation', count: coiCounts?.pending, cls: 'bg-amber-100 text-amber-900 border-amber-300' },
-            { key: 'ai_pending', label: 'AI pending verification', count: coiCounts?.ai_pending, cls: 'bg-amber-50 text-amber-900 border-amber-200' },
-            { key: 'compliant', label: 'Compliant', count: coiCounts?.compliant, cls: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
-            { key: 'needs_revision', label: 'Needs revision', count: coiCounts?.needs_revision, cls: 'bg-orange-100 text-orange-900 border-orange-300' },
-            { key: 'rejected', label: 'Rejected', count: coiCounts?.rejected, cls: 'bg-rose-100 text-rose-900 border-rose-300' },
-            { key: 'all', label: 'All', count: coiCounts?.all, cls: 'bg-slate-100 text-slate-800 border-slate-200' },
-          ].map((f) => (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-slate-400 font-mono text-[11px] hidden sm:inline">
+              updated {lastRefreshed.toLocaleTimeString()}
+            </span>
             <button
-              key={f.key}
               type="button"
-              onClick={() => setCoiFilter(f.key as typeof coiFilter)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold font-mono transition min-h-[36px] flex items-center gap-1.5 ${
-                coiFilter === f.key ? `${f.cls} ring-2 ring-slate-800 ring-offset-1` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              onClick={() => { const next = !excludeTest; setExcludeTest(next); void load(next) }}
+              className={`min-h-[40px] px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                excludeTest ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
               }`}
             >
-              {f.label}
-              {f.count !== undefined && <span className="font-bold">{f.count}</span>}
+              <span>{excludeTest ? '✓' : ''}</span> Exclude test accounts
             </button>
-          ))}
-        </div>
-
-        {/* Search & batch bar */}
-        <div className="mt-3 flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search by company, trade, carrier, policy #, or GC…"
-              value={coiSearch}
-              onChange={(e) => setCoiSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-full"
-            />
-          </div>
-          {selectedCoiIds.size > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="primary" className="text-xs" onClick={handleBatchValidate}>
-                <CheckCircle2 className="w-3.5 h-3.5" /> Validate selected ({selectedCoiIds.size})
-              </Button>
-              <Button variant="secondary" className="text-xs" onClick={handleBatchExtract}>
-                <Sparkles className="w-3.5 h-3.5" /> Run AI on selected
-              </Button>
+            <div className="relative">
               <button
                 type="button"
-                onClick={() => setSelectedCoiIds(new Set())}
-                className="text-xs text-slate-500 hover:underline font-mono"
+                onClick={() => setActionMenuOpen((v) => !v)}
+                aria-label="Staff actions"
+                className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-xs font-bold inline-flex items-center gap-1"
               >
-                Clear
+                <MoreHorizontal className="w-4 h-4" />
               </button>
+              {actionMenuOpen && (
+                <div
+                  className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-slate-200 py-1 text-xs z-30"
+                  onClick={() => setActionMenuOpen(false)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { void load(); void loadCoiQueue() }}
+                    disabled={loading}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetModalOpen(true)}
+                    className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-700 flex items-center gap-2"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Reset demo data…
+                  </button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <Link to="/dashboard" className="px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-600">
+                    <ExternalLink className="w-3.5 h-3.5" /> Contractor view
+                  </Link>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
-        {coiError && (
-          <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 font-mono">
-            {coiError}
+        {statusMsg && (
+          <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            {statusMsg}
           </div>
         )}
 
-        {/* Desktop table */}
-        <div className="mt-3 overflow-x-auto hidden md:block">
-          <table className="w-full text-left text-xs font-mono min-w-[960px]">
-            <thead>
-              <tr className="text-[10px] uppercase text-slate-400 border-b border-slate-100">
-                <th className="py-2 pr-2 w-8">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all"
-                    checked={coiQueue.length > 0 && selectedCoiIds.size === coiQueue.length}
-                    onChange={(e) =>
-                      setSelectedCoiIds(e.target.checked ? new Set(coiQueue.map((c) => c.id)) : new Set())
-                    }
-                  />
-                </th>
-                <th className="py-2 pr-3">Subcontractor</th>
-                <th className="py-2 pr-3">Carrier / policy</th>
-                <th className="py-2 pr-3">Dates</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 pr-3">AI data</th>
-                <th className="py-2 pr-3">GC</th>
-                <th className="py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {coiQueue.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-center text-slate-400 py-8">
-                    {coiLoading ? 'Loading queue…' : 'No COIs match this filter'}
-                  </td>
-                </tr>
-              ) : (
-                coiQueue.map((item) => {
-                  const busy = coiBusy[item.id]
-                  const isExp = item.days_left !== null && item.days_left < 0
-                  return (
-                    <tr key={item.id} className="hover:bg-slate-50 align-top">
-                      <td className="py-2.5 pr-2 pt-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedCoiIds.has(item.id)}
-                          onChange={(e) =>
-                            setSelectedCoiIds((prev) => {
-                              const s = new Set(prev)
-                              e.target.checked ? s.add(item.id) : s.delete(item.id)
-                              return s
-                            })
-                          }
-                          aria-label={`Select ${item.sub_company_name || 'COI'}`}
-                        />
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="font-bold text-slate-900">{item.sub_company_name || '—'}</div>
-                        <div className="text-[11px] text-slate-500">
-                          {item.trade || '—'} {item.sub_email ? `· ${item.sub_email}` : ''}
-                        </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="font-bold text-slate-800">{item.carrier || '—'}</div>
-                        <div className="text-[11px] text-slate-500">
-                          {item.policy_number || 'No policy #'}
-                          {!item.insurer_naic && item.carrier ? (
-                            <span className="ml-1.5 text-[10px] font-bold text-rose-600 font-mono">NAIC not found</span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div>{formatDisplayDate(item.effective_date)} → {formatDisplayDate(item.expiration_date)}</div>
-                        <div className="text-[11px]">
-                          <span className={`font-bold ${isExp ? 'text-rose-700' : (item.days_left ?? 999) <= 30 ? 'text-amber-700' : 'text-slate-500'}`}>
-                            {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : '—'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                          item.status === 'compliant'
-                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                            : item.status === 'pending_review'
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                            : item.status === 'needs_revision'
-                            ? 'bg-orange-100 text-orange-900 border border-orange-300'
-                            : item.status === 'rejected'
-                            ? 'bg-rose-100 text-rose-900 border border-rose-300'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {item.status === 'pending_review' ? 'Pending validation' : item.status === 'needs_revision' ? 'Needs revision' : item.status === 'compliant' ? 'Compliant' : item.status}
-                        </span>
-                        {item.review_date && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">verified {formatDisplayDate(item.review_date)}</div>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {item.review_source ? (
-                          <div className="space-y-0.5">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                              item.review_source === 'ocr'
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                : item.review_source === 'mixed'
-                                ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}>
-                              {item.review_source === 'ocr' ? 'AI auto-filled' : item.review_source === 'mixed' ? 'AI · edited' : 'Manual'}
-                            </span>
-                            {item.ai_pending && (
-                              <div className="text-[10px] text-amber-800 font-bold">pending verification</div>
-                            )}
-                            {item.review_insured && (
-                              <div className="text-[11px] text-slate-600 truncate max-w-[200px]" title={item.review_insured}>
-                                insured: {item.review_insured}
-                              </div>
-                            )}
-                            <div className="text-[10px] text-slate-400">
-                              {item.review_policy_count} policies · {item.review_limit_count} limits
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">No AI data</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="text-slate-800 font-bold">{item.gc_company_name || '—'}</div>
-                        <div className="text-[10px] text-slate-400">{item.gc_email || ''}</div>
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <div className="flex flex-wrap items-center justify-end gap-1">
-                          <Button
-                            variant="primary"
-                            className="text-xs !py-1 !px-2.5"
-                            onClick={() => handleValidate(item.id)}
-                            disabled={busy === 'validating'}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {busy === 'validating' ? 'Validating…' : 'Validate'}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            className="text-xs !py-1 !px-2.5"
-                            onClick={() => handleExtract(item.id)}
-                            disabled={!item.has_file || busy === 'extracting'}
-                            title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
-                          >
-                            <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
-                            {busy === 'extracting' ? 'Extracting…' : 'Run AI'}
-                          </Button>
-                          {item.has_file && (
-                            <Button
-                              variant="secondary"
-                              className="text-xs !py-1 !px-2"
-                              onClick={() => handleViewCert(item.id)}
-                              title="View certificate PDF/image"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="secondary"
-                            className="text-xs !py-1 !px-2"
-                            onClick={() => setExpandedCoiId(expandedCoiId === item.id ? null : item.id)}
-                            title="Toggle extracted details"
-                          >
-                            {expandedCoiId === item.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </Button>
-                          <select
-                            aria-label={`Set status for ${item.sub_company_name || 'COI'}`}
-                            value={item.status}
-                            onChange={(e) => handleSetStatus(item.id, e.target.value)}
-                            disabled={busy === 'saving'}
-                            className="text-[11px] font-mono border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-slate-500"
-                          >
-                            <option value="pending_review">Pending validation</option>
-                            <option value="compliant">Compliant</option>
-                            <option value="needs_revision">Needs revision</option>
-                            <option value="rejected">Rejected</option>
-                          </select>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
+        {overview?.email?.simulated !== false ? (
+          <div className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+            <span>Email: simulated mode — no real provider configured. Outgoing mail is recorded in the log but not delivered.</span>
+            <span className="text-[10px] text-amber-700">staff only</span>
+          </div>
+        ) : (
+          <div className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+            <span>Email: live delivery enabled ({overview?.email?.mode?.toUpperCase()}) — outgoing mail is really delivered.</span>
+            <span className="text-[10px] text-emerald-700">staff only</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="kpi-card p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">MRR</div>
+            <div className="text-[34px] font-extrabold leading-tight text-slate-900 mt-1 font-mono">
+              ${overview ? overview.revenue.mrr.toLocaleString() : '0'}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">${overview ? overview.revenue.arr.toLocaleString() : '0'} ARR</div>
+          </div>
+          <div className="kpi-card p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Paying</div>
+            <div className="text-[34px] font-extrabold leading-tight text-slate-900 mt-1 font-mono">
+              {overview?.revenue.paying_subscribers ?? 0} <span className="text-lg font-bold text-slate-400">/ {overview?.platform.companies ?? 0}</span>
+            </div>
+            <div className="h-1 bg-slate-100 rounded overflow-hidden mt-2">
+              <div
+                className="h-full rounded"
+                style={{
+                  background: 'var(--pass)',
+                  width: `${overview && overview.platform.companies ? Math.min(100, Math.round((overview.revenue.paying_subscribers / overview.platform.companies) * 100)) : 0}%`,
+                }}
+              />
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {overview && overview.platform.companies ? Math.round((overview.revenue.paying_subscribers / overview.platform.companies) * 100) : 0}% of companies
+            </div>
+          </div>
+          <div className="kpi-card p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ARPU</div>
+            <div className="text-[34px] font-extrabold leading-tight text-slate-900 mt-1 font-mono">
+              ${overview ? overview.revenue.arpu : '—'}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">per paying company</div>
+          </div>
+          <div className="kpi-card p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">New sign-ups</div>
+            <div className="text-[34px] font-extrabold leading-tight text-slate-900 mt-1 font-mono">
+              {overview?.users.new_this_month ?? 0}
+            </div>
+            <div className="text-xs font-semibold mt-1" style={{ color: 'var(--info)' }}>this month</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setCoiFilter('pending'); document.getElementById('validation-queue')?.scrollIntoView({ behavior: 'smooth' }) }}
+            className="kpi-card p-4 text-left hover:border-rose-300 transition cursor-pointer"
+          >
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Needs validation</div>
+            <div className="text-[34px] font-extrabold leading-tight mt-1 font-mono" style={{ color: 'var(--fail)' }}>
+              {coiCounts?.pending ?? overview?.platform.pending_reviews ?? 0}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">of {coiCounts?.all ?? overview?.platform.cois ?? 0} COIs on file →</div>
+          </button>
+          <div className="kpi-card p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Subs tracked</div>
+            <div className="text-[34px] font-extrabold leading-tight text-slate-900 mt-1 font-mono">
+              {overview ? overview.platform.subcontractors : '—'}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">{overview?.platform.client_share_links ?? 0} share link</div>
+          </div>
         </div>
 
-        {/* Mobile cards */}
-        <div className="mt-3 space-y-3 md:hidden">
-          {coiQueue.length === 0 ? (
-            <div className="text-center text-slate-400 py-6 text-xs font-mono">
-              {coiLoading ? 'Loading queue…' : 'No COIs match this filter'}
+        {/* Revenue & growth */}
+        <div id="revenue" className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {/* Sign-ups per day - true column chart matching the mock */}
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">Sign-ups per day</h2>
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    {growthEntries[0]?.label || growthEntries[0]?.period || '—'} – {growthEntries[growthEntries.length - 1]?.label || growthEntries[growthEntries.length - 1]?.period || '—'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 text-[11px]">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--chart-1)' }} /> Sign-ups</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--chart-2)' }} /> Became paying</span>
+                </div>
+              </div>
+              <div className="pt-4">
+                {growthEntries.length > 0 ? (
+                  <div>
+                    <div className="h-52 flex items-end gap-1.5 sm:gap-2 justify-between">
+                      {growthEntries.map((g) => {
+                        const h = maxGrowth ? Math.round((g.new_users / maxGrowth) * 100) : 0
+                        return (
+                          <div key={g.period || g.month || g.label} className="flex-1 flex flex-col items-center justify-end h-full group" title={`${g.label || g.period}: +${g.new_users}`}>
+                            <span className="text-[10px] font-bold font-mono text-slate-700 mb-1 leading-none">{g.new_users || ''}</span>
+                            <div className="w-full rounded-t" style={{ height: `${g.new_users ? Math.max(8, h) : 3}%`, background: g.new_users ? 'var(--chart-1)' : '#e2e8f0' }} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono mt-2 pt-1 border-t border-slate-100">
+                      <span>{growthEntries[0]?.label || growthEntries[0]?.period}</span>
+                      {growthEntries.length > 2 && <span>{growthEntries[Math.floor(growthEntries.length / 2)]?.label || growthEntries[Math.floor(growthEntries.length / 2)]?.period}</span>}
+                      <span>{growthEntries[growthEntries.length - 1]?.label || growthEntries[growthEntries.length - 1]?.period}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-400 text-xs py-10">no data</div>
+                )}
+              </div>
             </div>
-          ) : (
-            coiQueue.map((item) => {
+            <p className="text-[11px] text-slate-400 mt-4 border-t border-slate-100 pt-2">
+              The paying-conversion series fills in once plan-change dates are recorded. Today only the current plan is stored.
+            </p>
+          </div>
+
+          {/* Revenue by plan + Activation funnel */}
+          <div className="space-y-3">
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">Revenue by plan</h2>
+                <div className="text-xs font-bold font-mono text-slate-900">${overview?.revenue.mrr ?? 0} <span className="text-[10px] text-slate-400 font-normal">/mo</span></div>
+              </div>
+              <div className="mt-3 flex h-3 rounded overflow-hidden bg-slate-100">
+                {plans.map((p) => {
+                  const mrr = overview?.revenue.mrr || 1
+                  const w = Math.round((p.mrr / mrr) * 100)
+                  const color = p.plan === 'Pro GC' ? '#0f766e' : p.plan === 'General Contractor' ? '#0d9488' : p.plan === 'Enterprise' ? '#94a3b8' : '#cbd5e1'
+                  return <div key={p.plan} style={{ width: `${w}%`, background: color }} title={`${p.plan}: $${p.mrr}`} />
+                })}
+              </div>
+              <div className="divide-y divide-slate-100 text-xs mt-3">
+                {plans.map((p) => {
+                  const price = overview?.revenue.available_plans.find((ap) => ap.plan === p.plan)?.price ?? (p.plan === 'Enterprise' ? 59 : 0)
+                  const icon = p.plan === 'Pro GC' ? '■' : p.plan === 'General Contractor' ? '■' : p.plan === 'Enterprise' ? '⬚' : '■'
+                  const color = p.plan === 'Pro GC' ? '#0f766e' : p.plan === 'General Contractor' ? '#0d9488' : p.plan === 'Enterprise' ? '#94a3b8' : '#94a3b8'
+                  return (
+                    <div key={p.plan} className="py-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span style={{ color }} className="text-sm leading-none">{icon}</span>
+                        <span className="font-medium text-slate-800 truncate">{p.plan}</span>
+                        <span className="text-[11px] text-slate-400 font-mono">${price} × {p.count}</span>
+                      </div>
+                      <span className="font-bold font-mono text-slate-900">${p.mrr.toLocaleString()}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">Activation funnel</h2>
+              </div>
+              {[
+                { label: 'Signed up', value: totalSignups, color: 'var(--chart-1)' },
+                { label: 'On a paid plan', value: paidSubs, color: 'var(--chart-1)' },
+                { label: 'Added a sub', value: withSubs, color: 'var(--chart-2)' },
+              ].map((s) => (
+                <div key={s.label} className="text-xs flex items-center gap-2">
+                  <span className="w-24 text-[11px] text-slate-600 truncate">{s.label}</span>
+                  <div className="flex-1 bg-slate-100 rounded h-2.5 overflow-hidden">
+                    <div className="h-full rounded" style={{ width: `${totalSignups ? Math.max(6, Math.round((s.value / totalSignups) * 100)) : 0}%`, background: s.color }} />
+                  </div>
+                  <span className="font-bold font-mono text-slate-900 w-6 text-right text-[11px]">{s.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Validation queue */}
+        <div id="validation-queue" className="bg-white border border-slate-200 rounded-xl p-4 scroll-mt-6">
+          <div className="flex flex-col gap-3 pb-3 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">COIs needing validation</h2>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                {coiCounts?.pending ?? 0} waiting
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                className="text-xs"
+                onClick={() => { void loadCoiQueue(coiFilter, coiSearch); void load() }}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${coiLoading ? 'animate-spin' : ''}`} /> Refresh queue
+              </Button>
+              <Button
+                className="text-xs btn-marker"
+                onClick={reviewNext}
+                disabled={coiQueue.length === 0}
+                title="Open the next pending certificate for review (or press J)"
+              >
+                Review next →
+              </Button>
+            </div>
+          </div>
+          {/* Filter chips */}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
+            {[
+              { key: 'pending', label: 'Pending', count: coiCounts?.pending, chip: 'bg-slate-900 text-white' },
+              { key: 'ai_checked', label: 'AI checked', count: undefined, chip: 'badge-info' },
+              { key: 'ai_pending', label: 'Waiting on agent', count: coiCounts?.ai_pending, chip: 'badge-warn' },
+              { key: 'compliant', label: 'Compliant', count: coiCounts?.compliant, chip: 'badge-pass' },
+              { key: 'needs_revision', label: 'Needs revision', count: coiCounts?.needs_revision, chip: 'badge-warn' },
+              { key: 'rejected', label: 'Rejected', count: coiCounts?.rejected, chip: 'badge-fail' },
+              { key: 'all', label: 'All', count: coiCounts?.all, chip: 'bg-slate-100 text-slate-800' },
+            ].map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setCoiFilter(f.key as typeof coiFilter)}
+                className={`rounded-full px-3 py-1 font-semibold transition min-h-[36px] flex items-center gap-1.5 ${f.chip} ${
+                  coiFilter === f.key ? 'ring-2 ring-slate-800 ring-offset-1 font-bold' : 'opacity-80 hover:opacity-100'
+                }`}
+              >
+                {f.label}
+                {f.count !== undefined && <span className="font-bold font-mono">{f.count}</span>}
+              </button>
+            ))}
+          </div>
+          {/* Search & batch bar */}
+          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search by company, carrier, policy #, NAIC…"
+                value={coiSearch}
+                onChange={(e) => setCoiSearch(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 bg-white focus:outline-none focus:border-slate-500"
+              />
+            </div>
+            {selectedCoiIds.size > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={handleBatchValidate} disabled={coiLoading}>
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Validate selected
+                </Button>
+                <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={handleBatchExtract} disabled={coiLoading}>
+                  <Sparkles className="w-3.5 h-3.5" /> Run AI
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCoiIds(new Set())}
+                  className="text-xs text-slate-500 hover:underline px-1"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          {coiError && (
+            <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">
+              {coiError}
+            </div>
+          )}
+          {/* Desktop table */}
+          <div className="mt-3 overflow-x-auto hidden md:block">
+            <table className="w-full text-left text-xs min-w-[960px]">
+              <thead>
+                <tr className="text-[10px] uppercase text-slate-400 border-b border-slate-100 font-bold tracking-wider">
+                  <th className="py-2 pr-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={coiQueue.length > 0 && selectedCoiIds.size === coiQueue.length}
+                      onChange={(e) =>
+                        setSelectedCoiIds(e.target.checked ? new Set(coiQueue.map((c) => c.id)) : new Set())
+                      }
+                      aria-label="Select all"
+                    />
+                  </th>
+                  <th className="py-2 pr-3">Subcontractor</th>
+                  <th className="py-2 pr-3">General contractor</th>
+                  <th className="py-2 pr-3">Insurer · NAIC</th>
+                  <th className="py-2 pr-3">Expires</th>
+                  <th className="py-2 pr-3">Automated checks</th>
+                  <th className="py-2 pr-3">Result</th>
+                  <th className="py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {coiQueue.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="text-center text-slate-400 py-8">
+                      {coiLoading ? 'Loading queue…' : 'No COIs match this filter'}
+                    </td>
+                  </tr>
+                ) : (
+                  coiQueue.map((item) => {
+                    const isExp = (item.days_left ?? 0) < 0
+                    const busy = coiBusy[item.id]
+                    const result = queueResult(item)
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50 align-top">
+                        <td className="py-2.5 pr-2 pt-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedCoiIds.has(item.id)}
+                            onChange={(e) =>
+                              setSelectedCoiIds((prev) => {
+                                const s = new Set(prev)
+                                e.target.checked ? s.add(item.id) : s.delete(item.id)
+                                return s
+                              })
+                            }
+                            aria-label={`Select ${item.sub_company_name || 'COI'}`}
+                          />
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <Link to={`/staff/coi/${item.id}`} className="font-bold text-slate-900 hover:underline">
+                            {item.sub_company_name || '—'}
+                          </Link>
+                          <div className="text-[11px] text-slate-500">
+                            {item.trade || '—'} {item.sub_email ? `· ${item.sub_email}` : ''}
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-3 text-slate-700">
+                          <div className="font-medium">{item.gc_company_name || '[GC]'}</div>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <div className="font-bold text-slate-800">{item.carrier || 'Not provided'}</div>
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {item.policy_number || 'No policy #'}
+                            {!item.insurer_naic && item.carrier ? (
+                              <span className="ml-1.5 text-[10px] font-bold text-rose-600 font-mono">· NAIC not found</span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-3 font-mono">
+                          <div>{formatDisplayDate(item.expiration_date)}</div>
+                          <div className="text-[11px]">
+                            <span className={`font-bold ${isExp ? 'text-rose-700' : (item.days_left ?? 999) <= 30 ? 'text-amber-700' : 'text-slate-500'}`}>
+                              {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : '—'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <div className="flex flex-wrap gap-1 text-[11px]">
+                            {item.status === 'compliant' && <span className="badge-pass px-1.5 py-0.5 rounded font-bold">All 10 ✓</span>}
+                            {item.insurer_naic ? <span className="badge-pass px-1.5 py-0.5 rounded font-bold">NAIC ✓</span> : item.carrier ? <span className="badge-fail px-1.5 py-0.5 rounded font-bold">NAIC ×</span> : null}
+                            {item.insured_match === false && <span className="badge-fail px-1.5 py-0.5 rounded font-bold">Insured ≠ sub</span>}
+                            {item.insurer_is_parent && <span className="badge-warn px-1.5 py-0.5 rounded font-semibold">Parent co., not insurer</span>}
+                            {item.effective_date && item.expiration_date && <span className="badge-pass px-1.5 py-0.5 rounded font-bold">Dates ✓</span>}
+                            {item.has_file && <span className="badge-info px-1.5 py-0.5 rounded">file</span>}
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${result.chip}`}>
+                            {result.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <Link to={`/staff/coi/${item.id}`} className="btn-marker text-xs px-3 py-1 inline-flex items-center gap-1 font-semibold">
+                              Review
+                            </Link>
+                            <Button
+                              variant="secondary"
+                              className="text-xs !py-1 !px-2.5"
+                              onClick={() => handleExtract(item.id)}
+                              disabled={!item.has_file || busy === 'extracting'}
+                              title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
+                            >
+                              <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
+                              {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              className="text-xs !py-1 !px-2.5"
+                              onClick={() => handleValidate(item.id)}
+                              disabled={busy === 'validating'}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              {busy === 'validating' ? 'Saving…' : 'Validate'}
+                            </Button>
+                            {item.has_file && (
+                              <Button
+                                variant="secondary"
+                                className="text-xs !py-1 !px-2"
+                                onClick={() => handleViewCert(item.id)}
+                                title="Open certificate file"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                            <select
+                              value={item.status}
+                              onChange={(e) => handleSetStatus(item.id, e.target.value)}
+                              disabled={busy === 'saving'}
+                              className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none"
+                              title="Set status"
+                            >
+                              <option value="pending_review">Pending</option>
+                              <option value="compliant">Compliant</option>
+                              <option value="needs_revision">Needs revision</option>
+                              <option value="rejected">Rejected</option>
+                            </select>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile cards */}
+          <div className="mt-3 divide-y divide-slate-100 md:hidden text-xs">
+            {coiQueue.map((item) => {
+              const isExp = (item.days_left ?? 0) < 0
               const busy = coiBusy[item.id]
-              const isExp = item.days_left !== null && item.days_left < 0
+              const result = queueResult(item)
               return (
-                <div key={item.id} className="rounded-xl border border-slate-200 p-3 text-xs font-mono space-y-2">
+                <div key={item.id} className="py-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2 min-w-0">
                       <input
@@ -853,92 +904,46 @@ export function AdminDashboardPage() {
                             return s
                           })
                         }
-                        aria-label={`Select ${item.sub_company_name || 'COI'}`}
                         className="mt-0.5"
+                        aria-label={`Select ${item.sub_company_name || 'COI'}`}
                       />
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate">{item.sub_company_name || '—'}</div>
-                        <div className="text-[11px] text-slate-500">{item.trade || '—'}</div>
+                        <Link to={`/staff/coi/${item.id}`} className="font-bold text-slate-900 truncate hover:underline block">
+                          {item.sub_company_name || '—'}
+                        </Link>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {item.carrier || '—'} · {item.trade || '—'}
+                        </div>
                       </div>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${
-                      item.status === 'compliant'
-                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                        : item.status === 'pending_review'
-                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}>
-                      {item.status === 'pending_review' ? 'Pending validation' : item.status}
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${result.chip}`}>
+                      {result.label}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-600">
-                    <span className="font-bold">{item.carrier || '—'}</span> · {item.policy_number || 'No policy #'}
+                  <div className="flex flex-wrap gap-1 text-[11px]">
+                    {item.insured_match === false && <span className="badge-fail px-1.5 py-0.5 rounded font-bold">Insured ≠ sub</span>}
+                    {item.insurer_is_parent && <span className="badge-warn px-1.5 py-0.5 rounded font-semibold">Parent co., not insurer</span>}
+                    {item.insurer_naic ? <span className="badge-pass px-1.5 py-0.5 rounded font-bold">NAIC ✓</span> : item.carrier ? <span className="badge-fail px-1.5 py-0.5 rounded font-bold">NAIC ×</span> : null}
                   </div>
-                  <div className="text-[11px] text-slate-500">
-                    {formatDisplayDate(item.effective_date)} → {formatDisplayDate(item.expiration_date)}
-                    {' '}·{' '}
-                    <span className={`font-bold ${isExp ? 'text-rose-700' : 'text-slate-700'}`}>
-                      {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : '—'}
+                  <div className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-slate-500">Exp {formatDisplayDate(item.expiration_date)}</span>
+                    <span className={`font-bold ${isExp ? 'text-rose-700' : (item.days_left ?? 999) <= 30 ? 'text-amber-700' : 'text-slate-500'}`}>
+                      {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : ''}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {item.review_source ? (
-                      <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 rounded-full px-2 py-0.5 font-bold">
-                        {item.review_source === 'ocr' ? 'AI auto-filled' : item.review_source}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-slate-400">No AI data</span>
-                    )}
-                    {item.ai_pending && <span className="text-[10px] text-amber-800 font-bold">pending verification</span>}
-                  </div>
-                  {item.gc_company_name && (
-                    <div className="text-[10px] text-slate-400">GC: {item.gc_company_name}</div>
-                  )}
-                  <div className="flex flex-wrap items-center gap-1 pt-1">
-                    <Button
-                      variant="primary"
-                      className="text-xs !py-1 !px-2.5 flex-1"
-                      onClick={() => handleValidate(item.id)}
-                      disabled={busy === 'validating'}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {busy === 'validating' ? 'Validating…' : 'Validate'}
+                  <div className="flex flex-wrap items-center justify-end gap-1 pt-1">
+                    <Link to={`/staff/coi/${item.id}`} className="btn-marker text-xs px-3 py-1 inline-flex items-center gap-1 font-semibold">Review</Link>
+                    <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={() => handleExtract(item.id)} disabled={!item.has_file || busy === 'extracting'}>
+                      <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
+                      {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
                     </Button>
-                    <Button
-                      variant="secondary"
-                      className="text-xs !py-1 !px-2.5"
-                      onClick={() => handleExtract(item.id)}
-                      disabled={!item.has_file || busy === 'extracting'}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      {busy === 'extracting' ? 'Extracting…' : 'Run AI'}
-                    </Button>
-                    {item.has_file && (
-                      <Button
-                        variant="secondary"
-                        className="text-xs !py-1 !px-2"
-                        onClick={() => handleViewCert(item.id)}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="secondary"
-                      className="text-xs !py-1 !px-2"
-                      onClick={() => setExpandedCoiId(expandedCoiId === item.id ? null : item.id)}
-                    >
-                      {expandedCoiId === item.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </Button>
-                  </div>
-                  <div>
                     <select
-                      aria-label={`Set status for ${item.sub_company_name || 'COI'}`}
                       value={item.status}
                       onChange={(e) => handleSetStatus(item.id, e.target.value)}
                       disabled={busy === 'saving'}
-                      className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
+                      className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none"
                     >
-                      <option value="pending_review">Pending validation</option>
+                      <option value="pending_review">Pending</option>
                       <option value="compliant">Compliant</option>
                       <option value="needs_revision">Needs revision</option>
                       <option value="rejected">Rejected</option>
@@ -946,422 +951,403 @@ export function AdminDashboardPage() {
                   </div>
                 </div>
               )
-            })
-          )}
-        </div>
-
-        {/* Expandable details panel */}
-        {expandedCoiId && (() => {
-          const item = coiQueue.find((c) => c.id === expandedCoiId)
-          if (!item) return null
-          const d: any = item.review_details
-          return (
-            <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-800">
-                  Extracted details — {item.sub_company_name || 'COI'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setExpandedCoiId(null)}
-                  className="text-slate-400 hover:text-slate-700"
-                >
-                  <ChevronUp className="w-4 h-4 inline" /> close
-                </button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <div className="text-[10px] uppercase text-slate-400">Insured (policyholder company)</div>
-                  <div className="font-bold text-slate-900">{d?.insured?.name || '—'}</div>
-                  <div className="text-slate-500 text-[11px]">{d?.insured?.address || ''}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase text-slate-400">Producer (agency/broker)</div>
-                  <div className="font-bold text-slate-900">{d?.producer?.name || '—'}</div>
-                  <div className="text-slate-500 text-[11px]">
-                    {[d?.producer?.phone, d?.producer?.email].filter(Boolean).join(' · ')}
-                  </div>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-slate-400 mb-1">Insurers affording coverage</div>
-                {Array.isArray(d?.insurers) && d.insurers.length > 0 ? (
-                  <div className="space-y-1">
-                    {d.insurers.map((ins: any, i: number) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="font-bold text-slate-800 w-6">[{ins.letter || '-'}]</span>
-                        <span className="text-slate-900 flex-1">{ins.name || '—'}</span>
-                        <span className="text-slate-500">NAIC #{ins.naic || '—'}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-slate-400">No insurers</div>
-                )}
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-slate-400 mb-1">Policies &amp; limits</div>
-                {Array.isArray(d?.policies) && d.policies.length > 0 ? (
-                  <div className="space-y-2">
-                    {d.policies.map((p: any, i: number) => (
-                      <div key={i} className="p-2 rounded bg-white border border-slate-200">
-                        <div className="flex flex-wrap items-center justify-between gap-1">
-                          <span className="font-bold text-slate-900">{p.type || 'Policy'}</span>
-                          <span className="text-slate-500">
-                            #{p.policyNumber || '—'} · Insurer {p.insurerLetter || '—'}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-600">
-                          {formatDisplayDate(p.effectiveDate)} → {formatDisplayDate(p.expirationDate)}
-                        </div>
-                        {Array.isArray(p.limits) && p.limits.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-                            {p.limits.map((l: any, j: number) => (
-                              <span key={j} className="bg-slate-100 rounded px-1.5 py-0.5 text-slate-700">
-                                {l.label ? `${l.label}: ` : ''}{formatAmount(l.amount)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-slate-400">No policy lines</div>
-                )}
-              </div>
-              {item.reviewer_notes && (
-                <div>
-                  <div className="text-[10px] uppercase text-slate-400">Reviewer notes</div>
-                  <div className="text-slate-700 italic">{item.reviewer_notes}</div>
-                </div>
-              )}
-            </div>
-          )
-        })()}
-      </div>
-
-      {/* Companies */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">
-            Companies ({filteredCompanies.length})
-          </h2>
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search companies…"
-              value={companySearch}
-              onChange={(e) => setCompanySearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 w-full sm:w-56"
-            />
+            })}
           </div>
         </div>
-        <div className="sm:hidden divide-y divide-slate-100 text-xs font-mono">
-          {filteredCompanies.map((c) => (
-            <div key={c.id} className={`py-3 space-y-2 rounded-lg px-2 -mx-2 ${c.is_test ? 'bg-amber-50/60' : ''}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-slate-900 truncate">{c.name}</span>
-                    {c.is_test && (
-                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">
-                        TEST
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-slate-500 truncate">{c.owner_name || '—'}</div>
-                  <div className="text-[10px] text-slate-400 truncate">{c.owner_email || '—'}</div>
-                </div>
-                <button
-                  onClick={() => handleDeleteCompany(c)}
-                  title="Delete company"
-                  className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+
+        {/* Companies */}
+        <div id="companies" className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Companies ({filteredCompanies.length})
+            </h2>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search companies…"
+                  value={companySearch}
+                  onChange={(e) => setCompanySearch(e.target.value)}
+                  className="text-xs border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 bg-white focus:outline-none focus:border-slate-500 w-56"
+                />
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-800">
-                  {c.plan || 'Free Demo'} · ${(c.mrr || 0).toLocaleString()}/mo
-                </span>
-                <button
-                  type="button"
-                  onClick={() => openPlanModal(c)}
-                  className="text-[11px] font-mono text-brand-700 hover:text-brand-900 underline"
-                >
-                  Change plan…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleToggleTest(c)}
-                  disabled={testFlagLoading === c.id}
-                  className="text-[10px] font-mono text-slate-400 hover:text-slate-700 underline"
-                  title="Toggle whether this company is counted in MRR/metrics"
-                >
-                  {c.is_test ? 'unmark test' : 'mark as test'}
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-600 pt-1">
-                <span>MRR <strong className="text-slate-900">${(c.mrr || 0).toLocaleString()}</strong></span>
-                <span>Subs {c.subcontractor_count}</span>
-                <span>Projects {c.project_count}</span>
-                <span className="text-slate-400">Joined {c.created_at ? c.created_at.slice(0, 10) : '—'}</span>
-              </div>
+              <Button variant="secondary" className="text-xs" onClick={exportCompaniesCsv} title="Export CSV">
+                <Download className="w-3.5 h-3.5" /> CSV
+              </Button>
             </div>
-          ))}
-        </div>
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-xs font-mono text-left">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                <th className="py-2 pr-3">Company</th>
-                <th className="py-2 pr-3">Owner</th>
-                <th className="py-2 pr-3">Plan</th>
-                <th className="py-2 pr-3 text-right">MRR</th>
-                <th className="py-2 pr-3 text-right">Subs</th>
-                <th className="py-2 pr-3 text-right">Projects</th>
-                <th className="py-2 pr-3">Joined</th>
-                <th className="py-2 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredCompanies.map((c) => (
-                <tr key={c.id} className={c.is_test ? 'bg-amber-50/50 hover:bg-amber-100/50' : 'hover:bg-slate-50'}>
-                  <td className="py-2.5 pr-3 font-semibold text-slate-900">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span>{c.name}</span>
-                      {c.is_test && (
-                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">
-                          TEST
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void handleToggleTest(c)}
-                        disabled={testFlagLoading === c.id}
-                        className="text-[10px] font-mono text-slate-400 hover:text-slate-700 underline"
-                        title="Toggle whether this company is counted in MRR/metrics"
-                      >
-                        {c.is_test ? 'unmark' : 'mark test'}
-                      </button>
+          </div>
+          <div className="sm:hidden divide-y divide-slate-100 text-xs">
+            {filteredCompanies.map((c) => {
+              const h = compHealth(c)
+              return (
+                <div key={c.id} className={`py-3 space-y-2 rounded-lg px-2 -mx-2 ${c.is_test ? 'bg-amber-50/60' : ''}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900 truncate">{c.name}</span>
+                        {c.is_test && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono">
+                            TEST
+                          </span>
+                        )}
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${h.cls}`}>{h.label}</span>
+                      </div>
+                      <div className="text-slate-500 truncate">{c.owner_name || '—'}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{c.owner_email || '—'}</div>
                     </div>
-                  </td>
-                  <td className="py-2.5 pr-3 text-slate-600">
-                    <div>{c.owner_name || '—'}</div>
-                    <div className="text-[10px] text-slate-400">{c.owner_email || '—'}</div>
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800">
-                        {c.plan || 'Free Demo'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => openPlanModal(c)}
-                        className="text-[11px] font-mono text-brand-700 hover:text-brand-900 underline"
-                      >
-                        Change…
-                      </button>
-                    </div>
-                  </td>
-                  <td className="py-2.5 pr-3 text-right font-bold text-slate-900">${(c.mrr || 0).toLocaleString()}</td>
-                  <td className="py-2.5 pr-3 text-right text-slate-600">{c.subcontractor_count}</td>
-                  <td className="py-2.5 pr-3 text-right text-slate-600">{c.project_count}</td>
-                  <td className="py-2.5 pr-3 text-slate-500">{c.created_at ? c.created_at.slice(0, 10) : '—'}</td>
-                  <td className="py-2.5 text-right">
                     <button
                       onClick={() => handleDeleteCompany(c)}
                       title="Delete company"
-                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                      className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                  </td>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 font-mono">
+                      {c.plan || 'Free Demo'} · ${(c.mrr || 0).toLocaleString()}/mo
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openPlanModal(c)}
+                      className="text-[11px] text-brand-700 hover:text-brand-900 underline"
+                    >
+                      Change plan…
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleTest(c)}
+                      disabled={testFlagLoading === c.id}
+                      className="text-[11px] text-slate-400 hover:text-slate-700 underline font-mono"
+                      title="Toggle whether this company is counted in MRR/metrics"
+                    >
+                      {c.is_test ? 'unmark test' : 'mark as test'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-600 pt-1 font-mono">
+                    <span>MRR <strong className="text-slate-900">${(c.mrr || 0).toLocaleString()}</strong></span>
+                    <span>Subs {c.subcontractor_count}</span>
+                    <span>Projects {c.project_count}</span>
+                    <span className="text-slate-400">Joined {(c.created_at || '').slice(0, 10) || '—'}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100 font-bold">
+                  <th className="py-2 pr-3">Company</th>
+                  <th className="py-2 pr-3">Owner</th>
+                  <th className="py-2 pr-3">Plan</th>
+                  <th className="py-2 pr-3">Health</th>
+                  <th className="py-2 pr-3 text-right">MRR</th>
+                  <th className="py-2 pr-3 text-right">Subs</th>
+                  <th className="py-2 pr-3 text-right">Projects</th>
+                  <th className="py-2 pr-3">Joined</th>
+                  <th className="py-2 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredCompanies.map((c) => {
+                  const h = compHealth(c)
+                  return (
+                    <tr key={c.id} className={c.is_test ? 'bg-amber-50/50 hover:bg-amber-100/50' : 'hover:bg-slate-50'}>
+                      <td className="py-2.5 pr-3 font-semibold text-slate-900">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{c.name}</span>
+                          {c.is_test && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono">
+                              TEST
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleTest(c)}
+                            disabled={testFlagLoading === c.id}
+                            className="text-[10px] text-slate-400 hover:text-slate-700 underline font-mono"
+                            title="Toggle whether this company is counted in MRR/metrics"
+                          >
+                            {c.is_test ? 'unmark' : 'mark test'}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3 text-slate-600">
+                        <div>{c.owner_name || '—'}</div>
+                        <div className="text-[10px] text-slate-400">{c.owner_email || '—'}</div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800">
+                            {c.plan || 'Free Demo'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openPlanModal(c)}
+                            className="text-[10px] text-brand-700 hover:text-brand-900 underline"
+                          >
+                            Change plan…
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${h.cls}`}>{h.label}</span>
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-bold text-slate-900 font-mono">
+                        ${(c.mrr || 0).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono">{c.subcontractor_count}</td>
+                      <td className="py-2.5 pr-3 text-right font-mono">{c.project_count}</td>
+                      <td className="py-2.5 pr-3 text-slate-500 font-mono">{(c.created_at || '').slice(0, 10) || '—'}</td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          onClick={() => handleDeleteCompany(c)}
+                          title="Delete company"
+                          className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Users */}
+        <div id="users" className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Users ({filteredUsers.length})
+            </h2>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap gap-1 w-full sm:w-auto text-xs">
+                {(['all', 'admin', 'gc', 'pro_gc', 'sub'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRoleFilter(r)}
+                    className={`min-h-[36px] px-2.5 py-1 rounded-full font-semibold transition ${
+                      roleFilter === r ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {r === 'admin' ? 'Admins' : r === 'gc' ? 'GCs' : r === 'pro_gc' ? 'Pro GCs' : r === 'sub' ? 'Sub Cs' : 'All'}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search users…"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="text-xs border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 bg-white focus:outline-none focus:border-slate-500 w-full sm:w-56"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="sm:hidden divide-y divide-slate-100 text-xs">
+            {filteredUsers.map((u) => (
+              <div key={u.id} className="py-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">{u.name || '—'}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteUser(u)}
+                    disabled={me ? u.id === me.id : false}
+                    title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
+                    className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="text-slate-600">{u.company_name || '—'}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${u.role === 'admin' ? 'badge-info' : u.role === 'pro_gc' ? 'badge-pass' : u.role === 'sub' ? 'badge-warn' : 'badge-info'}`}>
+                    {roleLabel(u.role)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setRoleModal({ open: true, user: u, newRole: (u.role as any) || 'gc' })}
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-900 px-1 py-0.5 rounded hover:bg-slate-100 font-mono"
+                    title="Change role…"
+                  >
+                    •••
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-400 pt-1 font-mono">
+                  Joined {(u.created_at || '').slice(0, 10) || '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100 font-bold">
+                  <th className="py-2 pr-3">User</th>
+                  <th className="py-2 pr-3">Company</th>
+                  <th className="py-2 pr-3">Role</th>
+                  <th className="py-2 pr-3">Joined</th>
+                  <th className="py-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredUsers.map((u) => (
+                  <tr key={u.id} className="hover:bg-slate-50">
+                    <td className="py-2.5 pr-3">
+                      <div className="font-semibold text-slate-900">{u.name || '—'}</div>
+                      <div className="text-[10px] text-slate-400">{u.email}</div>
+                    </td>
+                    <td className="py-2.5 pr-3 text-slate-600">{u.company_name || '—'}</td>
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${u.role === 'admin' ? 'badge-info' : u.role === 'pro_gc' ? 'badge-pass' : u.role === 'sub' ? 'badge-warn' : 'badge-info'}`}>
+                          {roleLabel(u.role)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRoleModal({ open: true, user: u, newRole: (u.role as any) || 'gc' })}
+                          className="text-[11px] font-bold text-slate-500 hover:text-slate-900 px-1 py-0.5 rounded hover:bg-slate-100 font-mono"
+                          title="Change role…"
+                        >
+                          •••
+                        </button>
+                      </div>
+                    </td>
+                    <td className="py-2.5 pr-3 text-slate-500 font-mono">{(u.created_at || '').slice(0, 10) || '—'}</td>
+                    <td className="py-2.5 text-right">
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        disabled={me ? u.id === me.id : false}
+                        title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
+                        className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      {/* Users */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">
-            Users ({filteredUsers.length})
-          </h2>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            <div className="flex flex-wrap gap-1 w-full sm:w-auto text-xs font-mono">
-              {(['all', 'admin', 'gc', 'pro_gc', 'sub'] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRoleFilter(r)}
-                  className={`flex-1 sm:flex-initial min-h-[44px] px-2.5 py-2 rounded-md border ${
-                    roleFilter === r ? 'bg-slate-900 text-white font-bold border-slate-900' : 'text-slate-600 bg-white border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  {r === 'admin' ? 'Admins' : r === 'gc' ? 'GCs' : r === 'pro_gc' ? 'Pro GCs' : r === 'sub' ? 'Sub Cs' : 'All'}
-                </button>
-              ))}
-            </div>
-            <div className="relative w-full sm:w-56">
-              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search users…"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                className="w-full sm:w-56 pl-8 pr-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="sm:hidden divide-y divide-slate-100 text-xs font-mono">
-          {filteredUsers.map((u) => (
-            <div key={u.id} className="py-3 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-slate-900 truncate">{u.name || '—'}</div>
-                  <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
-                  <div className="text-slate-500 mt-1 truncate">{u.company_name || '—'}</div>
-                </div>
-                <button
-                  onClick={() => handleDeleteUser(u)}
-                  disabled={me ? u.id === me.id : false}
-                  title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
-                  className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div>
-                <select
-                  value={u.role || 'gc'}
-                  disabled={savingRoleId === u.id}
-                  onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                  className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="gc">GC</option>
-                  <option value="pro_gc">Pro GC</option>
-                  <option value="sub">Sub C</option>
-                </select>
-              </div>
-              <div className="text-[11px] text-slate-400 pt-1">
-                Joined {u.created_at ? u.created_at.slice(0, 10) : '—'}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-xs font-mono text-left">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                <th className="py-2 pr-3">User</th>
-                <th className="py-2 pr-3">Company</th>
-                <th className="py-2 pr-3">Role</th>
-                <th className="py-2 pr-3">Joined</th>
-                <th className="py-2 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50">
-                  <td className="py-2.5 pr-3">
-                    <div className="font-semibold text-slate-900">{u.name || '—'}</div>
-                    <div className="text-[10px] text-slate-400">{u.email}</div>
-                  </td>
-                  <td className="py-2.5 pr-3 text-slate-600">{u.company_name || '—'}</td>
-                  <td className="py-2.5 pr-3">
-                    <select
-                      value={u.role || 'gc'}
-                      disabled={savingRoleId === u.id}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                      className="text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
-                    >
-                      <option value="admin">Admin</option>
-                      <option value="gc">GC</option>
-                      <option value="pro_gc">Pro GC</option>
-                      <option value="sub">Sub C</option>
-                    </select>
-                  </td>
-                  <td className="py-2.5 pr-3 text-slate-500">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => handleDeleteUser(u)}
-                      disabled={me ? u.id === me.id : false}
-                      title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
-                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Change plan modal */}
       {planModal.open && planModal.company && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Change plan</h3>
-                <p className="text-xs font-mono text-slate-500 mt-0.5">{planModal.company.name}</p>
+                <h3 className="text-sm font-bold text-slate-900">Change company plan</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{planModal.company.name}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}
-                className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-lg"
-                aria-label="Close"
-              >
-                ✕
-              </button>
+              <button onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })} className="text-slate-400 hover:text-slate-700">×</button>
+            </div>
+            <div className="text-xs bg-slate-50 rounded-lg p-3 text-slate-600">
+              Current: <strong>{planModal.company.plan || 'Free Demo'}</strong> · MRR <strong>${(planModal.company.mrr || 0).toLocaleString()}/mo</strong>
             </div>
             <div>
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">Current plan</div>
-              <div className="mt-1 inline-block text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-800">
-                {planModal.company.plan || 'Free Demo'} · ${(planModal.company.mrr || 0).toLocaleString()}/mo
-              </div>
-            </div>
-            <div>
-              <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1">New plan</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">New plan</label>
               <select
                 value={planModal.newPlan}
                 onChange={(e) => setPlanModal((m) => ({ ...m, newPlan: e.target.value }))}
-                className="w-full text-sm font-mono border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-slate-500 min-h-[44px]"
+                className="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:border-slate-500"
               >
-                {GC_PLANS.map((p) => (
-                  <option key={p.plan} value={p.plan}>
-                    {p.plan} · ${p.price}/mo
-                  </option>
+                {GC_PLANS.map((gp) => (
+                  <option key={gp.plan} value={gp.plan}>{gp.plan} · ${gp.price}/mo</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Reason (audit log)</label>
-              <textarea
+              <label className="block text-xs font-bold text-slate-700 mb-1">Reason (required)</label>
+              <input
+                type="text"
+                placeholder="e.g. upgraded to Pro after demo call; invoiced annually"
                 value={planModal.reason}
                 onChange={(e) => setPlanModal((m) => ({ ...m, reason: e.target.value }))}
-                placeholder="Reason for this change (e.g. upgraded to Pro GC per sales request)"
-                rows={2}
-                className="w-full text-xs font-mono border border-slate-300 rounded-lg p-2.5 focus:outline-none focus:border-slate-500"
+                className="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:border-slate-500"
               />
+              <p className="text-[11px] text-slate-400 mt-1">Logged to the plan change audit trail</p>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" className="text-xs" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
                 Cancel
               </Button>
-              <Button onClick={() => void confirmPlanChange()} disabled={savingPlanId === planModal.company.id}>
-                Confirm plan change
+              <Button className="text-xs" onClick={confirmPlanChange} disabled={!planModal.reason.trim() || savingPlanId === planModal.company.id}>
+                {savingPlanId === planModal.company.id ? 'Saving…' : 'Confirm & save'}
               </Button>
             </div>
           </div>
         </div>
       )}
-    </div>
+
+      {/* Change role modal */}
+      {roleModal.open && roleModal.user && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setRoleModal({ open: false, user: null, newRole: 'gc' })}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Change role</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{roleModal.user.name || roleModal.user.email}</p>
+              </div>
+              <button onClick={() => setRoleModal({ open: false, user: null, newRole: 'gc' })} className="text-slate-400 hover:text-slate-700">×</button>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">New role</label>
+              <select
+                value={roleModal.newRole}
+                onChange={(e) => setRoleModal((m) => ({ ...m, newRole: e.target.value as any }))}
+                className="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:border-slate-500"
+              >
+                <option value="admin">Admin</option>
+                <option value="gc">GC</option>
+                <option value="pro_gc">Pro GC</option>
+                <option value="sub">Sub C</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {roleModal.newRole === 'admin' ? 'Admins have full platform access.' : roleModal.newRole === 'pro_gc' ? 'Pro GC users automatically get the Pro GC plan.' : ''}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" className="text-xs" onClick={() => setRoleModal({ open: false, user: null, newRole: 'gc' })}>
+                Cancel
+              </Button>
+              <Button className="text-xs" onClick={confirmRoleChange}>
+                Confirm role
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset demo data modal */}
+      {resetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setResetModalOpen(false)}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-slate-900">Reset all demo data?</h3>
+            <p className="text-xs text-slate-600">
+              This restores the full seeded dataset — companies, users, subcontractors, and COIs. Real staff accounts are unaffected. Use for a fresh demo environment.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" className="text-xs" onClick={() => setResetModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" className="text-xs" onClick={handleResetData}>
+                Reset data
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </StaffSidebar>
   )
 }

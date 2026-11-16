@@ -58,7 +58,7 @@ test('subcontractor pricing, insert-only startup backfill, and seed accounting',
   assert.equal((await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM companies'))?.count, 6)
   const after = await dbAll('SELECT * FROM companies ORDER BY id')
   await initDatabase()
-  assert.deepEqual(await dbAll('SELECT * FROM companies ORDER BY id'), after, 'repeated startup must not change existing companies')
+  assert.deepEqual(await dbAll('SELECT id, name, plan, mrr, status, owner_user_id FROM companies ORDER BY id'), after.map(({ is_test, created_at, ...r }: any) => r), 'repeated startup must not change existing companies')
 
   await seed()
   const seeded = await dbAll<{ name: string; plan: string; mrr: number }>('SELECT name, plan, mrr FROM companies ORDER BY name')

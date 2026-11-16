@@ -548,6 +548,10 @@ export async function initDatabase(): Promise<void> {
     console.warn('[db] companies backfill warning:', e?.message)
   }
   try {
+    // Normalize legacy 'verified' status to 'compliant' so each COI has exactly one status
+    await dbRun("UPDATE cois SET status = 'compliant' WHERE status = 'verified'")
+  } catch {}
+  try {
     const rows = await dbAll<{ coi_id: string; details_json: string }>('SELECT coi_id, details_json FROM coi_field_reviews')
     for (const r of rows) {
       try {

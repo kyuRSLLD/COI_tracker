@@ -236,7 +236,9 @@ export interface AdminOverview {
     pending_reviews: number
     verified_cois: number
   }
-  growth: Array<{ month: string; new_users: number }>
+  growth: Array<{ period?: string; label?: string; new_users: number; month?: string }>
+  growth_range?: string
+  new_signups_period?: number
   email?: { mode: string; simulated: boolean }
 }
 
@@ -341,6 +343,8 @@ export interface AdminCoiValidationItem {
   file_name?: string | null
   file_size?: number | null
   insurer_naic?: string | null
+  insurer_is_parent?: boolean
+  insured_match?: boolean | null
   review_source?: 'ocr' | 'mixed' | 'manual' | null
   review_insured?: string | null
   review_producer?: string | null

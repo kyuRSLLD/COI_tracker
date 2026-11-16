@@ -3,7 +3,32 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-ui)'],
+        mono: ['var(--font-mono)'],
+      },
+      borderRadius: {
+        theme: 'var(--radius)',
+      },
       colors: {
+        theme: {
+          page: 'var(--page-bg)',
+          card: 'var(--card-bg)',
+          border: 'var(--border)',
+          text: 'var(--text)',
+          muted: 'var(--muted)',
+          accent: 'var(--accent)',
+          'accent-text': 'var(--accent-text)',
+          link: 'var(--link)',
+          pass: 'var(--pass)',
+          'pass-bg': 'var(--pass-bg)',
+          warn: 'var(--warn)',
+          'warn-bg': 'var(--warn-bg)',
+          fail: 'var(--fail)',
+          'fail-bg': 'var(--fail-bg)',
+          info: 'var(--info)',
+          'info-bg': 'var(--info-bg)',
+        },
         brand: {
           50: '#eef6ff',
           100: '#d9ebff',

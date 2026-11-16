@@ -1,0 +1,103 @@
+/* =========================================================================
+   SafeCOI Theme — Blueprint (Concept C) with navy overrides
+   This is the SINGLE source of truth for all theme colors/fonts.
+   Edit here to re-theme the entire app.
+   ========================================================================= */
+
+:root {
+  /* Navigation */
+  --nav-bg: #0B1F4F;
+  --nav-text: #BFCDF3;
+  --nav-active-bg: #FFFFFF;
+  --nav-active-text: #0B1F4F;
+  --nav-hover: rgba(255, 255, 255, 0.08);
+
+  /* Page & cards */
+  --page-bg: #F4F7FD;
+  --grid-line: #E3EAF8;
+  --card-bg: #FFFFFF;
+  --border: #CFDAF3;
+  --text: #0F1D44;
+  --muted: #4A5A80;
+  --radius: 8px;
+
+  /* Accent & actions */
+  --accent: #E8590C;
+  --accent-text: #FFFFFF;
+  --link: #1D4ED8;
+
+  /* KPI cards */
+  --kpi-top-bar: #0B1F4F;
+  --marker: #E8590C;
+
+  /* Charts */
+  --chart-1: #0B1F4F;
+  --chart-2: #FF8A3D;
+
+  /* Status chips (pass / warn / fail / info) */
+  --pass-bg: #DDF3E6;
+  --pass: #14653A;
+  --warn-bg: #FFEBD6;
+  --warn: #8A3B00;
+  --fail-bg: #FDE1E1;
+  --fail: #A11C1C;
+  --info-bg: #D9E1F5;
+  --info: #0B1F4F;
+
+  /* Typography */
+  --font-ui: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Blueprint grid background */
+.bg-blueprint {
+  background-color: var(--page-bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Status badge utilities */
+.badge-pass {
+  background: var(--pass-bg);
+  color: var(--pass);
+  border: 1px solid color-mix(in srgb, var(--pass) 25%, transparent);
+}
+.badge-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent);
+}
+.badge-fail {
+  background: var(--fail-bg);
+  color: var(--fail);
+  border: 1px solid color-mix(in srgb, var(--fail) 25%, transparent);
+}
+.badge-info {
+  background: var(--info-bg);
+  color: var(--info);
+  border: 1px solid color-mix(in srgb, var(--info) 25%, transparent);
+}
+
+/* KPI card top bar */
+.kpi-card {
+  position: relative;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--kpi-top-bar);
+}
+
+/* Marker-orange CTA button (Blueprint theme) */
+.btn-marker { background: var(--marker); color: #fff; border-radius: 9px; font-weight: 600; box-shadow: 0 1px 2px rgba(232,89,12,.35); }
+.btn-marker:hover { filter: brightness(1.06); }

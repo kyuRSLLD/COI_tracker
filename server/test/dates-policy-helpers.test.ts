@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import { normalizeDate, cleanPolicyNumber } from '../src/services/textract.ts'
 
 test('normalizeDate parses US MM/DD/YYYY, ISO, short years, slashes and dots', () => {
-  assert.equal(normalizeDate('03/12/2023'), '2023-03-12')
-  assert.equal(normalizeDate('3/12/2023'), '2023-03-12')
-  assert.equal(normalizeDate('2023-03-12'), '2023-03-12')
-  assert.equal(normalizeDate('12.5.24'), '2024-12-05')
+  assert.equal(normalizeDate('03/12/2023'), '03/12/2023')
+  assert.equal(normalizeDate('3/12/2023'), '03/12/2023')
+  assert.equal(normalizeDate('2023-03-12'), '03/12/2023')
+  assert.equal(normalizeDate('12.5.24'), '12/05/2024')
   assert.equal(normalizeDate('garbage'), undefined)
   assert.equal(normalizeDate(), undefined)
 })

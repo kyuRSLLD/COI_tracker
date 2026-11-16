@@ -35,8 +35,14 @@ test('POST /api/coi-fields/:coiId/extract guarded by config and key checks', asy
   const gcId = randomUUID(), subId = randomUUID(), coiId = randomUUID()
   await insertSubAndCoi(gcId, subId, coiId, 'cois/a.png')
   const t = signToken({ id: gcId, email: `gc-${gcId}@t.test`, role: 'gc', name: 'GC' })
-  const res = await fetch(`${base}/api/coi-fields/${coiId}/extract`, { method: 'POST', headers: { authorization: `Bearer ${t}` } })
-  // In test env, Textract is not configured — verify the route reaches the guard correctly
+  const saved = process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEY
+  let res: any
+  try {
+    res = await fetch(`${base}/api/coi-fields/${coiId}/extract`, { method: 'POST', headers: { authorization: `Bearer ${t}` } })
+  } finally {
+    if (saved !== undefined) process.env.OPENAI_API_KEY = saved
+  }
   assert.equal(res.status, 503)
   const body = await res.json() as any
   assert.match(body.error, /Extraction service is not configured/)

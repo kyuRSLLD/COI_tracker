@@ -186,3 +186,100 @@ test('1.1 each queue tab returns the right rows and KPI count matches pending ta
     server.close()
   }
 })
+
+
+
+
+test('1.3 INSURED_MATCH FAIL flag and 2.2 holding company parent warning', async () => {
+  const admin = await createAdmin()
+  const coiId = await createCOI({ status: 'pending_review', subName: 'Acme Electric' })
+  await dbRun("UPDATE cois SET carrier = 'CNA Financial', status = 'pending_review' WHERE id = ?", [coiId])
+  await dbRun("INSERT OR REPLACE INTO coi_field_reviews (coi_id, details_json, source_tag) VALUES (?, ?, ?)", [
+    coiId,
+    JSON.stringify({ insured: { name: 'TOTALLY DIFFERENT COMPANY LLC' }, source: 'ocr' }),
+    new Date().toISOString(),
+  ])
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res = await (await fetch(`${base}/api/admin/cois`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    const item = res.items.find((i: any) => i.id === coiId)
+    assert.equal(item.insurer_is_parent, true)
+    assert.equal(item.insured_match, false)
+  } finally {
+    server.close()
+  }
+})
+
+test('1.2 funnel verified_cois matches compliant tab and tabs are mutually exclusive', async () => {
+  const admin = await createAdmin()
+  await createCOI({ status: 'compliant' })
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const ov = await (await fetch(`${base}/api/admin/overview`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    const q = await (await fetch(`${base}/api/admin/cois`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.ok(ov.platform.verified_cois >= 1)
+    assert.equal(q.counts.all, q.counts.pending + q.counts.compliant + q.counts.needs_revision + q.counts.rejected)
+  } finally {
+    server.close()
+  }
+})
+
+test('7. sign-ups growth per day with range selector', async () => {
+  const admin = await createAdmin()
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res30 = await (await fetch(`${base}/api/admin/overview?range=30d`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.equal(res30.growth.length, 30)
+    assert.equal(res30.growth_range, '30d')
+    const res7 = await (await fetch(`${base}/api/admin/overview?range=7d`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.equal(res7.growth.length, 7)
+    const res12 = await (await fetch(`${base}/api/admin/overview?range=12m`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.equal(res12.growth.length, 12)
+  } finally {
+    server.close()
+  }
+})
+
+
+test('8. dedicated review endpoint returns coi details checks score and cert url', async () => {
+  const admin = await createAdmin()
+  const coiId = await createCOI({ status: 'pending_review', subName: 'Rev Sub' })
+  const coi = { id: coiId }
+  await dbRun("INSERT OR REPLACE INTO coi_field_reviews (coi_id, details_json, source_tag) VALUES (?, ?, ?)", [
+    coi.id,
+    JSON.stringify({ insured: { name: 'Acme LLC' }, policies: [{ limits: [{ label: 'occurrence', amount: 1000000 }] }] }),
+    'ocr',
+  ])
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${(server.address() as any).port}`
+  try {
+    const res = await (await fetch(`${base}/api/admin/cois/${coi.id}/review`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.equal(res.coi.id, coi.id)
+    assert.ok(Array.isArray(res.checks) && res.checks.length >= 4)
+    assert.equal(typeof res.score, 'number')
+    assert.ok(res.score >= 0 && res.score <= 100)
+    // decision endpoint
+    const dec = await fetch(`${base}/api/admin/cois/${coi.id}/decision`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision: 'compliant', notes: 'all good' }),
+    })
+    assert.equal(dec.status, 200)
+    const row = await dbGet<any>('SELECT status, reviewer_notes FROM cois WHERE id = ?', [coi.id])
+    assert.equal(row.status, 'compliant')
+    assert.equal(row.reviewer_notes, 'all good')
+  } finally {
+    server.close()
+  }
+})

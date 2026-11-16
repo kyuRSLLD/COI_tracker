@@ -246,9 +246,10 @@ export const apiSettings = {
 
 // Admin dashboard (role='admin' only)
 export const apiAdmin = {
-  overview: (params?: { exclude_test?: boolean }) => {
+  overview: (params?: { exclude_test?: boolean; range?: '7d' | '30d' | '90d' | '12m' }) => {
     const q = new URLSearchParams()
     if (params?.exclude_test) q.set('exclude_test', '1')
+    if (params?.range) q.set('range', params.range)
     const s = q.toString()
     return request<import('./types').AdminOverview>(`/api/admin/overview${s ? `?${s}` : ''}`)
   },
@@ -274,7 +275,7 @@ export const apiAdmin = {
   deleteUser: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
   resetDemoData: () => request<{ success: boolean; message: string }>('/api/admin/danger/reset', { method: 'POST' }),
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
-  cois: (params?: { status?: string; filter?: string; search?: string; limit?: number; offset?: number }) => {
+  coiQueue: (params?: { status?: string; filter?: string; search?: string; limit?: number; offset?: number }) => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
     if (params?.filter) q.set('filter', params.filter)
@@ -290,6 +291,9 @@ export const apiAdmin = {
     request<{ success: boolean; fields?: unknown }>(`/api/admin/cois/${id}/extract`, { method: 'POST' }),
   setCoiStatus: (id: string, status: string, notes?: string) =>
     request<{ success: boolean }>(`/api/admin/cois/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, notes }) }),
+  coiReview: (id: string) => request<{ coi: any; extracted: any; certUrl: string | null; checks: Array<{ name: string; value: string; result: 'pass' | 'warn' | 'fail' }>; score: number }>(`/api/admin/cois/${id}/review`),
+  coiDecision: (id: string, decision: 'compliant' | 'needs_revision' | 'rejected', notes?: string) =>
+    request<{ success: boolean }>(`/api/admin/cois/${id}/decision`, { method: 'POST', body: JSON.stringify({ decision, notes }) }),
   batchValidateCois: (ids: string[]) =>
     request<{ validated: number }>('/api/admin/cois/batch-validate', { method: 'POST', body: JSON.stringify({ ids }) }),
   batchExtractCois: (ids: string[]) =>

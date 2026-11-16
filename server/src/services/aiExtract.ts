@@ -11,9 +11,9 @@ const run = promisify(execFile)
 
 const API_KEY = (process.env.OPENAI_API_KEY || '').trim()
 const API_BASE = (process.env.OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/+$/, '')
-const MODEL = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim()
+const modelName = () => (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim()
 
-export const isOcrConfigured = Boolean(API_KEY)
+export const isOcrConfigured = () => Boolean((process.env.OPENAI_API_KEY || '').trim())
 // Backward-compat alias so existing route imports keep working.
 export const isTextractConfigured = isOcrConfigured
 
@@ -222,7 +222,7 @@ export async function analyzeCoiDocument(buffer: Buffer): Promise<{ fields: CoiF
   const b64 = rendered.buffer.toString('base64')
   const dataUrl = `data:${rendered.mime};base64,${b64}`
   const body = JSON.stringify({
-    model: MODEL,
+    model: modelName(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },

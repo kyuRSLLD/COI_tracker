@@ -16,6 +16,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ClientSharePage } from './pages/ClientSharePage'
 import { UploadPortalPage } from './pages/UploadPortalPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
+import { AdminCoiReviewPage } from './pages/AdminCoiReviewPage'
 import { SubcontractorDashboardPage } from './pages/SubcontractorDashboardPage'
 import { JoinPage } from './pages/JoinPage'
 import { SubcontractorModal } from './components/SubcontractorModal'
@@ -172,11 +173,13 @@ function App() {
     location.pathname.startsWith('/upload/') ||
     location.pathname.startsWith('/join/') ||
     location.pathname === '/connect-sub' ||
-    location.pathname === '/login'
+    location.pathname === '/login' ||
+    location.pathname.startsWith('/staff') ||
+    location.pathname === '/admin'
 
   return (
     <ConnectionSession.Provider value={{ role: sessionStatus === 'authenticated' ? user?.role ?? null : null, token: sessionStatus === 'authenticated' ? sessionToken : null }}>
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+    <div className="min-h-screen flex flex-col">
       {!hideNavbar && (
         <Navbar
           user={user}
@@ -244,6 +247,10 @@ function App() {
           <Route
             path="/staff"
             element={user && user.role === 'admin' ? <AdminDashboardPage /> : <Navigate to={user ? roleHome(user) : '/login'} replace />}
+          />
+          <Route
+            path="/staff/coi/:coiId"
+            element={user && user.role === 'admin' ? <AdminCoiReviewPage /> : <Navigate to={user ? roleHome(user) : '/login'} replace />}
           />
           <Route path="/admin" element={<Navigate to="/staff" replace />} />
           </Route>

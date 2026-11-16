@@ -305,6 +305,36 @@ export async function seed() {
     }
   }
 
+  // 3b. Attach AI-extracted review fixtures for realistic staff dashboard chips
+  const reviewFixtures = [
+    { subName: 'Horizon Electrical Services', insuredName: 'Apex Construction Group', insurerName: 'The Travelers Indemnity Company', naic: '25674', src: 'ocr', notes: 'Insured name on certificate does not match the subcontractor.' },
+    { subName: 'Blue Ridge Plumbing & Fire Protection', insuredName: 'Blue Ridge Plumbing & Fire Protection', insurerName: 'The Travelers Companies', naic: null, src: 'ocr' },
+    { subName: 'Benchmark Concrete & Foundation', insuredName: 'Benchmark Concrete & Foundation', insurerName: 'Zurich American Insurance Company', naic: '16535', src: 'ocr' },
+    { subName: 'Titan Steel Erectors', insuredName: 'Titan Steel Erectors', insurerName: 'Hartford Fire Insurance Company', naic: '19682', src: 'ocr' },
+    { subName: 'Midwest Mechanical Systems', insuredName: 'Midwest Mechanical Systems', insurerName: 'The Travelers Indemnity Company', naic: '25674', src: 'mixed' },
+  ]
+  for (const f of reviewFixtures) {
+    const coi = await dbGet<any>(
+      `SELECT c.id FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id WHERE s.company_name = ? LIMIT 1`,
+      [f.subName]
+    )
+    if (!coi) continue
+    const details = {
+      producer: { name: 'Lakefront Insurance Agency', phone: '(312) 555-0909' },
+      insured: { name: f.insuredName, address: '1200 S Wabash Ave, Chicago, IL 60605' },
+      insurer: { name: f.insurerName, naic: f.naic },
+      policies: [
+        { type: 'General Liability', policy_number: 'GL-980123', effective_date: '01/01/2026', expiration_date: '12/31/2026', limits: [{ label: 'occurrence', amount: 1000000 }, { label: 'aggregate', amount: 2000000 }] },
+        { type: 'Automobile Liability', policy_number: 'AL-445120', effective_date: '01/01/2026', expiration_date: '12/31/2026', limits: [{ label: 'combined', amount: 1000000 }] },
+      ],
+      notes: f.notes,
+      source: f.src,
+    }
+    await dbRun(
+      `INSERT OR REPLACE INTO coi_field_reviews (coi_id, details_json, source_tag) VALUES (?, ?, ?)`,
+      [coi.id, JSON.stringify(details), f.src]
+    )
+  }
   // Connect the demo GC to all seeded subcontractors
   for (const sub of createdSubs) {
     await dbRun(`INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?)`, [userId, sub.id, nowISO])
@@ -368,8 +398,12 @@ export async function seed() {
     { name: 'Keystone Drywall & Frame', plan: 'Subcontractor', mrr: 0, ownerEmail: 'leo@keystonedrywall.demo', ownerName: 'Leo Ramos', days: 70 },
     { name: 'Crestline Electrical Co.', plan: 'Subcontractor', mrr: 0, ownerEmail: 'ana@crestlineelectric.demo', ownerName: 'Ana Morales', days: 55 },
     { name: 'Strata Steel & Structural', plan: 'Subcontractor', mrr: 0, ownerEmail: 'paul@stratasteel.demo', ownerName: 'Paul Nowak', days: 35 },
-    { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao', days: 25 },
-    { name: 'Northgate Construction', plan: 'Free Demo', mrr: 0, ownerEmail: 'tom@northgategc.demo', ownerName: 'Tom Bailey', days: 8 },
+    { name: 'Capital Construction & Restoration', plan: 'Pro GC', mrr: 29, ownerEmail: 'cap@caprestore.demo', ownerName: 'Aiden Park', days: 30 },
+    { name: 'Cap', plan: 'Free Demo', mrr: 0, ownerEmail: 'cap2@capgroup.demo', ownerName: 'Noah Cap', days: 20 },
+    { name: 'Capital Construction', plan: 'General Contractor', mrr: 10, ownerEmail: 'ben@capitalconst.demo', ownerName: 'Ben Capital', days: 15 },
+    { name: 'Riverview Homes', plan: 'Free Demo', mrr: 0, ownerEmail: 'mia@riverviewhomes.demo', ownerName: 'Mia Zhao', days: 25, isTest: 1 },
+    { name: 'Northgate Construction', plan: 'Free Demo', mrr: 0, ownerEmail: 'tom@northgategc.demo', ownerName: 'Tom Bailey', days: 8, isTest: 1 },
+    { name: 'TEST LLD', plan: 'General Contractor', mrr: 10, ownerEmail: 'test@lldgroup.demo', ownerName: 'Test LLD', days: 12, isTest: 1 },
   ]
 
   for (const comp of demoCompanies) {
@@ -383,9 +417,9 @@ export async function seed() {
       )
     }
     await dbRun(
-      `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at)
-       VALUES (?, ?, ?, ?, 'active', ?, ?)`,
-      [uuidv4(), comp.name, comp.plan, comp.mrr, ownerId, daysAgo(comp.days)]
+      `INSERT INTO companies (id, name, plan, mrr, status, owner_user_id, created_at, is_test)
+       VALUES (?, ?, ?, ?, 'active', ?, ?, ?)`,
+      [uuidv4(), comp.name, comp.plan, comp.mrr, ownerId, daysAgo(comp.days), (comp as any).isTest || 0]
     )
   }
 

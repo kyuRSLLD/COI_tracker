@@ -1,14 +1,22 @@
+@import './theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html {
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--page-bg);
+}
 
 html {
   -webkit-text-size-adjust: 100%;
 }
 
 ::selection {
-  background: #3383f5;
-  color: white;
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Print styles for client compliance reports */

@@ -5,6 +5,26 @@ import { randomUUID } from 'crypto'
 import { requireAdmin, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 
+
+const HOLDING_COMPANIES = [
+  'cna financial', 'travelers companies', 'liberty mutual group', 'nationwide mutual group',
+  'hartford financial', 'aig', 'chubb limited', 'berkshire hathaway group', 'progressive group',
+  'state farm group', 'zurich insurance group', 'allstate corporation',
+]
+function isHoldingCompany(name?: string | null): boolean {
+  if (!name) return false
+  const n = name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  return HOLDING_COMPANIES.some((h) => n.includes(h) || h.includes(n))
+}
+function normCompany(s?: string | null): string {
+  if (!s) return ''
+  return s.toLowerCase()
+    .replace(/(llc|inc|incorporated|corp|corporation|ltd|limited|co|company)/g, '')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export const adminRouter = express.Router()
 
 // Platform overview: users, revenue, platform KPIs, growth
@@ -27,7 +47,7 @@ adminRouter.get('/overview', requireAdmin, async (req, res) => {
     const coisRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM cois')
     const sharesRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM client_share_links')
     const pendingCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'pending_review'")
-    const verifiedCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'verified'")
+    const verifiedCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'compliant'")
     const mrrRow = await dbGet<{ total: number }>(`SELECT COALESCE(SUM(mrr), 0) AS total FROM companies c WHERE status = 'active' ${companyFilter}`)
     const payingRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM companies c WHERE status = 'active' AND mrr > 0 ${companyFilter}`)
     const mrr = Number(mrrRow?.total || 0)
@@ -36,14 +56,33 @@ adminRouter.get('/overview', requireAdmin, async (req, res) => {
       `SELECT plan, COUNT(*) AS count, COALESCE(SUM(mrr), 0) AS total_mrr
        FROM companies c WHERE 1=1 ${companyFilter} GROUP BY plan ORDER BY total_mrr DESC`
     )
-    const growth = await dbAll<{ month: string; new_users: number }>(
-      `SELECT SUBSTR(created_at, 1, 7) AS month, COUNT(*) AS new_users
+    const range = String(req.query.range || '30d')
+    const days = range === '7d' ? 7 : range === '90d' ? 90 : range === '12m' ? 365 : 30
+    const sinceDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+    const groupBy = range === '12m' ? 'SUBSTR(created_at, 1, 7)' : 'SUBSTR(created_at, 1, 10)'
+    const rawGrowth = await dbAll<{ period: string; new_users: number }>(
+      `SELECT ${groupBy} AS period, COUNT(*) AS new_users
        FROM users u
        WHERE created_at >= ? ${userTestFilter}
-       GROUP BY month
-       ORDER BY month ASC`,
-      [sixMonthsAgo]
+       GROUP BY period
+       ORDER BY period ASC`,
+      [sinceDate]
     )
+    const gmap = new Map(rawGrowth.map((g) => [g.period, Number(g.new_users)]))
+    const growth: Array<{ period: string; label: string; new_users: number }> = []
+    if (range === '12m') {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date()
+        d.setMonth(d.getMonth() - i)
+        const key = d.toISOString().slice(0, 7)
+        growth.push({ period: key, label: d.toLocaleString('en-US', { month: 'short' }), new_users: gmap.get(key) || 0 })
+      }
+    } else {
+      for (let i = days - 1; i >= 0; i--) {
+        const key = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+        growth.push({ period: key, label: key.slice(5), new_users: gmap.get(key) || 0 })
+      }
+    }
     res.json({
       users: {
         total: Number(totalUsersRow?.count || 0),
@@ -71,7 +110,9 @@ adminRouter.get('/overview', requireAdmin, async (req, res) => {
         pending_reviews: Number(pendingCoisRow?.count || 0),
         verified_cois: Number(verifiedCoisRow?.count || 0),
       },
-      growth: growth.map((g) => ({ month: g.month, new_users: Number(g.new_users) })),
+      growth,
+      growth_range: range,
+      new_signups_period: growth.reduce((a, b) => a + b.new_users, 0),
       email: { mode: emailMode(), simulated: !isRealEmailConfigured() },
     })
   } catch (err: any) {
@@ -323,16 +364,19 @@ function parseAnyDate(s?: string | null): Date | null {
 // List COIs for validation triage. Default filter: pending_review status.
 adminRouter.get('/cois', requireAdmin, async (req, res) => {
   try {
-    const { status, filter = 'pending', search, limit = '200', offset = '0' } = req.query as Record<string, string>
+    const { status: qStatus, filter: qFilter, search, limit = '200', offset = '0' } = req.query as Record<string, string>
+    const filter = (qFilter ?? qStatus) || 'pending'
     const clauses: string[] = []
     const params: unknown[] = []
-    if (status && status !== 'all') {
-      clauses.push('c.status = ?')
-      params.push(status)
-    } else if (filter === 'pending') {
+    if (filter === 'pending') {
       clauses.push("c.status = 'pending_review'")
-    } else if (filter === 'ai_pending') {
+    } else if (filter === 'ai_checked') {
       clauses.push('r.details_json IS NOT NULL')
+    } else if (filter === 'ai_pending') {
+      clauses.push("r.details_json IS NOT NULL AND c.status = 'pending_review'")
+    } else if (filter && filter !== 'all') {
+      clauses.push('c.status = ?')
+      params.push(filter)
     }
     if (search && search.trim()) {
       const q = `%${search.trim().toLowerCase()}%`
@@ -410,18 +454,23 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
         review_policy_count: reviewPolicies,
         review_limit_count: reviewLimits,
         ai_pending: reviewSource === 'ocr' || reviewSource === 'mixed',
+        insurer_is_parent: isHoldingCompany(r.carrier),
+        insured_match: (() => {
+          const ins = normCompany(reviewInsured); const sub = normCompany(r.sub_company_name)
+          return ins && sub ? (ins === sub || ins.includes(sub) || sub.includes(ins)) : null
+        })(),
         review_details: parsedReview,
       }
     })
-    const [cntPending, cntAll, cntCompliant, cntRevision, cntRejected, cntNoFile, cntAiPending] = await Promise.all([
+    const [cntPending, cntCompliant, cntRevision, cntRejected, cntNoFile, cntAiPending] = await Promise.all([
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'pending_review'"),
-      dbGet<{ c: number }>('SELECT COUNT(*) AS c FROM cois'),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'compliant'"),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'needs_revision'"),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'rejected'"),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE certificate_key IS NULL OR certificate_key = ''"),
       dbGet<{ c: number }>('SELECT COUNT(*) AS c FROM coi_field_reviews WHERE details_json IS NOT NULL'),
     ])
+    const cntAll = { c: Number(cntPending?.c || 0) + Number(cntCompliant?.c || 0) + Number(cntRevision?.c || 0) + Number(cntRejected?.c || 0) }
     res.json({
       items,
       counts: {
@@ -592,6 +641,80 @@ adminRouter.post('/cois/batch-extract', requireAdmin, async (req, res) => {
       }
     }
     res.json({ results })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Dedicated COI review screen data
+adminRouter.get('/cois/:id/review', requireAdmin, async (req, res) => {
+  try {
+    const row = await dbGet<any>(
+      `SELECT c.*, s.company_name AS sub_company_name, s.trade, s.email AS sub_email,
+              gc.name AS gc_company_name, u_gc.email AS gc_email
+       FROM cois c
+       LEFT JOIN subcontractors s ON s.id = c.subcontractor_id
+       LEFT JOIN companies gc ON gc.owner_user_id = c.owner_gc_user_id
+       LEFT JOIN users u_gc ON u_gc.id = c.owner_gc_user_id
+       WHERE c.id = ?`,
+      [req.params.id],
+    )
+    if (!row) return res.status(404).json({ error: 'COI not found' })
+    let extracted: any = null
+    const rev = await dbGet<{ details_json: string; source_tag: string }>(
+      'SELECT details_json, source_tag FROM coi_field_reviews WHERE coi_id = ?',
+      [row.id],
+    )
+    if (rev?.details_json) try { extracted = JSON.parse(rev.details_json) } catch {}
+    const { getFileViewUrl } = await import('../services/storage.ts')
+    let certUrl: string | null = null; if (row.certificate_key) { try { certUrl = await getFileViewUrl(row.certificate_key, 600) } catch {} }
+    const checks: Array<{ name: string; value: string; result: 'pass' | 'warn' | 'fail' }> = []
+    const insNorm = normCompany(extracted?.insured?.name)
+    const subNorm = normCompany(row.sub_company_name)
+    const insMatch = insNorm && subNorm ? (insNorm === subNorm || insNorm.includes(subNorm) || subNorm.includes(insNorm)) : null
+    checks.push({
+      name: 'Insured matches subcontractor',
+      value: extracted?.insured?.name ? `${extracted.insured.name} · ${row.sub_company_name}` : 'No insured name extracted',
+      result: insMatch === null ? 'warn' : insMatch ? 'pass' : 'fail',
+    })
+    const isParent = isHoldingCompany(row.carrier)
+    checks.push({
+      name: 'Issuing insurer',
+      value: row.carrier || '—',
+      result: isParent ? 'warn' : row.carrier ? 'pass' : 'fail',
+    })
+    const exp = parseAnyDate(row.expiration_date)
+    const eff = parseAnyDate(row.effective_date)
+    const daysLeft = exp ? Math.ceil((exp.getTime() - Date.now()) / 86400000) : null
+    checks.push({
+      name: 'Policy dates',
+      value: `${row.effective_date || '—'} → ${row.expiration_date || '—'}`,
+      result: !exp ? 'fail' : daysLeft! < 0 ? 'fail' : daysLeft! <= 30 ? 'warn' : 'pass',
+    })
+    const limits = (extracted?.policies || []).flatMap((p: any) => p.limits || [])
+    checks.push({
+      name: 'Limits stated',
+      value: limits.length ? `${limits.length} limit line${limits.length > 1 ? 's' : ''}` : 'No limits extracted',
+      result: limits.length ? 'pass' : 'warn',
+    })
+    const passes = checks.filter((c) => c.result === 'pass').length
+    const fails = checks.filter((c) => c.result === 'fail').length
+    const score = Math.max(0, Math.min(100, Math.round((passes / Math.max(1, checks.length)) * 100) - fails * 10))
+    res.json({ coi: row, extracted, certUrl, checks, score })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+adminRouter.post('/cois/:id/decision', requireAdmin, async (req, res) => {
+  try {
+    const { decision, notes } = req.body || {}
+    if (!['compliant', 'needs_revision', 'rejected'].includes(decision))
+      return res.status(400).json({ error: 'Invalid decision' })
+    await dbRun(
+      `UPDATE cois SET status = ?, reviewer_notes = ?, review_date = ? WHERE id = ?`,
+      [decision, notes || null, new Date().toISOString().slice(0, 10), req.params.id],
+    )
+    res.json({ success: true })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

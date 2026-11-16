@@ -27,7 +27,7 @@ test('cleanPolicyNumber strips prefixes', () => {
 })
 
 test('configuration flags reflect OPENAI_API_KEY presence', () => {
-  assert.equal(typeof isOcrConfigured, 'boolean')
+  assert.equal(typeof isOcrConfigured(), 'boolean')
   assert.equal(isTextractConfigured, isOcrConfigured)
 })
 
@@ -40,7 +40,14 @@ test('tryAnalyzeCoiDocument extracts fields from a simulated COI image via sandb
   }
   const imgPath = '/tmp/pdfconv/coi_sim.png'
   if (!fs.existsSync(imgPath)) return
-  const r = await tryAnalyzeCoiDocument(fs.readFileSync(imgPath))
+  const prev = process.env.OPENAI_MODEL
+  process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
+  let r: any
+  try {
+    r = await tryAnalyzeCoiDocument(fs.readFileSync(imgPath))
+  } finally {
+    process.env.OPENAI_MODEL = prev
+  }
   assert.equal(r.ok, true, `extraction failed: ${r.error}`)
   const f = r.fields!
   assert.ok(f.producer?.name?.includes('ACME'), `producer: ${JSON.stringify(f.producer)}`)
