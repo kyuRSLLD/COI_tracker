@@ -165,6 +165,21 @@ function SessionConnectionQr({ sessionToken }: { sessionToken: string }) {
   const isCurrent = () => sessionCurrent() && code !== null && codeRef.current?.token === code.token && Date.now() < new Date(code.expiresAt).getTime()
   const link = code ? `https://safecoi.com/connect-sub#${code.token}` : ''
 
+  useEffect(() => {
+    const handler = () => {
+      if (!verifySession()) return
+      if (code && Date.now() >= new Date(code.expiresAt).getTime()) {
+        codeRef.current = null
+        setCode(null)
+        setConsent(false)
+        setError(null)
+        setMessage('This QR code has expired. Give consent again to generate a new one.')
+      }
+      setOpen(true)
+    }
+    window.addEventListener('open-sub-connection-qr', handler)
+    return () => window.removeEventListener('open-sub-connection-qr', handler)
+  }, [code])
   const openDialog = () => {
     if (!verifySession()) return
     if (code && Date.now() >= new Date(code.expiresAt).getTime()) {

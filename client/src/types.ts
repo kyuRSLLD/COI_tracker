@@ -53,6 +53,7 @@ export interface COI {
   review_date?: string | null
   certificate_url?: string | null
   simulated_carrier_connect?: boolean
+  review_source_tag?: string | null
   certificate_key?: string | null
   certificate_name?: string | null
   certificate_size?: number | null

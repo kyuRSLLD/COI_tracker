@@ -438,6 +438,9 @@ export async function seed() {
      VALUES (?, ?, ?, ?, 'Elena', 'Rossi', '(312) 555-0144', ?, 'sub', ?, ?)`,
     ['00000000-0000-4000-8000-000000000003', 'sub@horizonelectric.demo', userHash, 'Elena Rossi', 'Horizon Electrical Services', daysAgo(30), horizonSub?.id || null]
   )
+  if (horizonSub) {
+    await dbRun(`UPDATE cois SET owner_sub_user_id = ? WHERE subcontractor_id = ?`, ['00000000-0000-4000-8000-000000000003', horizonSub.id])
+  }
   await dbRun(
     `INSERT INTO users (id, email, password_hash, name, first_name, last_name, phone, company_name, role, created_at, subcontractor_id)
      VALUES (?, ?, ?, ?, 'Marcus', 'Brody', '(312) 555-0177', ?, 'sub', ?, ?)`,

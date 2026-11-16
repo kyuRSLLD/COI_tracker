@@ -4,7 +4,7 @@ import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
 import {
   ShieldCheck, Upload, CheckCircle2, Clock, FileText, AlertTriangle,
-  Sparkles, Building2, Award,
+  Sparkles, Building2, Award, ChevronDown, QrCode, FileCheck,
 } from 'lucide-react'
 import { apiCoiFields, apiSub, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
 import type { SubcontractorDashboardData, COI } from '../types'
@@ -84,6 +84,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
   const [uploading, setUploading] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState(false)
   const [reviewSaved, setReviewSaved] = useState(false)
+  const [cardExpanded, setCardExpanded] = useState(false)
   const [review, setReview] = useState<ReviewState | null>(null)
   const active = useRef(true)
   const reviewVersion = useRef(0)
@@ -428,6 +429,20 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
     if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== d) return null
     return Math.ceil((date.getTime() - Date.now()) / 86400000)
   }
+  const openQr = () => window.dispatchEvent(new Event('open-sub-connection-qr'))
+  const coiVerificationBadge = (c: COI) => {
+    const s = c.status
+    if (s === 'compliant' || s === 'verified') return { label: 'Verified', cls: 'bg-emerald-50 text-emerald-800 border-emerald-300', dot: 'bg-emerald-500' }
+    if (s === 'needs_revision') return { label: 'Needs revision', cls: 'bg-rose-50 text-rose-800 border-rose-300', dot: 'bg-rose-500' }
+    if (s === 'rejected') return { label: 'Rejected', cls: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' }
+    return { label: 'Pending verification', cls: 'bg-amber-50 text-amber-800 border-amber-300', dot: 'bg-amber-500' }
+  }
+  const coiExpiryBadge = (days: number | null) => {
+    if (days === null) return { label: 'Expiration not provided', cls: 'bg-slate-50 text-slate-600 border-slate-200' }
+    if (days < 0) return { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200 font-semibold' }
+    if (days <= 30) return { label: `${days} days left`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+    return { label: `${days} days left`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+  }
 
   if (loading) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm text-slate-500">Loading your insurance portal…</div>
@@ -435,6 +450,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
 
   const sub = data?.subcontractor
   const cois = data?.cois || []
+  const primaryCoi = cois[0] || null
+  const otherCois = cois.slice(1)
 
   if (review) {
     return (
@@ -505,18 +522,248 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         )}
         {reviewSaved && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Document data saved — pending verification. These details are not independently verified.</p>}
 
-        {/* Two main actions */}
+        {/* ── 1. PRIMARY CERTIFICATE CARD (TOP) ── */}
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Your insurance certificate</h2>
+            {cois.length > 0 && <span className="text-[11px] text-slate-400">Newest of {cois.length} on file · click card to expand</span>}
+          </div>
+
+          {primaryCoi ? (() => {
+            const v = coiVerificationBadge(primaryCoi)
+            const days = daysUntil(primaryCoi.expiration_date)
+            const exp = coiExpiryBadge(days)
+            const coverageCount = (primaryCoi.coverages || []).length
+            return (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setCardExpanded(x => !x)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardExpanded(x => !x) } }}
+                aria-expanded={cardExpanded}
+                aria-label="Certificate card — click to view full summary and share options"
+                className={`group rounded-2xl bg-white border-2 p-6 shadow-sm cursor-pointer transition hover:border-brand-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500 ${
+                  cardExpanded ? 'border-brand-400 ring-2 ring-brand-100' : 'border-slate-200'
+                }`}
+              >
+                {/* Header row */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl bg-slate-900 text-white p-2.5 shrink-0 shadow-sm">
+                      <Award className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-lg font-bold text-slate-900">{primaryCoi.carrier}</span>
+                        {primaryCoi.am_best_rating && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            AM Best {primaryCoi.am_best_rating}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-mono text-slate-500 mt-0.5">
+                        Pol. {primaryCoi.policy_number || '—'}{sub?.trade ? ` · ${sub.trade}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${v.cls}`}>
+                      <span className={`w-2 h-2 rounded-full ${v.dot}`} />
+                      {v.label}
+                    </span>
+                    {!primaryCoi.simulated_carrier_connect && (
+                      <span className={`px-2.5 py-1 rounded-full border text-xs font-medium ${exp.cls}`}>
+                        {exp.label}
+                      </span>
+                    )}
+                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${cardExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </div>
+                </div>
+
+                {/* Dates + doc pill */}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 text-slate-600">
+                    <span><strong>Effective</strong> {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'}</span>
+                    <span>→</span>
+                    <span><strong>Expires</strong> {days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {primaryCoi.review_source_tag && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                        <FileCheck className="w-3 h-3" />
+                        {primaryCoi.review_source_tag === 'human' ? 'Reviewed' : 'Auto-filled with AI'}
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-400">
+                      {coverageCount} coverage {coverageCount === 1 ? 'line' : 'lines'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Coverage chips */}
+                {coverageCount > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {(primaryCoi.coverages || []).map(cv => (
+                      <span
+                        key={cv.id || `${cv.type}-${cv.per_occurrence_limit}`}
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 font-mono"
+                        title={`per ${cv.per_occurrence_limit || '—'} · agg ${cv.aggregate_limit || '—'}`}
+                      >
+                        {cv.type}: {cv.per_occurrence_limit || '—'}{cv.aggregate_limit ? ` / ${cv.aggregate_limit} agg` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* File link */}
+                {primaryCoi.certificate_url && !primaryCoi.simulated_carrier_connect && (
+                  <div className="mt-3 text-xs" onClick={e => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => void openDashboardOriginal(primaryCoi)}
+                      className="inline-flex items-center gap-1.5 text-indigo-600 hover:underline font-medium"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> View certificate document ({primaryCoi.certificate_name || 'document'})
+                    </button>
+                  </div>
+                )}
+
+                {primaryCoi.reviewer_notes && !primaryCoi.simulated_carrier_connect && (
+                  <p className="mt-3 text-xs text-slate-500 italic bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                    Note from reviewer: {primaryCoi.reviewer_notes}
+                  </p>
+                )}
+
+                <p className="mt-3 text-[11px] text-slate-400 group-hover:text-slate-600 transition">
+                  {cardExpanded ? 'Click to collapse full summary' : 'Click to expand full summary & sharing'}
+                </p>
+
+                {/* Actions row */}
+                <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2" onClick={e => e.stopPropagation()}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="primary" onClick={openQr} className="text-xs">
+                      <QrCode className="w-4 h-4" /> Show QR & share
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => openReview(primaryCoi)} className="text-xs">
+                      Review document data
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete your ${primaryCoi.carrier} certificate (Policy ${primaryCoi.policy_number || '—'})? Contractors who have it on file will no longer see it. This cannot be undone.`)) return
+                      try {
+                        await apiSub.deleteCOI(primaryCoi.id, sessionToken)
+                        load()
+                      } catch (e: any) { setError(e?.message || 'Delete failed') }
+                    }}
+                    title="Delete this certificate you uploaded"
+                    className="text-xs"
+                  >
+                    Delete certificate
+                  </Button>
+                </div>
+
+                {/* Expanded full summary */}
+                {cardExpanded && (
+                  <div className="mt-5 pt-5 border-t border-slate-200 space-y-4" onClick={e => e.stopPropagation()}>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900 mb-2">Full certificate summary</p>
+                      <dl className="grid sm:grid-cols-2 gap-2 text-xs">
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">Carrier</dt>
+                          <dd className="font-semibold text-slate-900">{primaryCoi.carrier}</dd>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">Policy number</dt>
+                          <dd className="font-mono font-semibold text-slate-900">{primaryCoi.policy_number || '—'}</dd>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">AM Best rating</dt>
+                          <dd className="font-semibold text-slate-900">{primaryCoi.am_best_rating || '—'}</dd>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">Trade</dt>
+                          <dd className="font-semibold text-slate-900">{sub?.trade || '—'}</dd>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">Effective → Expiration</dt>
+                          <dd className="font-semibold text-slate-900">
+                            {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'} → {formatDisplayDate(primaryCoi.expiration_date)}
+                          </dd>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                          <dt className="text-slate-400 text-[11px]">On file since</dt>
+                          <dd className="font-semibold text-slate-900">
+                            {primaryCoi.created_at ? formatDisplayDate(primaryCoi.created_at.slice(0, 10)) : '—'}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                    {(primaryCoi.coverages || []).length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-900 mb-2">Coverage lines</p>
+                        <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden text-xs">
+                          {(primaryCoi.coverages || []).map(cv => (
+                            <div key={cv.id || `${cv.type}-${cv.per_occurrence_limit}`} className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-white">
+                              <span className="font-semibold text-slate-900">{cv.type}</span>
+                              <span className="font-mono text-slate-600">
+                                {cv.per_occurrence_limit || '—'}{cv.aggregate_limit ? ` / ${cv.aggregate_limit} aggregate` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-blue-900">
+                      <div className="flex items-center gap-2">
+                        <QrCode className="w-5 h-5 text-indigo-600 shrink-0" />
+                        <p>
+                          <span className="font-semibold">Share anytime:</span> your QR code works before or after verification. Once reviewed, every general contractor you share with automatically sees this certificate as verified.
+                        </p>
+                      </div>
+                      <Button type="button" variant="primary" onClick={openQr} className="text-xs shrink-0">
+                        Show connection QR code
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })() : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={openQr}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQr() } }}
+              className="rounded-2xl bg-white border-2 border-dashed border-slate-300 p-6 shadow-sm cursor-pointer hover:border-brand-400 hover:shadow-md transition text-center"
+              aria-label="No certificate card — click to show your QR code"
+            >
+              <FileText className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-900">No certificate on file yet</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Upload your certificate below. You can still share your account QR code anytime — connected general contractors will automatically see every certificate you upload once verified.
+              </p>
+              <Button type="button" variant="primary" onClick={e => { e.stopPropagation(); openQr() }} className="text-xs mt-4">
+                <QrCode className="w-4 h-4" /> Show my QR code
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* ── 2. UPLOAD + CARRIER ACTIONS (MOVED BELOW PRIMARY CARD) ── */}
         <div className="grid md:grid-cols-2 gap-5">
-          {/* Action 1: Upload insurance paper */}
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-1">
               <Upload className="w-4 h-4 text-slate-700" />
-              <h2 className="text-sm font-semibold text-slate-900">Upload your certificate of insurance</h2>
+              <h2 className="text-sm font-semibold text-slate-900">
+                {primaryCoi ? 'Upload another certificate of insurance' : 'Upload your certificate of insurance'}
+              </h2>
             </div>
             <p className="text-xs text-slate-500 mb-4">
               Attach your ACORD certificate (PDF or photo). You can complete the details yourself or have your broker do it later.
             </p>
-
             <form onSubmit={handleQuickUpload} className="space-y-3">
               <input
                 ref={fileInputRef}
@@ -542,7 +789,6 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                   </>
                 )}
               </div>
-
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <label className="block text-[11px] text-slate-500 mb-1">Carrier (optional)</label>
@@ -572,7 +818,6 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs"
                 />
               </div>
-
               <button
                 type="submit"
                 disabled={!file || uploading}
@@ -581,53 +826,38 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 {uploading ? 'Uploading…' : 'Upload certificate'}
               </button>
             </form>
-
             {uploadSuccess && (
               <div className="mt-3 text-xs text-emerald-700 flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Certificate submitted. You can review its document data below.
               </div>
             )}
           </div>
-
-          {/* Carrier connections are intentionally unavailable. */}
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-1">
               <AlertTriangle className="w-4 h-4 text-amber-600" />
               <h2 className="text-sm font-semibold text-slate-900">Connect via insurance carrier to validate</h2>
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              Log into your insurance carrier to validate policies directly — no AI document scanning or verification calls needed. Direct carrier connections are coming soon. In the meantime, upload your certificate PDF or photo above — it is stored securely and shared only with general contractors you choose to connect.
+              Log into your insurance carrier to validate policies directly — no AI document scanning or verification calls needed. Direct carrier connections are coming soon. In the meantime, upload your certificate PDF or photo — it is stored securely and shared only with general contractors you choose to connect.
             </p>
           </div>
         </div>
 
-        {/* My certificates */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">My certificates on file</h3>
-              <p className="text-xs text-slate-500">Every COI on file, newest first.</p>
+        {/* ── 3. OTHER CERTIFICATES (WHEN MULTIPLE ON FILE) ── */}
+        {otherCois.length > 0 && (
+          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Other certificates on file</h3>
+                <p className="text-xs text-slate-500">Older or additional COIs for this profile.</p>
+              </div>
+              <span className="text-xs text-slate-400">{otherCois.length} additional</span>
             </div>
-            <span className="text-xs text-slate-400">{cois.length} on file</span>
-          </div>
-
-          {cois.length === 0 ? (
-            <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center text-xs text-slate-400">
-              No certificates on file yet — upload one above.
-            </div>
-          ) : (
             <div className="space-y-3">
-              {cois.map((coi: COI) => {
+              {otherCois.map((coi: COI) => {
                 const days = daysUntil(coi.expiration_date)
-                const expired = days !== null && days < 0
-                const expiring = days !== null && days >= 0 && days <= 30
-                const badge = days === null
-                  ? { label: 'Expiration not provided', cls: 'bg-slate-50 text-slate-600 border-slate-200' }
-                  : expired
-                  ? { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' }
-                  : expiring
-                  ? { label: `${days} days left`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
-                  : { label: `${days} days left`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                const v = coiVerificationBadge(coi)
+                const exp = coiExpiryBadge(days)
                 return (
                   <div key={coi.id} className="border border-slate-200 rounded-xl p-4 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -637,11 +867,14 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                         {coi.am_best_rating && (
                           <span className="text-[11px] text-slate-400">AM Best: {coi.am_best_rating}</span>
                         )}
-                        {!coi.simulated_carrier_connect && <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${badge.cls}`}>
-                          {badge.label}
-                        </span>}
-                        <span className="px-2 py-0.5 rounded-full border text-[11px] font-medium capitalize text-slate-600 bg-slate-50 border-slate-200">
-                          {coi.status.replace('_', ' ')}
+                        {!coi.simulated_carrier_connect && (
+                          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${exp.cls}`}>
+                            {exp.label}
+                          </span>
+                        )}
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${v.cls}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${v.dot}`} />
+                          {v.label}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-400 text-[11px]">
@@ -650,28 +883,9 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                         <span>{formatDisplayDate(coi.effective_date) !== '—' ? formatDisplayDate(coi.effective_date) : 'Not provided'} → {days === null ? 'Expiration not provided' : formatDisplayDate(coi.expiration_date)}</span>
                       </div>
                     </div>
-
-                    {coi.simulated_carrier_connect && (
-                      <p className="mt-2 text-amber-800 font-semibold">Simulated carrier connection — not verified. Upload a real certificate instead.</p>
-                    )}
                     {coi.reviewer_notes && !coi.simulated_carrier_connect && (
                       <p className="text-[11px] text-slate-500 mt-2 italic">{coi.reviewer_notes}</p>
                     )}
-
-                    {cois && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {(coi.coverages || []).map((cv) => (
-                          <span
-                            key={cv.id}
-                            className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700"
-                            title={`${cv.type} · per ${cv.per_occurrence_limit} · agg ${cv.aggregate_limit}`}
-                          >
-                            {cv.type}: {cv.per_occurrence_limit}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
@@ -704,7 +918,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                           onClick={() => void openDashboardOriginal(coi)}
                           className="inline-flex items-center gap-1 text-indigo-600 hover:underline"
                         >
-                          View uploaded paper ({coi.certificate_name || 'document'}) <FileText className="w-3 h-3" />
+                          View certificate document ({coi.certificate_name || 'document'}) <FileText className="w-3 h-3" />
                         </button>
                       </div>
                     )}
@@ -712,8 +926,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 )
               })}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* Requests from contractors */}
         {data && data.requests.length > 0 && (
@@ -788,8 +1002,9 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
         <SubConnectionQr key={qrVersion} />
 
         {/* Footer info */}
-        <div className="text-center text-xs text-slate-400 py-4">
-          Subcontractor portal · need help? Contact your requesting general contractor or sign in with another account.
+        <div className="text-center text-xs text-slate-400 py-4 space-y-1">
+          <p>Subcontractor portal · need help? Contact your requesting general contractor.</p>
+          <p className="text-[11px] text-slate-400">Connected general contractors and shared links automatically update to show your verified status once reviewed.</p>
         </div>
       </main>
       {viewingCertificate && <CertificateViewer certificate={viewingCertificate} onClose={() => setViewingCertificate(null)} returnLabel="Back to dashboard" />}

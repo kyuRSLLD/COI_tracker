@@ -86,7 +86,9 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
   try {
     const sub = await resolveSubProfile(req.user!)
     const cois = await dbAll(
-      `SELECT c.* FROM cois c WHERE c.subcontractor_id = ? AND (
+      `SELECT c.*, r.source_tag AS review_source_tag FROM cois c
+       LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
+       WHERE c.subcontractor_id = ? AND (
         (c.owner_gc_user_id IS NOT NULL AND EXISTS (
           SELECT 1 FROM gc_sub_connections g
           WHERE g.gc_user_id = c.owner_gc_user_id AND g.subcontractor_id = c.subcontractor_id
