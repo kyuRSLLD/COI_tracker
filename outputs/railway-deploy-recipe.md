@@ -1,4 +1,4 @@
-# Deployment Recipe — COI Shield on Railway Project "brilliant-nature"
+# Deployment Recipe — SafeCOI on Railway Project "brilliant-nature"
 
 ## 1. Open the existing project
 

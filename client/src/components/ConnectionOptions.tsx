@@ -187,8 +187,8 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
       if (active.current && getToken() === sessionToken) setError('Could not prepare your invitation link. Please check your session and try again.')
     } finally { if (active.current && getToken() === sessionToken) setWorking(false) }
   }
-  const subject = 'Invitation to connect on COI Shield'
-  const body = `Hello,\n\nPlease use this link to join and connect with ${invite?.company_name || 'our company'} on COI Shield:\n\n${invite?.invite_url || ''}\n\nThank you.`
+  const subject = 'Invitation to connect on SafeCOI'
+  const body = `Hello,\n\nPlease use this link to join and connect with ${invite?.company_name || 'our company'} on SafeCOI:\n\n${invite?.invite_url || ''}\n\nThank you.`
   return <div className="mt-4 border-t border-slate-200 pt-4 space-y-3">
     <div className="grid grid-cols-2 gap-2 text-xs" aria-label="Add subcontractor method">
       <button type="button" disabled={working} aria-pressed={mode === 'camera'} onClick={() => {

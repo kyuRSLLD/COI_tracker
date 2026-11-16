@@ -175,7 +175,7 @@ export function JoinPage({ user: currentUser, sessionToken, sessionStatus, onSes
           <div className="w-9 h-9 rounded-2xl bg-slate-900 text-white flex items-center justify-center">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          <span className="font-semibold text-slate-900">COI Shield</span>
+          <span className="font-semibold text-slate-900">SafeCOI</span>
         </Link>
         <p className="mt-2 text-xs text-slate-500">Subcontractor insurance compliance made simple</p>
       </div>

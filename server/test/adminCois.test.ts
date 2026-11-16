@@ -131,3 +131,58 @@ test('admin can set status, batch validate, and fetch certificate-url', async ()
     server.close()
   }
 })
+
+test('1.1 each queue tab returns the right rows and KPI count matches pending tab count', async () => {
+  const app = await createApp({ maintenanceMode: false })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => server.once('listening', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const base = `http://127.0.0.1:${address.port}`
+  try {
+    const admin = await createAdmin()
+    const p1 = await createCOI({ status: 'pending_review' })
+    const p2 = await createCOI({ status: 'pending_review' })
+    const c1 = await createCOI({ status: 'compliant' })
+    const r1 = await createCOI({ status: 'needs_revision' })
+    const j1 = await createCOI({ status: 'rejected' })
+    await dbRun(`INSERT INTO coi_field_reviews (coi_id, source_tag, details_json) VALUES (?, 'tag', ?)`, [p2, JSON.stringify({ source: 'ocr', insured: {}, policies: [] })])
+
+    const get = async (params: string) => {
+      const res = await fetch(`${base}/api/admin/cois?${params}`, { headers: { Authorization: `Bearer ${admin.token}` } })
+      assert.equal(res.status, 200)
+      return res.json() as Promise<any>
+    }
+
+    const pending = await get('filter=pending')
+    assert.ok(pending.items.every((i: any) => i.status === 'pending_review'))
+    assert.ok(pending.items.some((i: any) => i.id === p1))
+    assert.ok(pending.items.some((i: any) => i.id === p2))
+
+    const ai = await get('filter=ai_pending')
+    assert.ok(ai.items.some((i: any) => i.id === p2))
+    assert.ok(!ai.items.some((i: any) => i.id === p1))
+
+    const compliant = await get('status=compliant')
+    assert.ok(compliant.items.every((i: any) => i.status === 'compliant'))
+    assert.ok(compliant.items.some((i: any) => i.id === c1))
+
+    const revision = await get('status=needs_revision')
+    assert.ok(revision.items.every((i: any) => i.status === 'needs_revision'))
+    assert.ok(revision.items.some((i: any) => i.id === r1))
+
+    const rejected = await get('status=rejected')
+    assert.ok(rejected.items.every((i: any) => i.status === 'rejected'))
+    assert.ok(rejected.items.some((i: any) => i.id === j1))
+
+    const all = await get('filter=all')
+    const ids = all.items.map((i: any) => i.id)
+    for (const id of [p1, p2, c1, r1, j1]) assert.ok(ids.includes(id))
+
+    // KPI count and Pending tab count come from the same query
+    const overview = await (await fetch(`${base}/api/admin/overview`, { headers: { Authorization: `Bearer ${admin.token}` } })).json() as any
+    assert.equal(pending.counts.pending, overview.platform.pending_reviews)
+  } finally {
+    server.close()
+  }
+})

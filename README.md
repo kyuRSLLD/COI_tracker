@@ -1,10 +1,10 @@
-# 🛡 COI Shield — Certificate of Insurance Tracker
+# 🛡 SafeCOI — Certificate of Insurance Tracker
 
 > **Collect subcontractor certificates of insurance in seconds. Stay audit-ready. Share verified compliance with clients — with client-safe privacy built in.**
 
 Official domain: **[safecoi.com](https://safecoi.com)** (registered on Cloudflare, nameservers `dane.ns.cloudflare.com` / `karina.ns.cloudflare.com`).
 
-Inspired by [Ripley Fieldwork Tracker's](https://ripleyfieldworktracker.com/) "both sides of supervision, one place" model, COI Shield unifies all **three sides** of insurance compliance in one platform:
+Inspired by [Ripley Fieldwork Tracker's](https://ripleyfieldworktracker.com/) "both sides of supervision, one place" model, SafeCOI unifies all **three sides** of insurance compliance in one platform:
 
 | Role | What they do |
 |---|---|
@@ -26,7 +26,7 @@ The design and project structure match the patterns used for **lldrestaurantsupp
 - **Email audit log** — every COI request and renewal reminder is logged for proof-of-notice compliance (simulation mode until SMTP is configured).
 - **Batch renewal reminders** — one-click reminder to all subcontractors expiring within 30 days.
 - **Subcontractor portal (`/subcontractor`)** — ACORD upload, certificates on file, and public share page with QR. Carrier connections are unavailable.
-- **Email a contractor** — subcontractors can email their COI summary and document link to any GC, even one without a COI Shield account, with a built-in contractor invitation.
+- **Email a contractor** — subcontractors can email their COI summary and document link to any GC, even one without a SafeCOI account, with a built-in contractor invitation.
 
 **Legacy carrier-connect records:** The former demo generated simulated records, not verified insurance. Records still carrying its original certificate URL or reviewer-note marker are labeled simulated and treated as pending review in compliance calculations; stored data is not rewritten. Records whose markers were changed may not be identifiable and require separate review.
 - **QR onboarding** — GCs get a live QR invite (`/join/:code`) under Profile for job-site flyers that link subs on signup or connect existing accounts in one tap.

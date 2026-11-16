@@ -607,7 +607,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex-1">
                         <span className="font-bold text-slate-900 text-sm">{c.carrier}</span>
-                        <span className="text-slate-400 text-xs"> · Policy {c.policy_number || '—'} · AM Best: {c.am_best_rating || 'n/a'}</span>
+                        <span className="text-slate-400 text-xs"> · Policy {c.policy_number || '—'}</span>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-['JetBrains_Mono']">
                           Effective {formatDisplayDate(c.effective_date)} → Expires {formatDisplayDate(c.expiration_date)}
                         </div>

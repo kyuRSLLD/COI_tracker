@@ -11,8 +11,8 @@ export const emailsRouter = Router()
 
 // A JWT's role can become stale; authorize against the current account as well.
 async function currentGc(req: AuthRequest) {
-  if (!isGcRole(req.user?.role)) return undefined
-  return dbGet("SELECT id, email, company_name FROM users WHERE id = ? AND role IN ('gc', 'pro_gc')", [req.user.id])
+  if (!req.user || !isGcRole(req.user.role)) return undefined
+  return dbGet("SELECT id, email, company_name FROM users WHERE id = ? AND role IN ('gc', 'pro_gc')", [req.user!.id])
 }
 
 async function connectedSub(gcId: string, subId: string) {

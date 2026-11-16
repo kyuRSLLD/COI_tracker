@@ -1,23 +1,122 @@
 import { v4 as uuidv4 } from 'uuid'
 import { dbRun } from '../db/db.ts'
+import nodemailer from 'nodemailer'
 
 export interface EmailPayload {
   to: string
   subject: string
   body: string
+  html?: string
   type?: 'coi_request' | 'expiration_reminder' | 'revision_request' | 'general'
 }
 
-export async function sendEmail({ to, subject, body, type = 'general' }: EmailPayload): Promise<{ id: string; status: string }> {
+const FROM = process.env.FROM_EMAIL || 'SafeCOI <notifications@safecoi.com>'
+
+export function emailMode(): 'smtp' | 'postmark' | 'sendgrid' | 'simulated' {
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) return 'smtp'
+  if (process.env.POSTMARK_SERVER_TOKEN) return 'postmark'
+  if (process.env.SENDGRID_API_KEY) return 'sendgrid'
+  return 'simulated'
+}
+
+export function isRealEmailConfigured(): boolean {
+  return emailMode() !== 'simulated'
+}
+
+let smtpTransporter: nodemailer.Transporter | null = null
+function getSmtpTransporter(): nodemailer.Transporter {
+  if (!smtpTransporter) {
+    smtpTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === '1' || process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    })
+  }
+  return smtpTransporter
+}
+
+async function deliver(to: string, subject: string, body: string, html?: string): Promise<string> {
+  const mode = emailMode()
+  if (mode === 'smtp') {
+    const info = await getSmtpTransporter().sendMail({
+      from: FROM,
+      to,
+      subject,
+      text: body,
+      ...(html ? { html } : {}),
+    })
+    console.log(`[email:smtp] sent -> ${to} | ${subject} (${info.messageId})`)
+    return 'sent'
+  }
+  if (mode === 'postmark') {
+    const res = await fetch('https://api.postmarkapp.com/email', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-Postmark-Server-Token': process.env.POSTMARK_SERVER_TOKEN!,
+      },
+      body: JSON.stringify({
+        From: FROM,
+        To: to,
+        Subject: subject,
+        TextBody: body,
+        ...(html ? { HtmlBody: html } : {}),
+        MessageStream: process.env.POSTMARK_STREAM || 'outbound',
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Postmark email failed (${res.status}): ${err.slice(0, 300)}`)
+    }
+    console.log(`[email:postmark] sent -> ${to} | ${subject}`)
+    return 'sent'
+  }
+  if (mode === 'sendgrid') {
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.SENDGRID_API_KEY!}`,
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: FROM.replace(/^.*<|>$/g, '').trim(), name: FROM.includes('<') ? FROM.replace(/<.*>$/, '').trim() : undefined },
+        subject,
+        content: [{ type: 'text/plain', value: body }],
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`SendGrid email failed (${res.status}): ${err.slice(0, 300)}`)
+    }
+    console.log(`[email:sendgrid] sent -> ${to} | ${subject}`)
+    return 'sent'
+  }
+  console.log(`[email:simulated] -> ${to} | ${subject}`)
+  return 'simulated'
+}
+
+export async function sendEmail({ to, subject, body, html, type = 'general' }: EmailPayload): Promise<{ id: string; status: string }> {
   const id = uuidv4()
-  const status = 'simulated' // In production with SMTP configured, swap to real transporter
-  await dbRun(
-    `INSERT INTO email_logs (id, to_email, subject, body, type, status, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, to, subject, body, type, status, new Date().toISOString()]
-  )
-  console.log(`[email] Simulated email -> ${to} | ${subject}`)
-  return { id, status }
+  const now = new Date().toISOString()
+  try {
+    const status = await deliver(to, subject, body, html)
+    await dbRun(
+      `INSERT INTO email_logs (id, to_email, subject, body, type, status, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, to, subject, body, type, status, now]
+    )
+    return { id, status }
+  } catch (err: any) {
+    await dbRun(
+      `INSERT INTO email_logs (id, to_email, subject, body, type, status, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, to, subject, body, type, 'failed', now]
+    ).catch(() => {})
+    throw err
+  }
 }
 
 export function buildCOIRequestEmail(params: {
@@ -109,7 +208,7 @@ export function buildCOIShareEmail(params: {
     for (const c of params.coverages) {
       const parts = [c.type]
       if (c.per_occurrence_limit) parts.push(`per: ${c.per_occurrence_limit}`)
-      if (c.aggregate_limit) parts.push(`agg: ${c.aggregate_limit}`)
+      if (c.aggregate_limit) parts.push(`aggregate: ${c.aggregate_limit}`)
       lines.push(`  - ${parts.join(' · ')}`)
     }
   }
@@ -118,12 +217,12 @@ export function buildCOIShareEmail(params: {
   lines.push(params.verifyUrl)
   lines.push('')
   lines.push('----------------------------------------')
-  lines.push('Manage all your subcontractors\' insurance in one place —')
+  lines.push("Manage all your subcontractors' insurance in one place —")
   lines.push('expiration reminders, client-safe compliance reports, and')
   lines.push('one-click COI requests. Create your free contractor account:')
   lines.push(params.signUpUrl)
   lines.push('')
-  lines.push(`This message was sent by ${params.subName} via COI Shield · safecoi.com`)
+  lines.push(`This message was sent by ${params.subName} via SafeCOI · safecoi.com`)
   return {
     subject: `Certificate of Insurance from ${params.subName}`,
     body: lines.join('\n'),

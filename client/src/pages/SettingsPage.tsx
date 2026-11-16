@@ -123,7 +123,7 @@ export function SettingsPage() {
           <li>Upload your ACORD certificate; ${qrInvite.company_name} can view your submission</li>
         </ol>
       </div>
-      <p style="font-size:11px;color:#94a3b8;margin-top:18px;text-align:center">Powered by COI Shield · safecoi.com</p>
+      <p style="font-size:11px;color:#94a3b8;margin-top:18px;text-align:center">Powered by SafeCOI · safecoi.com</p>
       <script>setTimeout(function(){window.print()},300)</script></body></html>`)
     w.document.close()
   }

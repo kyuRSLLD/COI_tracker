@@ -134,7 +134,7 @@ export function ConnectSubPage({ user, sessionToken, sessionStatus, getSessionVe
   const inputClass = 'w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
   return <div className="max-w-lg mx-auto px-4 py-12">
     <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-card space-y-4">
-      <p className="text-xs font-bold uppercase tracking-wider text-brand-600">COI Shield</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-brand-600">SafeCOI</p>
       <h1 className="text-xl font-extrabold text-slate-900">Connect a subcontractor</h1>
       <p className="text-sm text-slate-600">A subcontractor shared a connection code. Sign in as a general contractor and confirm before connecting.</p>
       {error && <p role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</p>}

@@ -1,3 +1,4 @@
+import { isRealEmailConfigured, emailMode } from '../services/email.ts'
 import express from 'express'
 import { dbGet, dbAll, dbRun, planToMRR, PLAN_PRICES } from '../db/db.ts'
 import { randomUUID } from 'crypto'
@@ -7,46 +8,42 @@ import type { AuthRequest } from '../middleware/auth.ts'
 export const adminRouter = express.Router()
 
 // Platform overview: users, revenue, platform KPIs, growth
-adminRouter.get('/overview', requireAdmin, async (_req, res) => {
+adminRouter.get('/overview', requireAdmin, async (req, res) => {
   try {
+    const excludeTest = req.query.exclude_test === '1'
+    const companyFilter = excludeTest ? 'AND (c.is_test IS NULL OR c.is_test = 0)' : ''
+    const userTestFilter = excludeTest ? "AND NOT (u.email LIKE '%.demo' OR u.email LIKE '%.test' OR u.role = 'admin' OR LOWER(COALESCE(u.company_name, '')) LIKE '%demo%' OR LOWER(COALESCE(u.company_name, '')) LIKE '%test%')" : ''
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
     const sixMonthsAgo = new Date(Date.now() - 180 * 86400000).toISOString()
-
-    const totalUsersRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM users')
-    const adminsRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'")
-    const gcsRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role != 'admin' OR role IS NULL")
+    const totalUsersRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM users u WHERE 1=1 ${userTestFilter}`)
+    const adminsRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM users u WHERE role = 'admin' ${userTestFilter}`)
+    const gcsRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM users u WHERE (role != 'admin' OR role IS NULL) ${userTestFilter}`)
     const newThisMonthRow = await dbGet<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM users WHERE created_at >= ?',
+      `SELECT COUNT(*) AS count FROM users u WHERE created_at >= ? ${userTestFilter}`,
       [thirtyDaysAgo]
     )
-
-    const companiesRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM companies')
+    const companiesRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM companies c WHERE 1=1 ${companyFilter}`)
     const subsRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM subcontractors')
     const coisRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM cois')
     const sharesRow = await dbGet<{ count: number }>('SELECT COUNT(*) AS count FROM client_share_links')
     const pendingCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'pending_review'")
     const verifiedCoisRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM cois WHERE status = 'verified'")
-
-    const mrrRow = await dbGet<{ total: number }>("SELECT COALESCE(SUM(mrr), 0) AS total FROM companies WHERE status = 'active'")
-    const payingRow = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM companies WHERE status = 'active' AND mrr > 0")
+    const mrrRow = await dbGet<{ total: number }>(`SELECT COALESCE(SUM(mrr), 0) AS total FROM companies c WHERE status = 'active' ${companyFilter}`)
+    const payingRow = await dbGet<{ count: number }>(`SELECT COUNT(*) AS count FROM companies c WHERE status = 'active' AND mrr > 0 ${companyFilter}`)
     const mrr = Number(mrrRow?.total || 0)
     const paying = Number(payingRow?.count || 0)
-
     const plans = await dbAll<{ plan: string; count: number; total_mrr: number }>(
       `SELECT plan, COUNT(*) AS count, COALESCE(SUM(mrr), 0) AS total_mrr
-       FROM companies GROUP BY plan ORDER BY total_mrr DESC`
+       FROM companies c WHERE 1=1 ${companyFilter} GROUP BY plan ORDER BY total_mrr DESC`
     )
-
-    // 6-month growth trend (SUBSTR + param is portable across SQLite and PostgreSQL)
     const growth = await dbAll<{ month: string; new_users: number }>(
       `SELECT SUBSTR(created_at, 1, 7) AS month, COUNT(*) AS new_users
-       FROM users
-       WHERE created_at >= ?
+       FROM users u
+       WHERE created_at >= ? ${userTestFilter}
        GROUP BY month
        ORDER BY month ASC`,
       [sixMonthsAgo]
     )
-
     res.json({
       users: {
         total: Number(totalUsersRow?.count || 0),
@@ -75,6 +72,7 @@ adminRouter.get('/overview', requireAdmin, async (_req, res) => {
         verified_cois: Number(verifiedCoisRow?.count || 0),
       },
       growth: growth.map((g) => ({ month: g.month, new_users: Number(g.new_users) })),
+      email: { mode: emailMode(), simulated: !isRealEmailConfigured() },
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -100,6 +98,7 @@ adminRouter.get('/companies', requireAdmin, async (_req, res) => {
         subcontractor_count: Number(c.subcontractor_count || 0),
         project_count: Number(c.project_count || 0),
         share_count: Number(c.share_count || 0),
+        is_test: c.is_test === 1,
       })),
     })
   } catch (err: any) {
@@ -107,15 +106,43 @@ adminRouter.get('/companies', requireAdmin, async (_req, res) => {
   }
 })
 
-// Update company plan (changes plan + mrr)
-adminRouter.put('/companies/:id/plan', requireAdmin, async (req, res) => {
+// Update company plan (changes plan + mrr, records audit log)
+adminRouter.put('/companies/:id/plan', requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { plan } = req.body || {}
+    const { plan, reason } = req.body || {}
     if (!plan) return res.status(400).json({ error: 'plan is required' })
+    const allowed = Object.keys(PLAN_PRICES)
+    if (!allowed.includes(plan)) {
+      return res.status(400).json({ error: `plan must be one of: ${allowed.join(', ')}` })
+    }
+    const current = await dbGet<{ plan: string }>('SELECT plan FROM companies WHERE id = ?', [req.params.id])
+    if (!current) return res.status(404).json({ error: 'Company not found' })
     const mrr = planToMRR(plan)
     await dbRun('UPDATE companies SET plan = ?, mrr = ? WHERE id = ?', [plan, mrr, req.params.id])
+    await dbRun(
+      `INSERT INTO plan_changes (id, company_id, from_plan, to_plan, changed_by, reason, changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [randomUUID(), req.params.id, current.plan || null, plan, req.user?.email || null, reason ? String(reason).trim().slice(0, 1000) : null, new Date().toISOString()]
+    )
     const company = await dbGet('SELECT * FROM companies WHERE id = ?', [req.params.id])
     res.json({ company })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+adminRouter.get('/companies/:id/plan-changes', requireAdmin, async (req, res) => {
+  try {
+    const changes = await dbAll('SELECT * FROM plan_changes WHERE company_id = ? ORDER BY changed_at DESC', [req.params.id])
+    res.json({ changes })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+adminRouter.put('/companies/:id/test-flag', requireAdmin, async (req, res) => {
+  try {
+    const isTest = req.body?.is_test ? 1 : 0
+    await dbRun('UPDATE companies SET is_test = ? WHERE id = ?', [isTest, req.params.id])
+    res.json({ success: true, is_test: isTest === 1 })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
@@ -309,7 +336,7 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
     }
     if (search && search.trim()) {
       const q = `%${search.trim().toLowerCase()}%`
-      clauses.push('(LOWER(COALESCE(s.company_name,"")) LIKE ? OR LOWER(COALESCE(s.trade,"")) LIKE ? OR LOWER(COALESCE(c.carrier,"")) LIKE ? OR LOWER(COALESCE(c.policy_number,"")) LIKE ? OR LOWER(COALESCE(gc.name,"")) LIKE ?)')
+      clauses.push("(LOWER(COALESCE(s.company_name, '')) LIKE ? OR LOWER(COALESCE(s.trade, '')) LIKE ? OR LOWER(COALESCE(c.carrier, '')) LIKE ? OR LOWER(COALESCE(c.policy_number, '')) LIKE ? OR LOWER(COALESCE(gc.name, '')) LIKE ?)")
       params.push(q, q, q, q, q)
     }
     const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : ''
@@ -386,13 +413,14 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
         review_details: parsedReview,
       }
     })
-    const [cntPending, cntAll, cntCompliant, cntRevision, cntRejected, cntNoFile] = await Promise.all([
+    const [cntPending, cntAll, cntCompliant, cntRevision, cntRejected, cntNoFile, cntAiPending] = await Promise.all([
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'pending_review'"),
       dbGet<{ c: number }>('SELECT COUNT(*) AS c FROM cois'),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'compliant'"),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'needs_revision'"),
       dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE status = 'rejected'"),
-      dbGet<{ c: number }>('SELECT COUNT(*) AS c FROM cois WHERE certificate_key IS NULL OR certificate_key = ""'),
+      dbGet<{ c: number }>("SELECT COUNT(*) AS c FROM cois WHERE certificate_key IS NULL OR certificate_key = ''"),
+      dbGet<{ c: number }>('SELECT COUNT(*) AS c FROM coi_field_reviews WHERE details_json IS NOT NULL'),
     ])
     res.json({
       items,
@@ -403,6 +431,7 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
         needs_revision: Number(cntRevision?.c || 0),
         rejected: Number(cntRejected?.c || 0),
         no_file: Number(cntNoFile?.c || 0),
+        ai_pending: Number(cntAiPending?.c || 0),
       },
     })
   } catch (err: any) {

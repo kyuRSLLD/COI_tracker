@@ -237,6 +237,7 @@ export interface AdminOverview {
     verified_cois: number
   }
   growth: Array<{ month: string; new_users: number }>
+  email?: { mode: string; simulated: boolean }
 }
 
 export interface AdminCompany {
@@ -252,6 +253,7 @@ export interface AdminCompany {
   project_count: number
   share_count: number
   created_at: string
+  is_test?: boolean
 }
 
 export interface AdminUser {
@@ -338,6 +340,7 @@ export interface AdminCoiValidationItem {
   has_file: boolean
   file_name?: string | null
   file_size?: number | null
+  insurer_naic?: string | null
   review_source?: 'ocr' | 'mixed' | 'manual' | null
   review_insured?: string | null
   review_producer?: string | null
@@ -353,4 +356,15 @@ export interface AdminCoiCounts {
   needs_revision: number
   rejected: number
   no_file: number
+  ai_pending?: number
+}
+
+export interface PlanChange {
+  id: string
+  company_id: string
+  from_plan?: string | null
+  to_plan: string
+  changed_by?: string | null
+  reason?: string | null
+  changed_at: string
 }

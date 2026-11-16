@@ -246,12 +246,23 @@ export const apiSettings = {
 
 // Admin dashboard (role='admin' only)
 export const apiAdmin = {
-  overview: () => request<import('./types').AdminOverview>('/api/admin/overview'),
+  overview: (params?: { exclude_test?: boolean }) => {
+    const q = new URLSearchParams()
+    if (params?.exclude_test) q.set('exclude_test', '1')
+    const s = q.toString()
+    return request<import('./types').AdminOverview>(`/api/admin/overview${s ? `?${s}` : ''}`)
+  },
   companies: () => request<{ companies: import('./types').AdminCompany[] }>('/api/admin/companies'),
-  updatePlan: (id: string, plan: string) =>
+  updatePlan: (id: string, plan: string, reason?: string) =>
     request<{ company: import('./types').AdminCompany }>(`/api/admin/companies/${id}/plan`, {
       method: 'PUT',
-      body: JSON.stringify({ plan }),
+      body: JSON.stringify({ plan, reason }),
+    }),
+  planChanges: (companyId: string) => request<{ changes: import('./types').PlanChange[] }>(`/api/admin/companies/${companyId}/plan-changes`),
+  toggleTestFlag: (companyId: string, isTest: boolean) =>
+    request<{ success: boolean; is_test: boolean }>(`/api/admin/companies/${companyId}/test-flag`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_test: isTest }),
     }),
   users: () => request<{ users: import('./types').AdminUser[] }>('/api/admin/users'),
   updateRole: (id: string, role: string) =>

@@ -7,6 +7,12 @@ import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalL
 import { formatDisplayDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 
+const GC_PLANS: Array<{ plan: string; price: number }> = [
+  { plan: 'Free Demo', price: 0 },
+  { plan: 'General Contractor', price: 10 },
+  { plan: 'Pro GC', price: 29 },
+]
+
 export function AdminDashboardPage() {
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [companies, setCompanies] = useState<AdminCompany[]>([])
@@ -19,6 +25,14 @@ export function AdminDashboardPage() {
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'gc' | 'pro_gc' | 'sub'>('all')
   const [savingPlanId, setSavingPlanId] = useState<string | null>(null)
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
+  const [planModal, setPlanModal] = useState<{ open: boolean; company: AdminCompany | null; newPlan: string; reason: string }>({
+    open: false,
+    company: null,
+    newPlan: 'General Contractor',
+    reason: '',
+  })
+  const [excludeTest, setExcludeTest] = useState(false)
+  const [testFlagLoading, setTestFlagLoading] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
   const [coiQueue, setCoiQueue] = useState<AdminCoiValidationItem[]>([])
@@ -36,12 +50,13 @@ export function AdminDashboardPage() {
     setTimeout(() => setStatusMsg(null), 3500)
   }
 
-  const load = async () => {
+  const load = async (excludeTestOverride?: boolean) => {
     try {
       setLoading(true)
       setError(null)
+      const xt = excludeTestOverride ?? excludeTest
       const [ov, comps, usrs, meData] = await Promise.all([
-        apiAdmin.overview(),
+        apiAdmin.overview({ exclude_test: xt }),
         apiAdmin.companies(),
         apiAdmin.users(),
         apiMe().catch(() => null),
@@ -156,16 +171,33 @@ export function AdminDashboardPage() {
     }
   }
 
-  const handlePlanChange = async (id: string, plan: string) => {
+  const openPlanModal = (c: AdminCompany) => {
+    setPlanModal({ open: true, company: c, newPlan: c.plan || 'General Contractor', reason: '' })
+  }
+  const confirmPlanChange = async () => {
+    if (!planModal.company) return
     try {
-      setSavingPlanId(id)
-      await apiAdmin.updatePlan(id, plan)
-      notify('Plan updated')
+      setSavingPlanId(planModal.company.id)
+      await apiAdmin.updatePlan(planModal.company.id, planModal.newPlan, planModal.reason)
+      notify('Plan updated — change logged')
+      setPlanModal({ open: false, company: null, newPlan: '', reason: '' })
       await load()
     } catch (err: any) {
       notify(err?.message || 'Plan update failed')
     } finally {
       setSavingPlanId(null)
+    }
+  }
+  const handleToggleTest = async (c: AdminCompany) => {
+    try {
+      setTestFlagLoading(c.id)
+      await apiAdmin.toggleTestFlag(c.id, !c.is_test)
+      notify(c.is_test ? 'Unmarked as test' : 'Marked as test/demo')
+      await load()
+    } catch (err: any) {
+      notify(err?.message || 'Update failed')
+    } finally {
+      setTestFlagLoading(null)
     }
   }
 
@@ -246,7 +278,50 @@ export function AdminDashboardPage() {
     })
   }, [users, userSearch, roleFilter])
 
-  const plans = overview?.revenue.plan_breakdown || []
+  const plans = useMemo(() => {
+    const list = [...(overview?.revenue.plan_breakdown || [])]
+    if (!list.some((pl) => pl.plan === 'Enterprise')) list.push({ plan: 'Enterprise', count: 0, mrr: 0 })
+    return list
+  }, [overview])
+  const totalSignups = overview?.users.total ?? 0
+  const paidSubs = overview?.revenue.paying_subscribers ?? 0
+  const paidPct = totalSignups ? Math.round((paidSubs / totalSignups) * 100) : 0
+  const nonTestCompanies = companies.filter((c) => !excludeTest || !c.is_test)
+  const totalComp = nonTestCompanies.length || 1
+  const withSubs = nonTestCompanies.filter((c) => c.subcontractor_count > 0).length
+  const withSubsPct = totalComp ? Math.round((withSubs / totalComp) * 100) : 0
+  const withCompliant = overview?.platform.verified_cois ?? 0
+  const withCompliantPct = totalComp ? Math.round((Math.min(withCompliant, totalComp) / totalComp) * 100) : 0
+
+  const reviewNext = () => {
+    const first = coiQueue.find((c) => c.status === 'pending_review' || c.ai_pending) || coiQueue[0]
+    if (first) setExpandedCoiId(first.id)
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t as any).isContentEditable)) return
+      if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault()
+        const ids = coiQueue.map((c) => c.id)
+        if (!ids.length) return
+        const idx = ids.indexOf(expandedCoiId || '')
+        const next = ids[Math.min(idx + 1, ids.length - 1)]
+        setExpandedCoiId(next)
+      } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault()
+        const ids = coiQueue.map((c) => c.id)
+        if (!ids.length) return
+        const idx = ids.indexOf(expandedCoiId || '')
+        const prev = ids[Math.max(idx - 1, 0)]
+        setExpandedCoiId(prev)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [coiQueue, expandedCoiId])
+
   const maxGrowth = Math.max(1, ...(overview?.growth.map((g) => g.new_users) || [1]))
 
   return (
@@ -284,15 +359,42 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+        <button
+          type="button"
+          onClick={() => { const next = !excludeTest; setExcludeTest(next); void load(next) }}
+          className={`min-h-[44px] px-3 py-2 rounded-lg border flex items-center gap-2 transition ${
+            excludeTest
+              ? 'bg-slate-900 text-white font-bold border-slate-900'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+          }`}
+        >
+          <span className={`w-3 h-3 rounded-sm border inline-flex items-center justify-center text-[9px] ${
+            excludeTest ? 'bg-white text-slate-900 border-white font-bold' : 'border-slate-400'
+          }`}>{excludeTest ? '\u2713' : ''}</span>
+          Exclude test &amp; demo accounts
+        </button>
+        <span className="text-[11px] text-slate-400">
+          MRR, paying subscribers, plans, and growth cards filter demo accounts
+        </span>
+      </div>
+
       {statusMsg && (
         <div className="text-xs font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
           {statusMsg}
         </div>
       )}
-      <div className="text-xs font-mono text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
-        <span>Email: simulated mode — SMTP is not configured. Outgoing mail is recorded in the log but not delivered.</span>
-        <span className="text-[10px] text-amber-700">staff only</span>
-      </div>
+      {overview?.email?.simulated !== false ? (
+        <div className="text-xs font-mono text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+          <span>Email: simulated mode — no real provider configured. Outgoing mail is recorded in the log but not delivered.</span>
+          <span className="text-[10px] text-amber-700">staff only</span>
+        </div>
+      ) : (
+        <div className="text-xs font-mono text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+          <span>Email: live delivery enabled ({overview?.email?.mode?.toUpperCase()}) — outgoing mail is really delivered.</span>
+          <span className="text-[10px] text-emerald-700">staff only</span>
+        </div>
+      )}
 
       {error && (
         <div className="text-xs font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
@@ -374,7 +476,7 @@ export function AdminDashboardPage() {
               <div className="text-right">MRR</div>
             </div>
             {plans.map((p) => {
-              const price = overview?.revenue.available_plans.find((ap) => ap.plan === p.plan)?.price ?? 0
+              const price = overview?.revenue.available_plans.find((ap) => ap.plan === p.plan)?.price ?? (p.plan === 'Enterprise' ? 59 : 0)
               return (
                 <div key={p.plan} className="grid grid-cols-4 gap-2 py-2 items-center">
                   <div>
@@ -422,6 +524,35 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Activation funnel */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-mono">Activation funnel</h2>
+          <span className="text-[11px] font-mono text-slate-400">Signed up → On paid plan → Added ≥1 sub → ≥1 compliant COI</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+          <div className="p-3 bg-slate-50 rounded-lg">
+            <div className="text-[10px] text-slate-400 uppercase">Signed up</div>
+            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{totalSignups}</div>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg">
+            <div className="text-[10px] text-slate-400 uppercase">On paid plan</div>
+            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{paidSubs}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{paidPct}% of sign-ups</div>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg">
+            <div className="text-[10px] text-slate-400 uppercase">Added ≥ 1 sub</div>
+            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{withSubs}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{withSubsPct}% of companies</div>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg">
+            <div className="text-[10px] text-slate-400 uppercase">≥ 1 compliant COI</div>
+            <div className="text-2xl font-bold font-mono text-slate-900 mt-1">{withCompliant}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{withCompliantPct}% of companies</div>
+          </div>
+        </div>
+      </div>
+
       {/* Validation queue */}
       <div id="validation-queue" className="bg-white border border-slate-200 rounded-xl p-4 scroll-mt-6">
         <div className="flex flex-col gap-3 pb-3 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between">
@@ -441,6 +572,14 @@ export function AdminDashboardPage() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${coiLoading ? 'animate-spin' : ''}`} /> Refresh queue
             </Button>
+            <Button
+              className="text-xs"
+              onClick={reviewNext}
+              disabled={coiQueue.length === 0}
+              title="Open the next pending certificate for review (or press J/K)"
+            >
+              Review next →
+            </Button>
           </div>
         </div>
 
@@ -448,7 +587,7 @@ export function AdminDashboardPage() {
         <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
           {[
             { key: 'pending', label: 'Pending validation', count: coiCounts?.pending, cls: 'bg-amber-100 text-amber-900 border-amber-300' },
-            { key: 'ai_pending', label: 'AI pending verification', cls: 'bg-amber-50 text-amber-900 border-amber-200' },
+            { key: 'ai_pending', label: 'AI pending verification', count: coiCounts?.ai_pending, cls: 'bg-amber-50 text-amber-900 border-amber-200' },
             { key: 'compliant', label: 'Compliant', count: coiCounts?.compliant, cls: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
             { key: 'needs_revision', label: 'Needs revision', count: coiCounts?.needs_revision, cls: 'bg-orange-100 text-orange-900 border-orange-300' },
             { key: 'rejected', label: 'Rejected', count: coiCounts?.rejected, cls: 'bg-rose-100 text-rose-900 border-rose-300' },
@@ -564,7 +703,12 @@ export function AdminDashboardPage() {
                       </td>
                       <td className="py-2.5 pr-3">
                         <div className="font-bold text-slate-800">{item.carrier || '—'}</div>
-                        <div className="text-[11px] text-slate-500">{item.policy_number || 'No policy #'}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {item.policy_number || 'No policy #'}
+                          {!item.insurer_naic && item.carrier ? (
+                            <span className="ml-1.5 text-[10px] font-bold text-rose-600 font-mono">NAIC not found</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="py-2.5 pr-3">
                         <div>{formatDisplayDate(item.effective_date)} → {formatDisplayDate(item.expiration_date)}</div>
@@ -916,10 +1060,17 @@ export function AdminDashboardPage() {
         </div>
         <div className="sm:hidden divide-y divide-slate-100 text-xs font-mono">
           {filteredCompanies.map((c) => (
-            <div key={c.id} className="py-3 space-y-2">
+            <div key={c.id} className={`py-3 space-y-2 rounded-lg px-2 -mx-2 ${c.is_test ? 'bg-amber-50/60' : ''}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-slate-900 truncate">{c.name}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900 truncate">{c.name}</span>
+                    {c.is_test && (
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                        TEST
+                      </span>
+                    )}
+                  </div>
                   <div className="text-slate-500 truncate">{c.owner_name || '—'}</div>
                   <div className="text-[10px] text-slate-400 truncate">{c.owner_email || '—'}</div>
                 </div>
@@ -931,19 +1082,26 @@ export function AdminDashboardPage() {
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div>
-                <select
-                  value={c.plan || 'Free Demo'}
-                  disabled={savingPlanId === c.id}
-                  onChange={(e) => handlePlanChange(c.id, e.target.value)}
-                  className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-800">
+                  {c.plan || 'Free Demo'} · ${(c.mrr || 0).toLocaleString()}/mo
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openPlanModal(c)}
+                  className="text-[11px] font-mono text-brand-700 hover:text-brand-900 underline"
                 >
-                  {overview?.revenue.available_plans.map((ap) => (
-                    <option key={ap.plan} value={ap.plan}>
-                      {ap.plan} · ${ap.price}
-                    </option>
-                  ))}
-                </select>
+                  Change plan…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleTest(c)}
+                  disabled={testFlagLoading === c.id}
+                  className="text-[10px] font-mono text-slate-400 hover:text-slate-700 underline"
+                  title="Toggle whether this company is counted in MRR/metrics"
+                >
+                  {c.is_test ? 'unmark test' : 'mark as test'}
+                </button>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-600 pt-1">
                 <span>MRR <strong className="text-slate-900">${(c.mrr || 0).toLocaleString()}</strong></span>
@@ -970,25 +1128,43 @@ export function AdminDashboardPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredCompanies.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50">
-                  <td className="py-2.5 pr-3 font-semibold text-slate-900">{c.name}</td>
+                <tr key={c.id} className={c.is_test ? 'bg-amber-50/50 hover:bg-amber-100/50' : 'hover:bg-slate-50'}>
+                  <td className="py-2.5 pr-3 font-semibold text-slate-900">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{c.name}</span>
+                      {c.is_test && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                          TEST
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleTest(c)}
+                        disabled={testFlagLoading === c.id}
+                        className="text-[10px] font-mono text-slate-400 hover:text-slate-700 underline"
+                        title="Toggle whether this company is counted in MRR/metrics"
+                      >
+                        {c.is_test ? 'unmark' : 'mark test'}
+                      </button>
+                    </div>
+                  </td>
                   <td className="py-2.5 pr-3 text-slate-600">
                     <div>{c.owner_name || '—'}</div>
                     <div className="text-[10px] text-slate-400">{c.owner_email || '—'}</div>
                   </td>
                   <td className="py-2.5 pr-3">
-                    <select
-                      value={c.plan || 'Free Demo'}
-                      disabled={savingPlanId === c.id}
-                      onChange={(e) => handlePlanChange(c.id, e.target.value)}
-                      className="text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
-                    >
-                      {overview?.revenue.available_plans.map((ap) => (
-                        <option key={ap.plan} value={ap.plan}>
-                          {ap.plan} · ${ap.price}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800">
+                        {c.plan || 'Free Demo'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openPlanModal(c)}
+                        className="text-[11px] font-mono text-brand-700 hover:text-brand-900 underline"
+                      >
+                        Change…
+                      </button>
+                    </div>
                   </td>
                   <td className="py-2.5 pr-3 text-right font-bold text-slate-900">${(c.mrr || 0).toLocaleString()}</td>
                   <td className="py-2.5 pr-3 text-right text-slate-600">{c.subcontractor_count}</td>
@@ -1105,8 +1281,10 @@ export function AdminDashboardPage() {
                       onChange={(e) => handleRoleChange(u.id, e.target.value)}
                       className="text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
                     >
-                      <option value="gc">gc</option>
-                      <option value="admin">admin</option>
+                      <option value="admin">Admin</option>
+                      <option value="gc">GC</option>
+                      <option value="pro_gc">Pro GC</option>
+                      <option value="sub">Sub C</option>
                     </select>
                   </td>
                   <td className="py-2.5 pr-3 text-slate-500">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
@@ -1126,6 +1304,64 @@ export function AdminDashboardPage() {
           </table>
         </div>
       </div>
+      {planModal.open && planModal.company && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Change plan</h3>
+                <p className="text-xs font-mono text-slate-500 mt-0.5">{planModal.company.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}
+                className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-lg"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div>
+              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">Current plan</div>
+              <div className="mt-1 inline-block text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-800">
+                {planModal.company.plan || 'Free Demo'} · ${(planModal.company.mrr || 0).toLocaleString()}/mo
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1">New plan</label>
+              <select
+                value={planModal.newPlan}
+                onChange={(e) => setPlanModal((m) => ({ ...m, newPlan: e.target.value }))}
+                className="w-full text-sm font-mono border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-slate-500 min-h-[44px]"
+              >
+                {GC_PLANS.map((p) => (
+                  <option key={p.plan} value={p.plan}>
+                    {p.plan} · ${p.price}/mo
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Reason (audit log)</label>
+              <textarea
+                value={planModal.reason}
+                onChange={(e) => setPlanModal((m) => ({ ...m, reason: e.target.value }))}
+                placeholder="Reason for this change (e.g. upgraded to Pro GC per sales request)"
+                rows={2}
+                className="w-full text-xs font-mono border border-slate-300 rounded-lg p-2.5 focus:outline-none focus:border-slate-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setPlanModal({ open: false, company: null, newPlan: '', reason: '' })}>
+                Cancel
+              </Button>
+              <Button onClick={() => void confirmPlanChange()} disabled={savingPlanId === planModal.company.id}>
+                Confirm plan change
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

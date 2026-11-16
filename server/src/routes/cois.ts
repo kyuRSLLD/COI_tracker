@@ -54,11 +54,11 @@ async function publicCOI(row: any) {
 }
 
 coisRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
-  if (!isGcRole(req.user?.role) || typeof req.user.id !== 'string' || !req.user.id) {
+  if (!req.user || !isGcRole(req.user.role) || typeof req.user.id !== 'string' || !req.user.id) {
     return res.status(403).json({ error: 'GC access required' })
   }
   try {
-    const user = await dbGet('SELECT id FROM users WHERE id = ? AND role = ?', [req.user.id, 'gc'])
+    const user = await dbGet("SELECT id FROM users WHERE id = ? AND role IN ('gc', 'pro_gc')", [req.user.id])
     if (!user) return res.status(403).json({ error: 'GC access required' })
     next()
   } catch {

@@ -15,7 +15,7 @@ const gcSubSelect = `s.id, s.user_id, s.company_name, s.trade, s.contact_person,
 // Verify the current database role so a role change cannot leave GC access
 // usable merely because an old token has not expired.
 subcontractorsRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
-  if (!isGcRole(req.user?.role) || typeof req.user.id !== 'string' || !req.user.id) {
+  if (!req.user || !isGcRole(req.user.role) || typeof req.user.id !== 'string' || !req.user.id) {
     return res.status(403).json({ error: 'GC access required' })
   }
   try {

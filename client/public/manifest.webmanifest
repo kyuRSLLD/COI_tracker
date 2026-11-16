@@ -1,6 +1,6 @@
 {
-  "name": "COI Shield — Certificate of Insurance Tracker",
-  "short_name": "COI Shield",
+  "name": "SafeCOI — Certificate of Insurance Tracker",
+  "short_name": "SafeCOI",
   "description": "Collect subcontractor certificates of insurance, track expiration dates, and share verified compliance with clients.",
   "start_url": "/?source=pwa",
   "scope": "/",

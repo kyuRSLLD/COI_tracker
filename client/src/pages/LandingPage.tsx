@@ -69,7 +69,7 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       q: 'How does pricing work?',
-      a: 'COI Shield is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+      a: 'SafeCOI is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
     },
     {
       q: 'How do I onboard subcontractors?',
@@ -379,7 +379,7 @@ export function LandingPage({ onLogin }: Props) {
             Simple, honest pricing for every side of the job site.
           </h2>
           <p className="mt-3 text-sm text-slate-500 leading-relaxed">
-            Subcontractors use COI Shield for free. General Contractor plans have no contracts and can be canceled anytime.
+            Subcontractors use SafeCOI for free. General Contractor plans have no contracts and can be canceled anytime.
           </p>
         </div>
 

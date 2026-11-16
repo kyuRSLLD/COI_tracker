@@ -461,6 +461,16 @@ export async function initDatabase(): Promise<void> {
       version INTEGER NOT NULL, expires_at TEXT NOT NULL
     )`)
     await tx.run('CREATE INDEX IF NOT EXISTS idx_sub_join_intents_expiry ON sub_join_intents(expires_at)')
+    await tx.run(`CREATE TABLE IF NOT EXISTS plan_changes (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      from_plan TEXT,
+      to_plan TEXT NOT NULL,
+      changed_by TEXT,
+      reason TEXT,
+      changed_at TEXT NOT NULL
+    )`)
+    await tx.run('CREATE INDEX IF NOT EXISTS idx_plan_changes_company ON plan_changes(company_id)')
   })
   console.log('[db] Schema initialized successfully')
 
@@ -502,6 +512,24 @@ export async function initDatabase(): Promise<void> {
   try {
     await dbRun('ALTER TABLE subcontractors ADD COLUMN website TEXT')
   } catch {}
+  try {
+    if (isPostgres) {
+      await dbRun('ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_test INTEGER DEFAULT 0')
+    } else {
+      await dbRun('ALTER TABLE companies ADD COLUMN is_test INTEGER DEFAULT 0')
+    }
+  } catch {}
+  try {
+    // 1.7 Auto-flag test & demo companies
+    await dbRun(`UPDATE companies SET is_test = 1 WHERE id IN (
+      SELECT c.id FROM companies c
+      LEFT JOIN users u ON u.id = c.owner_user_id
+      WHERE u.email LIKE '%.demo' OR u.email LIKE '%.test' OR u.role = 'admin'
+         OR LOWER(c.name) LIKE '%demo%' OR LOWER(c.name) LIKE '%test%'
+    ) AND (is_test IS NULL OR is_test = 0)`)
+  } catch (e: any) {
+    console.warn('[db] test-companies auto-flag warning:', e?.message)
+  }
 
   try {
     const users = await dbAll('SELECT id, company_name, role, created_at FROM users WHERE company_name IS NOT NULL')

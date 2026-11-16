@@ -40,7 +40,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
             <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-extrabold text-sm shadow-sm group-hover:bg-slate-800 transition">
               <ShieldCheck className="w-4 h-4" />
             </div>
-            <span className="font-bold text-slate-900 tracking-tight text-base">COI Shield</span>
+            <span className="font-bold text-slate-900 tracking-tight text-base">SafeCOI</span>
           </Link>
           {user && (
             <nav className="hidden lg:flex items-center gap-1 text-sm font-medium">

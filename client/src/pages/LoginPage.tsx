@@ -58,7 +58,7 @@ export function LoginPage({ onLogin, getSessionVersion }: { onLogin: (session: {
           <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-sm">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <span className="font-extrabold text-2xl text-slate-900 tracking-tight">COI Shield</span>
+          <span className="font-extrabold text-2xl text-slate-900 tracking-tight">SafeCOI</span>
         </Link>
         <h2 className="mt-4 text-xl font-extrabold text-slate-900">
           {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}

@@ -71,7 +71,7 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
           <div className="p-3 rounded-xl bg-slate-50">
             <div className="text-slate-400">Insurance carrier</div>
             <div className="font-bold text-slate-900 mt-0.5">{coi.carrier}</div>
-            <div className="text-slate-500 text-[11px] mt-0.5">AM Best: {coi.am_best_rating || 'n/a'}</div>
+            {coi.am_best_rating && <div className="text-slate-500 text-[11px] mt-0.5">AM Best: {coi.am_best_rating}</div>}
           </div>
           <div className="p-3 rounded-xl bg-slate-50">
             <div className="text-slate-400">Policy number</div>
