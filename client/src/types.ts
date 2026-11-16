@@ -361,6 +361,7 @@ export interface AdminCoiCounts {
   needs_revision: number
   rejected: number
   no_file: number
+  ai_checked?: number
   ai_pending?: number
 }
 

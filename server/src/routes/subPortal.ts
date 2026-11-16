@@ -103,7 +103,7 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
       // The stored URL may be a legacy simulation marker, so label it before
       // replacing the stored URL with a safe view URL.
       Object.assign(coi, labelSimulatedCarrierCOI(coi))
-      coi.certificate_url = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null
+      try { try { coi.certificate_url = coi.certificate_key ? await getFileViewUrl(coi.certificate_key, coi.certificate_url) : null } catch { coi.certificate_url = null } } catch { coi.certificate_url = null }
       delete coi.certificate_key
       delete coi.reviewer_notes
       delete coi.review_date

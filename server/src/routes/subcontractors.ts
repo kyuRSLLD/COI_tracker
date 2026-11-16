@@ -105,7 +105,7 @@ subcontractorsRouter.get('/:id', async (req: AuthRequest, res) => {
           WHERE cv.coi_id = ? AND EXISTS (SELECT 1 FROM gc_sub_connections g
             WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
           AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`, [c.id, req.user!.id, req.user!.id])
-        const viewUrl = c.certificate_key ? await getFileViewUrl(c.certificate_key, c.certificate_url) : null
+        let viewUrl: string | null = null; if (c.certificate_key) { try { viewUrl = await getFileViewUrl(c.certificate_key, c.certificate_url) } catch {} }
         const { certificate_key: _key, ...publicFields } = c
         return { ...labelSimulatedCarrierCOI(publicFields), coverages, certificate_url: viewUrl }
       })

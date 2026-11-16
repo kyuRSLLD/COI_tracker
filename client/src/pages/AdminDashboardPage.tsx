@@ -725,8 +725,9 @@ export function AdminDashboardPage() {
           <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
             {[
               { key: 'pending', label: 'Pending', count: coiCounts?.pending, chip: 'bg-slate-900 text-white' },
-              { key: 'ai_checked', label: 'AI checked', count: undefined, chip: 'badge-info' },
+              { key: 'ai_checked', label: 'AI checked', count: coiCounts?.ai_checked, chip: 'badge-info' },
               { key: 'ai_pending', label: 'Waiting on agent', count: coiCounts?.ai_pending, chip: 'badge-warn' },
+              { key: 'no_file', label: 'No file', count: coiCounts?.no_file, chip: 'bg-slate-200 text-slate-800' },
               { key: 'compliant', label: 'Compliant', count: coiCounts?.compliant, chip: 'badge-pass' },
               { key: 'needs_revision', label: 'Needs revision', count: coiCounts?.needs_revision, chip: 'badge-warn' },
               { key: 'rejected', label: 'Rejected', count: coiCounts?.rejected, chip: 'badge-fail' },
@@ -759,12 +760,12 @@ export function AdminDashboardPage() {
             </div>
             {selectedCoiIds.size > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={handleBatchValidate} disabled={coiLoading}>
+                <button type="button" onClick={handleBatchValidate} disabled={coiLoading} className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Validate selected
-                </Button>
-                <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={handleBatchExtract} disabled={coiLoading}>
+                </button>
+                <button type="button" onClick={handleBatchExtract} disabled={coiLoading} className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   <Sparkles className="w-3.5 h-3.5" /> Run AI
-                </Button>
+                </button>
                 <button
                   type="button"
                   onClick={() => setSelectedCoiIds(new Set())}
@@ -800,8 +801,8 @@ export function AdminDashboardPage() {
                   <th className="py-2 pr-3">Insurer · NAIC</th>
                   <th className="py-2 pr-3">Expires</th>
                   <th className="py-2 pr-3">Automated checks</th>
-                  <th className="py-2 pr-3">Result</th>
-                  <th className="py-2 text-right">Actions</th>
+                  <th className="py-2 pr-3 min-w-[110px]">Result</th>
+                  <th className="py-2 text-right w-[360px] min-w-[360px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -875,45 +876,48 @@ export function AdminDashboardPage() {
                             {result.label}
                           </span>
                         </td>
-                        <td className="py-2.5 text-right">
-                          <div className="flex flex-wrap items-center justify-end gap-1">
-                            <Link to={`/staff/coi/${item.id}`} className="btn-marker text-xs px-3 py-1 inline-flex items-center gap-1 font-semibold">
+                        <td className="py-2.5 text-right w-[360px] min-w-[360px]">
+                          <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                            <Link
+                              to={`/staff/coi/${item.id}`}
+                              className="btn-marker h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0 shadow-sm"
+                            >
                               Review
                             </Link>
-                            <Button
-                              variant="secondary"
-                              className="text-xs !py-1 !px-2.5"
+                            <button
+                              type="button"
                               onClick={() => handleExtract(item.id)}
                               disabled={!item.has_file || busy === 'extracting'}
                               title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
+                              className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
                             >
                               <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
                               {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              className="text-xs !py-1 !px-2.5"
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleValidate(item.id)}
                               disabled={busy === 'validating'}
+                              className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               {busy === 'validating' ? 'Saving…' : 'Validate'}
-                            </Button>
+                            </button>
                             {item.has_file && (
-                              <Button
-                                variant="secondary"
-                                className="text-xs !py-1 !px-2"
+                              <button
+                                type="button"
                                 onClick={() => handleViewCert(item.id)}
                                 title="Open certificate file"
+                                className="h-8 w-8 rounded-md text-xs inline-flex items-center justify-center border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shrink-0"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
-                              </Button>
+                              </button>
                             )}
                             <select
                               value={item.status}
                               onChange={(e) => handleSetStatus(item.id, e.target.value)}
                               disabled={busy === 'saving'}
-                              className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none"
+                              className="h-8 text-xs font-medium border border-slate-300 rounded-md px-2 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500 shrink-0"
                               title="Set status"
                             >
                               <option value="pending_review">Pending</option>
@@ -977,17 +981,22 @@ export function AdminDashboardPage() {
                       {item.days_left !== null ? (isExp ? `${Math.abs(item.days_left)}d expired` : `${item.days_left}d left`) : ''}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1 pt-1">
-                    <Link to={`/staff/coi/${item.id}`} className="btn-marker text-xs px-3 py-1 inline-flex items-center gap-1 font-semibold">Review</Link>
-                    <Button variant="secondary" className="text-xs !py-1 !px-2.5" onClick={() => handleExtract(item.id)} disabled={!item.has_file || busy === 'extracting'}>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
+                    <Link to={`/staff/coi/${item.id}`} className="btn-marker h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0 shadow-sm">Review</Link>
+                    <button
+                      type="button"
+                      onClick={() => handleExtract(item.id)}
+                      disabled={!item.has_file || busy === 'extracting'}
+                      className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
+                    >
                       <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
                       {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
-                    </Button>
+                    </button>
                     <select
                       value={item.status}
                       onChange={(e) => handleSetStatus(item.id, e.target.value)}
                       disabled={busy === 'saving'}
-                      className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none"
+                      className="h-8 text-xs font-medium border border-slate-300 rounded-md px-2 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500 shrink-0"
                     >
                       <option value="pending_review">Pending</option>
                       <option value="compliant">Compliant</option>

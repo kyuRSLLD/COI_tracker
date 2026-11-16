@@ -541,7 +541,7 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 onClick={() => setCardExpanded(x => !x)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardExpanded(x => !x) } }}
                 aria-expanded={cardExpanded}
-                aria-label="Certificate card — click to view full summary and share options"
+                aria-label="Certificate summary card — click to view full details and share options"
                 className={`group rounded-2xl bg-white border-2 p-6 shadow-sm cursor-pointer transition hover:border-brand-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500 ${
                   cardExpanded ? 'border-brand-400 ring-2 ring-brand-100' : 'border-slate-200'
                 }`}
@@ -580,27 +580,62 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                   </div>
                 </div>
 
-                {/* Dates + doc pill */}
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2 text-slate-600">
-                    <span><strong>Effective</strong> {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'}</span>
-                    <span>→</span>
-                    <span><strong>Expires</strong> {days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)}</span>
+                {/* ── Certificate summary (always visible) ── */}
+                <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600">
+                      <FileText className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Certificate summary</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">click card for full details</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {primaryCoi.review_source_tag && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
-                        <FileCheck className="w-3 h-3" />
-                        {primaryCoi.review_source_tag === 'human' ? 'Reviewed' : 'Auto-filled with AI'}
+                  <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Carrier</dt>
+                      <dd className="font-semibold text-slate-900 truncate">{primaryCoi.carrier}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Policy #</dt>
+                      <dd className="font-mono font-semibold text-slate-900 truncate">{primaryCoi.policy_number || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Coverage period</dt>
+                      <dd className="text-slate-900">
+                        {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'} → {days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Insured</dt>
+                      <dd className="text-slate-900 truncate">{sub?.company_name || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Trade</dt>
+                      <dd className="text-slate-900 truncate">{sub?.trade || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-slate-400">Verification status</dt>
+                      <dd className="font-semibold text-slate-900 flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full ${v.dot}`} />
+                        {v.label} {primaryCoi.review_source_tag && (
+                          <span className="text-[11px] text-slate-400 font-normal">({primaryCoi.review_source_tag === 'human' ? 'reviewed' : 'AI assist'})</span>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  {/* Compact coverage lines row inside the summary */}
+                  {coverageCount > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-200 text-xs flex flex-wrap items-baseline gap-2">
+                      <span className="text-[11px] text-slate-400">Coverage ({coverageCount}):</span>
+                      <span className="font-mono text-slate-800 text-[11px]">
+                        {(primaryCoi.coverages || []).map(cv => {
+                          const lim = [cv.per_occurrence_limit, cv.aggregate_limit].filter(Boolean).join(' / ')
+                          return `${cv.type}${lim ? `: ${lim}` : ''}`
+                        }).join(' · ')}
                       </span>
-                    )}
-                    <span className="text-[11px] text-slate-400">
-                      {coverageCount} coverage {coverageCount === 1 ? 'line' : 'lines'}
-                    </span>
-                  </div>
+                    </div>
+                  )}
                 </div>
-
-                {/* Coverage chips */}
+                {/* Coverage chips (detailed per-line pills) */}
                 {coverageCount > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {(primaryCoi.coverages || []).map(cv => (
@@ -614,7 +649,6 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                     ))}
                   </div>
                 )}
-
                 {/* File link */}
                 {primaryCoi.certificate_url && !primaryCoi.simulated_carrier_connect && (
                   <div className="mt-3 text-xs" onClick={e => e.stopPropagation()}>
@@ -623,21 +657,18 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       onClick={() => void openDashboardOriginal(primaryCoi)}
                       className="inline-flex items-center gap-1.5 text-indigo-600 hover:underline font-medium"
                     >
-                      <FileText className="w-3.5 h-3.5" /> View certificate document ({primaryCoi.certificate_name || 'document'})
+                      <FileText className="w-3.5 h-3.5" /> View certificate document ({primaryCoi.certificate_name || 'document'}{primaryCoi.certificate_size ? ` · ${Math.round(primaryCoi.certificate_size/1024)} KB` : ''}{primaryCoi.created_at ? ` · on file since ${formatDisplayDate(primaryCoi.created_at.slice(0, 10))}` : ''})
                     </button>
                   </div>
                 )}
-
                 {primaryCoi.reviewer_notes && !primaryCoi.simulated_carrier_connect && (
                   <p className="mt-3 text-xs text-slate-500 italic bg-slate-50 rounded-lg p-2.5 border border-slate-200">
                     Note from reviewer: {primaryCoi.reviewer_notes}
                   </p>
                 )}
-
                 <p className="mt-3 text-[11px] text-slate-400 group-hover:text-slate-600 transition">
                   {cardExpanded ? 'Click to collapse full summary' : 'Click to expand full summary & sharing'}
                 </p>
-
                 {/* Actions row */}
                 <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2" onClick={e => e.stopPropagation()}>
                   <div className="flex flex-wrap items-center gap-2">
@@ -668,38 +699,9 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                 {/* Expanded full summary */}
                 {cardExpanded && (
                   <div className="mt-5 pt-5 border-t border-slate-200 space-y-4" onClick={e => e.stopPropagation()}>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-900 mb-2">Full certificate summary</p>
-                      <dl className="grid sm:grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">Carrier</dt>
-                          <dd className="font-semibold text-slate-900">{primaryCoi.carrier}</dd>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">Policy number</dt>
-                          <dd className="font-mono font-semibold text-slate-900">{primaryCoi.policy_number || '—'}</dd>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">AM Best rating</dt>
-                          <dd className="font-semibold text-slate-900">{primaryCoi.am_best_rating || '—'}</dd>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">Trade</dt>
-                          <dd className="font-semibold text-slate-900">{sub?.trade || '—'}</dd>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">Effective → Expiration</dt>
-                          <dd className="font-semibold text-slate-900">
-                            {formatDisplayDate(primaryCoi.effective_date) !== '—' ? formatDisplayDate(primaryCoi.effective_date) : 'Not provided'} → {formatDisplayDate(primaryCoi.expiration_date)}
-                          </dd>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200">
-                          <dt className="text-slate-400 text-[11px]">On file since</dt>
-                          <dd className="font-semibold text-slate-900">
-                            {primaryCoi.created_at ? formatDisplayDate(primaryCoi.created_at.slice(0, 10)) : '—'}
-                          </dd>
-                        </div>
-                      </dl>
+                    <div className="text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2 bg-slate-50 rounded-lg p-3 border border-slate-200">
+                      <span><strong>On file since:</strong> {primaryCoi.created_at ? formatDisplayDate(primaryCoi.created_at.slice(0, 10)) : '—'}</span>
+                      <span className="text-[11px] text-slate-400">Detailed coverage lines with limits are listed below</span>
                     </div>
                     {(primaryCoi.coverages || []).length > 0 && (
                       <div>

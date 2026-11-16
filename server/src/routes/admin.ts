@@ -497,6 +497,7 @@ adminRouter.get('/cois', requireAdmin, async (req, res) => {
         needs_revision: Number(cntRevision?.c || 0),
         rejected: Number(cntRejected?.c || 0),
         no_file: Number(cntNoFile?.c || 0),
+        ai_checked: Number(cntAiPending?.c || 0),
         ai_pending: Number(cntAiPending?.c || 0),
       },
     })

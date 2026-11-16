@@ -116,7 +116,7 @@ export async function getFileViewUrl(key: string, _storedUrl?: string): Promise<
   if (!isS3Configured) {
     if (PRODUCTION) throw new Error('Certificate storage is unavailable')
     // Never return an arbitrary persisted URL, including legacy external URLs.
-    if (typeof key !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(key) || key.length > 255) {
+    if (typeof key !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._\/-]*$/.test(key) || key.length > 255) {
       throw new Error('Certificate storage is unavailable')
     }
     return `/uploads/${key}`

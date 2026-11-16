@@ -44,7 +44,7 @@ async function publicCOI(row: any) {
   let certificate_url: string | null = null
   if (typeof key === 'string' && /^(?:cois\/[a-zA-Z0-9._-]+|[a-zA-Z0-9][a-zA-Z0-9._-]*)$/.test(key)) {
     try {
-      certificate_url = await getFileViewUrl(key)
+      try { certificate_url = await getFileViewUrl(key) } catch { certificate_url = null }
     } catch {
       // Unavailable storage or an unusable legacy key is not a reason to
       // return the old URL, which may be public or otherwise untrusted.
