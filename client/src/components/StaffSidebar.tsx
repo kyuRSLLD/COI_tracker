@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileText, Building2, Users, DollarSign, Target, Mail, Settings, Menu, X, Shield, ArrowUpRight, LogOut } from 'lucide-react'
+import { LayoutDashboard, FileText, Building2, Users, DollarSign, Target, Mail, Settings, Menu, X, Shield, ArrowUpRight, LogOut, KeyRound, Eye, EyeOff, Check, AlertTriangle } from 'lucide-react'
 import type { User } from '../types'
+import { apiChangePassword } from '../api'
 
 interface Props {
   user: User | null
@@ -18,11 +19,13 @@ interface Item {
   badge?: number | string
   badgeTone?: 'red' | 'gray'
   disabled?: boolean
+  onSelect?: () => void
 }
 
 export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: Props) {
   const location = useLocation()
   const [open, setOpen] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   const [more, setMore] = useState(false)
 
   const items: Item[] = [
@@ -33,7 +36,7 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
     { label: 'Revenue', hash: 'revenue', icon: DollarSign },
     { label: 'Leads (permits)', to: '/emails?type=coi_request', icon: Target, badge: 'soon', badgeTone: 'gray', disabled: true },
     { label: 'Email log', to: '/emails', icon: Mail },
-    { label: 'Settings', to: '/settings', icon: Settings },
+    { label: 'Settings', icon: Settings, onSelect: () => setPwOpen(true) },
   ]
 
   const active = (it: Item) => {
@@ -95,6 +98,7 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
               const style = isA
                 ? { background: 'var(--nav-active-bg)', color: 'var(--nav-active-text)' }
                 : undefined
+              if (it.onSelect) return <button key={it.label} type="button" onClick={it.onSelect} className={cls} style={style}>{content}</button>
               if (it.disabled) {
                 return (
                   <div key={it.label} className={cls + ' cursor-not-allowed opacity-40'} style={style}>
@@ -119,6 +123,9 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
         </div>
         <div className="pt-3 border-t border-white/10 space-y-2 text-[11px]">
           <div className="truncate text-white/70" title={user?.email}>{user?.email}</div>
+          <button type="button" onClick={() => setPwOpen(true)} className="flex items-center gap-1.5 text-white/80 hover:text-white w-full text-left">
+            <KeyRound className="w-3 h-3" /> Change password
+          </button>
           <Link
             to="/dashboard"
             className="flex items-center gap-1.5 text-white/80 hover:text-white"
@@ -192,11 +199,13 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
                 )
                 if (it.disabled) return <div key={it.label} className="px-2.5 py-2 text-white/30 cursor-not-allowed">{content}</div>
                 if (it.hash) return <button key={it.label} type="button" onClick={() => goHash(it.hash)} className="w-full px-2.5 py-2 rounded-md font-semibold hover:bg-white/5 text-left">{content}</button>
+                if (it.onSelect) return <button key={it.label} type="button" onClick={() => { setOpen(false); it.onSelect!() }} className="w-full text-left px-2.5 py-2 rounded-md font-semibold hover:bg-white/5 block">{content}</button>
                 return <Link key={it.label} to={it.to!} onClick={() => setOpen(false)} className="px-2.5 py-2 rounded-md font-semibold hover:bg-white/5 block">{content}</Link>
               })}
             </nav>
             <div className="pt-3 border-t border-white/10 text-[11px] space-y-2">
               <div className="truncate text-white/70">{user?.email}</div>
+              <button type="button" onClick={() => { setOpen(false); setPwOpen(true); }} className="flex items-center gap-1.5 text-white/80 hover:text-white w-full text-left"><KeyRound className="w-3 h-3" /> Change password</button>
               <Link to="/dashboard" onClick={() => setOpen(false)} className="flex items-center gap-1.5 text-white/80"><Shield className="w-3 h-3" /> Contractor view</Link>
               <button type="button" onClick={onSignOut} className="flex items-center gap-1.5 text-white/60 w-full text-left"><LogOut className="w-3 h-3" /> Sign out</button>
             </div>
@@ -206,6 +215,7 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
 
       {/* Main content */}
       <main className="flex-1 min-w-0 p-4 sm:p-6 pb-20 md:pb-8">{children}</main>
+      <StaffPasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
 
       {/* Mobile bottom tab bar */}
       <nav
@@ -244,6 +254,79 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+function StaffPasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  if (!open) return null
+  const reset = () => { setCurrentPw(''); setNewPw(''); setConfirmPw(''); setMsg(null); onClose() }
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMsg(null)
+    if (!currentPw || !newPw || !confirmPw) return setMsg({ text: 'All fields are required', ok: false })
+    if (newPw.length < 8) return setMsg({ text: 'New password must be at least 8 characters', ok: false })
+    if (newPw !== confirmPw) return setMsg({ text: 'New passwords do not match', ok: false })
+    try {
+      setSaving(true)
+      const res = await apiChangePassword(currentPw, newPw)
+      setMsg({ text: res.message || 'Password updated', ok: true })
+      setTimeout(reset, 1200)
+    } catch (err: any) {
+      setMsg({ text: err?.message || 'Update failed', ok: false })
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={reset}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-slate-900 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-sm tracking-tight flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-brand-primary" /> Change your password
+          </h3>
+          <button type="button" onClick={reset} className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <form onSubmit={submit} className="space-y-3 text-xs">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Current password</label>
+            <div className="relative">
+              <input type={showCurrent ? 'text' : 'password'} value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} autoFocus className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200" />
+              <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-2 top-2 text-slate-400">{showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">New password (min 8 chars)</label>
+            <div className="relative">
+              <input type={showNew ? 'text' : 'password'} value={newPw} onChange={(e) => setNewPw(e.target.value)} className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200" />
+              <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-2 top-2 text-slate-400">{showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Confirm new password</label>
+            <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          {msg && (
+            <div className={`p-2 rounded-lg text-xs flex items-center gap-2 ${msg.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
+              {msg.ok ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />} {msg.text}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={reset} className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+            <button type="submit" disabled={saving} className="px-3 py-2 rounded-lg text-xs font-semibold bg-brand-primary text-white hover:bg-brand-primary-dark disabled:opacity-60">{saving ? 'Updating…' : 'Update password'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

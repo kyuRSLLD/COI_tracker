@@ -273,6 +273,11 @@ export const apiAdmin = {
     }),
   deleteCompany: (id: string) => request<{ success: boolean }>(`/api/admin/companies/${id}`, { method: 'DELETE' }),
   deleteUser: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  resetUserPassword: (id: string, new_password: string) =>
+    request<{ success: boolean; message: string }>(`/api/admin/users/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ new_password }),
+    }),
   resetDemoData: () => request<{ success: boolean; message: string }>('/api/admin/danger/reset', { method: 'POST' }),
   makeMeAdmin: () => request<{ user: import('./types').User; message: string }>('/api/admin/make-me-admin', { method: 'POST' }),
   coiQueue: (params?: { status?: string; filter?: string; search?: string; limit?: number; offset?: number }) => {

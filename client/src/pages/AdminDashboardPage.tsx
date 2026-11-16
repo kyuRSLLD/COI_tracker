@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiAdmin, apiMe } from '../api'
 import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download } from 'lucide-react'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy } from 'lucide-react'
 import { formatDisplayDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 
@@ -50,6 +50,12 @@ export function AdminDashboardPage() {
     newRole: 'gc',
   })
   const [resetModalOpen, setResetModalOpen] = useState(false)
+  const [pwResetModal, setPwResetModal] = useState<{ open: boolean; user: AdminUser | null }>({ open: false, user: null })
+  const [pwResetValue, setPwResetValue] = useState('')
+  const [pwResetShow, setPwResetShow] = useState(false)
+  const [pwResetSaving, setPwResetSaving] = useState(false)
+  const [pwResetMsg, setPwResetMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [copied, setCopied] = useState(false)
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [excludeTest, setExcludeTest] = useState(false)
   const [testFlagLoading, setTestFlagLoading] = useState<string | null>(null)
@@ -247,6 +253,46 @@ export function AdminDashboardPage() {
     }
   }
 
+  const genTempPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#'
+    let out = ''
+    const arr = new Uint8Array(12)
+    crypto.getRandomValues(arr)
+    for (const b of arr) out += chars[b % chars.length]
+    setPwResetValue(out)
+  }
+  const openPwReset = (u: AdminUser) => {
+    setPwResetModal({ open: true, user: u })
+    setPwResetShow(true)
+    setPwResetMsg(null)
+    setCopied(false)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    let out = ''
+    const arr = new Uint8Array(12)
+    crypto.getRandomValues(arr)
+    for (const b of arr) out += chars[b % chars.length]
+    setPwResetValue(out)
+  }
+  const copyTempPw = async () => {
+    try { await navigator.clipboard?.writeText(pwResetValue) } catch {}
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  const confirmPwReset = async () => {
+    if (!pwResetModal.user) return
+    setPwResetMsg(null)
+    if (!pwResetValue || pwResetValue.length < 8) return setPwResetMsg({ text: 'Password must be at least 8 characters', ok: false })
+    try {
+      setPwResetSaving(true)
+      const res = await apiAdmin.resetUserPassword(pwResetModal.user.id, pwResetValue)
+      setPwResetMsg({ text: res.message || 'Password updated', ok: true })
+      setTimeout(() => { setPwResetModal({ open: false, user: null }) }, 1500)
+    } catch (err: any) {
+      setPwResetMsg({ text: err.message || 'Update failed', ok: false })
+    } finally {
+      setPwResetSaving(false)
+    }
+  }
   const confirmRoleChange = async () => {
     if (!roleModal.user) return
     await handleRoleChange(roleModal.user.id, roleModal.newRole)
@@ -1167,6 +1213,14 @@ export function AdminDashboardPage() {
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => openPwReset(u)}
+                    title="Reset user password…"
+                    className="w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-primary hover:bg-slate-100 transition"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 <div className="text-slate-600">{u.company_name || '—'}</div>
                 <div className="flex items-center gap-1.5">
@@ -1224,14 +1278,24 @@ export function AdminDashboardPage() {
                     </td>
                     <td className="py-2.5 pr-3 text-slate-500 font-mono">{(u.created_at || '').slice(0, 10) || '—'}</td>
                     <td className="py-2.5 text-right">
-                      <button
-                        onClick={() => handleDeleteUser(u)}
-                        disabled={me ? u.id === me.id : false}
-                        title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
-                        className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="inline-flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => openPwReset(u)}
+                          title="Reset user password…"
+                          className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-primary hover:bg-slate-100 transition"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          disabled={me ? u.id === me.id : false}
+                          title={me && u.id === me.id ? 'Cannot delete your own account' : 'Delete user'}
+                          className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1344,6 +1408,48 @@ export function AdminDashboardPage() {
               <Button variant="danger" className="text-xs" onClick={handleResetData}>
                 Reset data
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin user password reset modal */}
+      {pwResetModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setPwResetModal({ open: false, user: null })}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-brand-primary" /> Reset user password
+              </h3>
+              <button type="button" onClick={() => setPwResetModal({ open: false, user: null })} className="text-slate-400 hover:text-slate-600 text-xs font-semibold">✕</button>
+            </div>
+            <p className="text-xs text-slate-500 truncate">
+              Setting a new password for <span className="font-semibold text-slate-800">{pwResetModal.user?.email}</span>
+            </p>
+            <div className="space-y-2 text-xs">
+              <div className="relative">
+                <input
+                  type={pwResetShow ? 'text' : 'password'}
+                  value={pwResetValue}
+                  onChange={(e) => setPwResetValue(e.target.value)}
+                  placeholder="New password (min 8 characters)"
+                  className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 font-mono text-xs"
+                />
+                <button type="button" onClick={() => setPwResetShow(!pwResetShow)} className="absolute right-2 top-2 text-slate-400">{pwResetShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <button type="button" onClick={genTempPassword} className="font-semibold text-brand-primary hover:underline">🎲 Generate temporary</button>
+                <button type="button" onClick={copyTempPw} className="font-semibold text-slate-600 hover:underline">{copied ? '✓ Copied' : 'Copy'}</button>
+              </div>
+            </div>
+            {pwResetMsg && (
+              <div className={`p-2 rounded-lg text-xs flex items-center gap-2 ${pwResetMsg.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
+                {pwResetMsg.ok ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />} {pwResetMsg.text}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" className="text-xs" onClick={() => setPwResetModal({ open: false, user: null })}>Cancel</Button>
+              <Button className="text-xs" disabled={pwResetSaving} onClick={confirmPwReset}>{pwResetSaving ? 'Saving…' : 'Set password'}</Button>
             </div>
           </div>
         </div>

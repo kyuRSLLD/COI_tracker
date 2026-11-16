@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import { isRealEmailConfigured, emailMode } from '../services/email.ts'
 import express from 'express'
 import { dbGet, dbAll, dbRun, planToMRR, PLAN_PRICES } from '../db/db.ts'
@@ -239,6 +240,22 @@ adminRouter.put('/users/:id/role', requireAdmin, async (req, res) => {
     }
     const user = await dbGet('SELECT id, email, name, role, company_name FROM users WHERE id = ?', [req.params.id])
     res.json({ user })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+// Admin resets a user's password (min 8 chars)
+adminRouter.put('/users/:id/password', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const { new_password } = req.body || {}
+    if (!new_password || typeof new_password !== 'string' || new_password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' })
+    }
+    const target = await dbGet<any>('SELECT id, email FROM users WHERE id = ?', [req.params.id])
+    if (!target) return res.status(404).json({ error: 'User not found' })
+    const hash = await bcrypt.hash(new_password, 10)
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [hash, target.id])
+    res.json({ success: true, message: `Password updated for ${target.email}` })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
