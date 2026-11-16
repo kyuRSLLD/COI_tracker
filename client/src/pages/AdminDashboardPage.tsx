@@ -723,7 +723,7 @@ export function AdminDashboardPage() {
             </div>
           </div>
           {/* Filter chips */}
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
+          <div className="mt-3 flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
             {[
               { key: 'pending', label: 'Pending', count: coiCounts?.pending, chip: 'bg-slate-900 text-white' },
               { key: 'ai_checked', label: 'AI checked', count: coiCounts?.ai_checked, chip: 'badge-info' },
@@ -738,7 +738,7 @@ export function AdminDashboardPage() {
                 key={f.key}
                 type="button"
                 onClick={() => setCoiFilter(f.key as typeof coiFilter)}
-                className={`rounded-full px-3 py-1 font-semibold transition min-h-[36px] flex items-center gap-1.5 ${f.chip} ${
+                className={`rounded-full px-3 py-1 font-semibold transition min-h-[36px] shrink-0 flex items-center gap-1.5 ${f.chip} ${
                   coiFilter === f.key ? 'ring-2 ring-slate-800 ring-offset-1 font-bold' : 'opacity-80 hover:opacity-100'
                 }`}
               >
@@ -784,7 +784,7 @@ export function AdminDashboardPage() {
           )}
           {/* Desktop table */}
           <div className="mt-3 overflow-x-auto hidden md:block">
-            <table className="w-full text-left text-xs min-w-[960px]">
+            <table className="w-full text-left text-xs min-w-[1240px]">
               <thead>
                 <tr className="text-[10px] uppercase text-slate-400 border-b border-slate-100 font-bold tracking-wider">
                   <th className="py-2 pr-2 w-8">
@@ -797,13 +797,13 @@ export function AdminDashboardPage() {
                       aria-label="Select all"
                     />
                   </th>
-                  <th className="py-2 pr-3">Subcontractor</th>
-                  <th className="py-2 pr-3">General contractor</th>
-                  <th className="py-2 pr-3">Insurer · NAIC</th>
-                  <th className="py-2 pr-3">Expires</th>
-                  <th className="py-2 pr-3">Automated checks</th>
-                  <th className="py-2 pr-3 min-w-[110px]">Result</th>
-                  <th className="py-2 text-right w-[360px] min-w-[360px]">Actions</th>
+                  <th className="py-2 pr-3 min-w-[170px]">Subcontractor</th>
+                  <th className="py-2 pr-3 min-w-[70px]">General contractor</th>
+                  <th className="py-2 pr-3 min-w-[170px]">Insurer · NAIC</th>
+                  <th className="py-2 pr-3 min-w-[110px]">Expires</th>
+                  <th className="py-2 pr-3 min-w-[190px]">Automated checks</th>
+                  <th className="py-2 px-3 text-left w-[140px] min-w-[140px]">Result</th>
+                  <th className="py-2 pl-4 text-right w-[440px] min-w-[440px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -872,12 +872,12 @@ export function AdminDashboardPage() {
                             {item.has_file && <span className="badge-info px-1.5 py-0.5 rounded">file</span>}
                           </div>
                         </td>
-                        <td className="py-2.5 pr-3">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${result.chip}`}>
+                        <td className="py-2.5 px-3 w-[140px] min-w-[140px]">
+                          <span className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center justify-center shrink-0 ${result.chip}`}>
                             {result.label}
                           </span>
                         </td>
-                        <td className="py-2.5 text-right w-[360px] min-w-[360px]">
+                        <td className="py-2.5 pl-4 text-right w-[440px] min-w-[440px]">
                           <div className="flex flex-col items-end gap-1">
                           <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                             <Link
@@ -974,7 +974,7 @@ export function AdminDashboardPage() {
                         </div>
                       </div>
                     </div>
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${result.chip}`}>
+                    <span className={`h-7 px-2.5 rounded-md text-xs font-bold inline-flex items-center justify-center shrink-0 ${result.chip}`}>
                       {result.label}
                     </span>
                   </div>
