@@ -134,9 +134,10 @@ function validationIssues(details: CoiFields): string[] {
   if (details.insurers.length > MAX_INSURERS) issues.push(`Remove insurers until there are ${MAX_INSURERS} or fewer`)
   if (details.policies.length > MAX_POLICIES) issues.push(`Remove policies until there are ${MAX_POLICIES} or fewer`)
   details.insurers.forEach((insurer, index) => {
-    check(`Insurer ${index + 1} letter`, insurer.letter, 32)
-    check(`Insurer ${index + 1} name`, insurer.name, 256)
-    check(`Insurer ${index + 1} NAIC #`, insurer.naic, 64)
+    const letter = (insurer.letter || String.fromCharCode(65 + index)).toUpperCase()
+    check(`Insurer ${letter} letter`, insurer.letter, 32)
+    check(`Insurer ${letter} name`, insurer.name, 256)
+    check(`Insurer ${letter} NAIC #`, insurer.naic, 64)
   })
   details.policies.forEach((policy, index) => {
     const name = `Policy ${index + 1}`
@@ -287,7 +288,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
           <div className="flex flex-wrap items-start justify-between gap-3">
             <SectionHeading number="03" title="Insurers affording coverage" description="Enter each insurer and its letter as shown on the certificate." />
             {editable && <div>
-              <button type="button" className={smallButtonClass} disabled={saving || details.insurers.length >= MAX_INSURERS} aria-describedby={details.insurers.length >= MAX_INSURERS ? `${id}-insurer-cap` : undefined} onClick={() => { if (details.insurers.length < MAX_INSURERS) update({ ...details, insurers: [...details.insurers, { letter: '', name: '', naic: '' }] }) }}><Plus aria-hidden="true" className="h-4 w-4" /> Add insurer</button>
+              <button type="button" className={smallButtonClass} disabled={saving || details.insurers.length >= MAX_INSURERS} aria-describedby={details.insurers.length >= MAX_INSURERS ? `${id}-insurer-cap` : undefined} onClick={() => { if (details.insurers.length < MAX_INSURERS) update({ ...details, insurers: [...details.insurers, { letter: String.fromCharCode(65 + details.insurers.length), name: '', naic: '' }] }) }}><Plus aria-hidden="true" className="h-4 w-4" /> Add insurer</button>
               {details.insurers.length >= MAX_INSURERS && <p id={`${id}-insurer-cap`} className="mt-1 text-xs text-slate-600">Maximum 10 insurers. To add one, reduce the total below 10.</p>}
             </div>}
           </div>
@@ -298,8 +299,8 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
               {details.insurers.map((insurer, index) => (
                 <div key={index} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
                   <div className="mb-3 flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-slate-800">Insurer {index + 1}</h3>
-                    {editable && <button type="button" className={removeButtonClass} disabled={saving} aria-label={`Remove insurer ${index + 1}`} onClick={() => update({ ...details, insurers: details.insurers.filter((_, i) => i !== index) })}><Trash2 aria-hidden="true" className="h-4 w-4" /> Remove</button>}
+                    <h3 className="text-sm font-bold text-slate-800">Insurer {(insurer.letter || String.fromCharCode(65 + index)).toUpperCase()}</h3>
+                    {editable && <button type="button" className={removeButtonClass} disabled={saving} aria-label={`Remove insurer ${(insurer.letter || String.fromCharCode(65 + index)).toUpperCase()}`} onClick={() => update({ ...details, insurers: details.insurers.filter((_, i) => i !== index) })}><Trash2 aria-hidden="true" className="h-4 w-4" /> Remove</button>}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-6">
                     <div className="sm:col-span-1"><Field label="Letter" value={insurer.letter} maxLength={32} onChange={(v) => updateInsurer(index, 'letter', v)} readOnly={readOnly} /></div>
