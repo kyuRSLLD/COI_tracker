@@ -16,7 +16,7 @@ export function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [companySearch, setCompanySearch] = useState('')
   const [userSearch, setUserSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'gc'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'gc' | 'pro_gc' | 'sub'>('all')
   const [savingPlanId, setSavingPlanId] = useState<string | null>(null)
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
@@ -235,7 +235,7 @@ export function AdminDashboardPage() {
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase()
     return users.filter((u) => {
-      const matchRole = roleFilter === 'all' ? true : roleFilter === 'admin' ? u.role === 'admin' : u.role !== 'admin'
+      const matchRole = roleFilter === 'all' ? true : u.role === roleFilter
       if (!matchRole) return false
       if (!q) return true
       return (
@@ -1017,16 +1017,16 @@ export function AdminDashboardPage() {
             Users ({filteredUsers.length})
           </h2>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            <div className="flex w-full sm:w-auto text-xs font-mono border border-slate-300 rounded-lg overflow-hidden">
-              {(['all', 'admin', 'gc'] as const).map((r) => (
+            <div className="flex flex-wrap gap-1 w-full sm:w-auto text-xs font-mono">
+              {(['all', 'admin', 'gc', 'pro_gc', 'sub'] as const).map((r) => (
                 <button
                   key={r}
                   onClick={() => setRoleFilter(r)}
-                  className={`flex-1 sm:flex-initial min-h-[44px] px-2.5 py-2 ${
-                    roleFilter === r ? 'bg-slate-900 text-white font-bold' : 'text-slate-600 hover:bg-slate-100'
+                  className={`flex-1 sm:flex-initial min-h-[44px] px-2.5 py-2 rounded-md border ${
+                    roleFilter === r ? 'bg-slate-900 text-white font-bold border-slate-900' : 'text-slate-600 bg-white border-slate-300 hover:bg-slate-100'
                   }`}
                 >
-                  {r === 'gc' ? 'gcs' : r === 'admin' ? 'admins' : 'all'}
+                  {r === 'admin' ? 'Admins' : r === 'gc' ? 'GCs' : r === 'pro_gc' ? 'Pro GCs' : r === 'sub' ? 'Sub Cs' : 'All'}
                 </button>
               ))}
             </div>
@@ -1067,8 +1067,10 @@ export function AdminDashboardPage() {
                   onChange={(e) => handleRoleChange(u.id, e.target.value)}
                   className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-slate-500"
                 >
-                  <option value="gc">gc</option>
-                  <option value="admin">admin</option>
+                  <option value="admin">Admin</option>
+                  <option value="gc">GC</option>
+                  <option value="pro_gc">Pro GC</option>
+                  <option value="sub">Sub C</option>
                 </select>
               </div>
               <div className="text-[11px] text-slate-400 pt-1">

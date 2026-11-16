@@ -2,7 +2,7 @@ import express from 'express'
 import fs from 'fs'
 import path from 'path'
 import { dbGet } from '../db/db.ts'
-import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
+import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { isS3Configured, LOCAL_UPLOADS } from '../services/storage.ts'
 
 // This endpoint is never a fallback for production or S3. The local filename
@@ -26,7 +26,7 @@ localCertificatesRouter.get('/:key', requireAuth, async (req: AuthRequest, res) 
   try {
     const user = req.user!
     let row: unknown
-    if (user.role === 'gc') {
+    if (isGcRole(user.role)) {
       // Match the GC COI read policy: a connection, and either the GC owns
       // the record or the currently linked sub user owns it.
       row = await dbGet(`SELECT c.id FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id

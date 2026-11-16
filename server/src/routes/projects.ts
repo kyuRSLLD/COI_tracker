@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { computeSubcontractorStatus, projectComplianceScore, labelSimulatedCarrierCOI } from '../services/compliance.ts'
-import { requireAuth } from '../middleware/auth.ts'
+import { requireAuth, isGcRole } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import type { NextFunction, Response } from 'express'
 
@@ -11,7 +11,7 @@ import type { NextFunction, Response } from 'express'
 export async function requireCurrentGC(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const user = await dbGet('SELECT role FROM users WHERE id = ?', [req.user!.id])
-    if (!user || user.role !== 'gc') return res.status(403).json({ error: 'General contractor access required' })
+    if (!user || !isGcRole(user.role)) return res.status(403).json({ error: 'General contractor access required' })
     next()
   } catch { res.status(500).json({ error: 'Unable to verify account role' }) }
 }

@@ -59,3 +59,7 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
     next()
   })
 }
+
+export function isGcRole(role?: string): boolean {
+  return role === 'gc' || role === 'pro_gc'
+}

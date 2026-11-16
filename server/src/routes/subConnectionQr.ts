@@ -1,7 +1,7 @@
 import express from 'express'
 import { createHash, randomBytes } from 'node:crypto'
 import { isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
-import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
+import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 
 export const subConnectionQrRouter = express.Router()
 const lock = isPostgres ? ' FOR UPDATE' : ''
@@ -48,7 +48,7 @@ subConnectionQrRouter.post('/', async (req: AuthRequest, res) => {
 })
 
 subConnectionQrRouter.post('/redeem', async (req: AuthRequest, res) => {
-  if (req.user!.role !== 'gc') return res.status(403).json({ error: 'GC account required' })
+  if (!isGcRole(req.user!.role)) return res.status(403).json({ error: 'GC account required' })
   if (!validToken(req.body?.token)) return res.status(400).json({ error: 'Invalid connection code' })
   try {
     const result = await withTransaction(async tx => {
@@ -58,7 +58,7 @@ subConnectionQrRouter.post('/redeem', async (req: AuthRequest, res) => {
       const discovered = await tx.get<{ issuer_user_id: string }>('SELECT issuer_user_id FROM sub_connection_qr_tokens WHERE token_hash = ?', [tokenHash])
       if (!discovered) return { status: 404 as const }
       const users = await lockConnectionUsers(tx, [discovered.issuer_user_id, req.user!.id])
-      if (users.get(req.user!.id)?.role !== 'gc') return { status: 403 as const }
+      if (!isGcRole(users.get(req.user!.id)?.role)) return { status: 403 as const }
       if (users.get(discovered.issuer_user_id)?.role !== 'sub') return { status: 404 as const }
       const qr = await tx.get<QrRow>(`SELECT issuer_user_id, subcontractor_id, expires_at, redeemed_by_gc_user_id, revoked_at
         FROM sub_connection_qr_tokens WHERE token_hash = ?${lock}`, [tokenHash])

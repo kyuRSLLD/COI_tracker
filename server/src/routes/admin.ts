@@ -151,10 +151,24 @@ adminRouter.get('/users', requireAdmin, async (_req, res) => {
 adminRouter.put('/users/:id/role', requireAdmin, async (req, res) => {
   try {
     const { role } = req.body || {}
-    if (!['admin', 'gc'].includes(role)) {
-      return res.status(400).json({ error: "role must be 'admin' or 'gc'" })
+    const ALLOWED = ['admin', 'gc', 'pro_gc', 'sub']
+    if (!ALLOWED.includes(role)) {
+      return res.status(400).json({ error: `role must be one of: ${ALLOWED.join(', ')}` })
+    }
+    const current = await dbGet<{ role: string }>('SELECT role FROM users WHERE id = ?', [req.params.id])
+    if (!current) return res.status(404).json({ error: 'User not found' })
+    if (current.role === 'admin' && role !== 'admin') {
+      const adminCount = await dbGet<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'")
+      if ((adminCount?.count ?? 0) <= 1) {
+        return res.status(400).json({ error: 'Cannot remove the last admin' })
+      }
     }
     await dbRun('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id])
+    if (role === 'pro_gc') {
+      await dbRun("UPDATE companies SET plan = 'Pro GC', mrr = ? WHERE owner_user_id = ?", [planToMRR('Pro GC'), req.params.id])
+    } else if (role === 'gc') {
+      await dbRun("UPDATE companies SET plan = 'General Contractor', mrr = ? WHERE owner_user_id = ? AND plan = 'Pro GC'", [planToMRR('General Contractor'), req.params.id])
+    }
     const user = await dbGet('SELECT id, email, name, role, company_name FROM users WHERE id = ?', [req.params.id])
     res.json({ user })
   } catch (err: any) {

@@ -2,7 +2,7 @@ import express from 'express'; const Router = express.Router
 import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { computeSubcontractorStatus, labelSimulatedCarrierCOI } from '../services/compliance.ts'
-import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
+import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
 
 export const subcontractorsRouter = Router()
@@ -15,11 +15,11 @@ const gcSubSelect = `s.id, s.user_id, s.company_name, s.trade, s.contact_person,
 // Verify the current database role so a role change cannot leave GC access
 // usable merely because an old token has not expired.
 subcontractorsRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
-  if (req.user?.role !== 'gc' || typeof req.user.id !== 'string' || !req.user.id) {
+  if (!isGcRole(req.user?.role) || typeof req.user.id !== 'string' || !req.user.id) {
     return res.status(403).json({ error: 'GC access required' })
   }
   try {
-    const user = await dbGet('SELECT id FROM users WHERE id = ? AND role = ?', [req.user.id, 'gc'])
+    const user = await dbGet("SELECT id FROM users WHERE id = ? AND role IN ('gc', 'pro_gc')", [req.user.id])
     if (!user) return res.status(403).json({ error: 'GC access required' })
     next()
   } catch {

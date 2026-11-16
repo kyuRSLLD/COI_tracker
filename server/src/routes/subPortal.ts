@@ -5,7 +5,7 @@ import multer from 'multer'
 import { createHash, randomBytes } from 'node:crypto'
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid'
 import { dbAll, dbGet, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
-import { requireAuth } from '../middleware/auth.ts'
+import { requireAuth, isGcRole } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
@@ -119,7 +119,7 @@ subPortalRouter.get('/my', requireSub, async (req: AuthRequest, res) => {
               COALESCE((SELECT email FROM gc_settings WHERE user_id = u.id ORDER BY id LIMIT 1), u.email) AS email,
               COALESCE((SELECT phone FROM gc_settings WHERE user_id = u.id ORDER BY id LIMIT 1), u.phone) AS phone
        FROM gc_sub_connections c
-       JOIN users u ON u.id = c.gc_user_id AND u.role = 'gc'
+       JOIN users u ON u.id = c.gc_user_id AND u.role IN ('gc', 'pro_gc')
        WHERE c.subcontractor_id = ? ORDER BY company_name, u.id`,
       [sub.id]
     )
@@ -316,7 +316,7 @@ subPortalRouter.post('/join-intent/:inviteCode', requireSub, requireJoinSession,
     const result = await withTransaction(async tx => {
       const users = await lockConnectionUsers(tx, [req.user!.id, gc.user_id])
       const user = users.get(req.user!.id)
-      if (user?.role !== 'sub' || users.get(gc.user_id)?.role !== 'gc') return false
+      if (user?.role !== 'sub' || !isGcRole(users.get(gc.user_id)?.role)) return false
       const settings = await tx.get(`SELECT id FROM gc_settings WHERE id = ? AND user_id = ? AND invite_code = ?${joinLock}`,
         [gc.id, gc.user_id, req.params.inviteCode])
       if (!settings) return false
@@ -359,7 +359,7 @@ subPortalRouter.post('/join/:inviteCode', (req: AuthRequest, res, next) => {
           discovered.invite_code !== req.params.inviteCode) return null
       const users = await lockConnectionUsers(tx, [req.user!.id, discovered.gc_user_id])
       const user = users.get(req.user!.id)
-      if (user?.role !== 'sub' || users.get(discovered.gc_user_id)?.role !== 'gc') return null
+      if (user?.role !== 'sub' || !isGcRole(users.get(discovered.gc_user_id)?.role)) return null
       const ticket = await tx.get<any>(`SELECT * FROM sub_join_intents WHERE token_hash = ?${joinLock}`, [joinHash(intent)])
       const version = await tx.get<{ version: number }>('SELECT version FROM sub_join_versions WHERE user_id = ?', [user.id])
       if (!ticket || ticket.gc_user_id !== discovered.gc_user_id || ticket.user_id !== user.id || ticket.session_hash !== joinHash(req.headers.authorization!) ||

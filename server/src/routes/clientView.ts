@@ -45,7 +45,7 @@ clientViewRouter.get('/:token', async (req, res) => {
       return res.status(410).json({ error: 'This share link has expired. Please ask the contractor for a new link.' })
     }
     const project = await dbGet(`SELECT p.* FROM projects p JOIN users u ON u.id = p.user_id
-      WHERE p.id = ? AND u.role = 'gc'`, [share.project_id])
+      WHERE p.id = ? AND u.role IN ('gc', 'pro_gc')`, [share.project_id])
     if (!project) return res.status(404).json({ error: 'Project no longer exists' })
     const gcSettings = (await dbGet('SELECT * FROM gc_settings WHERE user_id = ? ORDER BY updated_at DESC, id LIMIT 1', [project.user_id])) || {}
     const subs = await dbAll(`SELECT s.* FROM subcontractors s

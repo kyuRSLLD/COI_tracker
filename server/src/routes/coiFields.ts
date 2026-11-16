@@ -2,7 +2,7 @@ import express from 'express'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
-import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
+import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
 import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
 
@@ -56,9 +56,9 @@ const joins = `FROM cois c
   JOIN subcontractors s ON s.id = c.subcontractor_id
   JOIN users actor ON actor.id = ?
   LEFT JOIN users sub_owner ON sub_owner.id = c.owner_sub_user_id AND sub_owner.role = 'sub'
-  LEFT JOIN users gc_owner ON gc_owner.id = c.owner_gc_user_id AND gc_owner.role = 'gc'`
+  LEFT JOIN users gc_owner ON gc_owner.id = c.owner_gc_user_id AND gc_owner.role IN ('gc', 'pro_gc')`
 const access = `(
-  (actor.role = 'gc' AND EXISTS (SELECT 1 FROM gc_sub_connections g
+  (actor.role IN ('gc', 'pro_gc') AND EXISTS (SELECT 1 FROM gc_sub_connections g
       WHERE g.gc_user_id = actor.id AND g.subcontractor_id = c.subcontractor_id)
     AND ((c.owner_gc_user_id = actor.id AND c.owner_sub_user_id IS NULL)
       OR (c.owner_gc_user_id IS NULL AND c.owner_sub_user_id IS NOT NULL
@@ -77,7 +77,7 @@ const selectAccess = `SELECT c.id, c.certificate_key, c.owner_gc_user_id, c.owne
   WHERE c.id = ? AND ${access}`
 
 function editable(row: AccessRow, userId: string): boolean {
-  return (row.actor_role === 'gc' && row.owner_gc_user_id === userId && row.owner_sub_user_id === null) ||
+  return (isGcRole(row.actor_role) && row.owner_gc_user_id === userId && row.owner_sub_user_id === null) ||
     (row.actor_role === 'sub' && row.owner_sub_user_id === userId && row.owner_gc_user_id === null)
 }
 // This sentinel is outside the UUID token space. Legacy reviews without a
@@ -151,7 +151,7 @@ coiFieldsRouter.put('/:coiId', async (req: AuthRequest, res) => {
         `SELECT s.id, s.user_id FROM subcontractors s JOIN cois c ON c.subcontractor_id = s.id WHERE c.id = ?${isPostgres ? ' FOR UPDATE OF s' : ''}`,
         [req.params.coiId])
       if (!profile || profile.id !== initial.profile_id || profile.user_id !== initial.profile_user_id) return { status: 404 as const }
-      if (initial.actor_role === 'gc') {
+      if (isGcRole(initial.actor_role)) {
         const connection = await tx.get(`SELECT gc_user_id FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?${lock}`,
           [req.user!.id, profile.id])
         if (!connection) return { status: 404 as const }
@@ -171,7 +171,7 @@ coiFieldsRouter.put('/:coiId', async (req: AuthRequest, res) => {
       // key condition in the write itself, in addition to the locks above.
       const changed = await tx.run(`INSERT INTO coi_field_reviews (coi_id, source_tag, details_json)
         SELECT c.id, ?, ? ${joins} WHERE c.id = ? AND ${access}
-        AND ((actor.role = 'gc' AND c.owner_gc_user_id = actor.id AND c.owner_sub_user_id IS NULL)
+        AND ((actor.role IN ('gc', 'pro_gc') AND c.owner_gc_user_id = actor.id AND c.owner_sub_user_id IS NULL)
           OR (actor.role = 'sub' AND c.owner_sub_user_id = actor.id AND c.owner_gc_user_id IS NULL))
         AND (c.certificate_key = ? OR (c.certificate_key IS NULL AND CAST(? AS TEXT) IS NULL))
         ON CONFLICT(coi_id) DO UPDATE SET source_tag = excluded.source_tag, details_json = excluded.details_json`,

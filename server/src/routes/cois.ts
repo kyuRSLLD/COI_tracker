@@ -3,7 +3,7 @@ import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun, deleteOwnedGcCOI } from '../db/db.ts'
 import { storeFile, getFileViewUrl } from '../services/storage.ts'
-import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
+import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
 const upload = multer({
@@ -54,7 +54,7 @@ async function publicCOI(row: any) {
 }
 
 coisRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
-  if (req.user?.role !== 'gc' || typeof req.user.id !== 'string' || !req.user.id) {
+  if (!isGcRole(req.user?.role) || typeof req.user.id !== 'string' || !req.user.id) {
     return res.status(403).json({ error: 'GC access required' })
   }
   try {

@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { sendEmail, buildCOIRequestEmail, buildExpirationReminderEmail } from '../services/email.ts'
 import { daysUntil } from '../services/compliance.ts'
-import { requireAuth } from '../middleware/auth.ts'
+import { requireAuth, isGcRole } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { gcSettingsForUser, makeScopedUploadToken } from './uploadPortal.ts'
 
@@ -11,8 +11,8 @@ export const emailsRouter = Router()
 
 // A JWT's role can become stale; authorize against the current account as well.
 async function currentGc(req: AuthRequest) {
-  if (req.user?.role !== 'gc') return undefined
-  return dbGet('SELECT id, email, company_name FROM users WHERE id = ? AND role = ?', [req.user.id, 'gc'])
+  if (!isGcRole(req.user?.role)) return undefined
+  return dbGet("SELECT id, email, company_name FROM users WHERE id = ? AND role IN ('gc', 'pro_gc')", [req.user.id])
 }
 
 async function connectedSub(gcId: string, subId: string) {
@@ -41,7 +41,7 @@ async function createRequest(gc: any, subId: string, message: string | null, day
     `INSERT INTO upload_requests (id, subcontractor_id, token, requested_by_email, message, expires_at, used, created_at)
      SELECT ?, ?, ?, ?, ?, ?, 0, ?
      WHERE EXISTS (SELECT 1 FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?)
-       AND EXISTS (SELECT 1 FROM users WHERE id = ? AND role = 'gc')`,
+       AND EXISTS (SELECT 1 FROM users WHERE id = ? AND role IN ('gc', 'pro_gc'))`,
     [crypto.randomUUID(), subId, token, gc.email, message, expiresAt, now.toISOString(), gc.id, subId, gc.id]
   )
   if (inserted.changes !== 1) throw new Error('Connection no longer available')
