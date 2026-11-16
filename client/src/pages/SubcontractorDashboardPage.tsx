@@ -31,7 +31,7 @@ function normalizeFields(value: CoiFields | null): CoiFields {
     insurers: (value.insurers || []).map(item => ({ letter: item.letter ?? '', name: item.name ?? '', naic: item.naic ?? '' })),
     policies: (value.policies || []).map(item => ({
       type: item.type ?? '', insurerLetter: item.insurerLetter ?? '', policyNumber: item.policyNumber ?? '',
-      effectiveDate: item.effectiveDate ?? '', expirationDate: item.expirationDate ?? '',
+      effectiveDate: item.effectiveDate ? formatDisplayDate(item.effectiveDate) : '', expirationDate: item.expirationDate ? formatDisplayDate(item.expirationDate) : '',
       limits: (item.limits || []).map(limit => ({ label: limit.label ?? '', amount: limit?.amount ? formatAmount(limit.amount) : '' })),
     })),
   }
@@ -455,8 +455,8 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
               <button type="button" disabled={review.saving} onClick={() => closeReview()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Back to dashboard</button>
               <button type="button" disabled={review.saving || review.openingOriginal || review.conflicted} onClick={() => void openOriginal()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">{review.openingOriginal ? 'Refreshing link…' : 'View original certificate'}</button>
               {review.editable && review.coi.certificate_name && (
-                <button type="button" disabled={review.saving || review.extracting || review.conflicted || Boolean(review.progress)} onClick={() => void runTextractExtract()} title="Auto-fill insurance fields using AI (images and PDFs)" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                  {review.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
+                <button type="button" disabled={review.saving || review.extracting || review.conflicted || Boolean(review.progress)} onClick={() => void runTextractExtract()} title="Extract and validate insurance fields using AI (images and PDFs)" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
+                  {review.extracting ? 'Validating…' : 'Validate with AI'}
                 </button>
               )}
               <span className="text-xs text-slate-500">If the link expires, return here and open the certificate again.</span>
@@ -593,10 +593,10 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-1">
               <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <h2 className="text-sm font-semibold text-slate-900">Insurance carrier connections unavailable</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Connect via insurance carrier to validate</h2>
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              Direct carrier connections are not available. Upload your certificate PDF or photo above instead — it is stored securely and shared only with general contractors you choose to connect.
+              Log into your insurance carrier to validate policies directly — no AI document scanning or verification calls needed. Direct carrier connections are coming soon. In the meantime, upload your certificate PDF or photo above — it is stored securely and shared only with general contractors you choose to connect.
             </p>
           </div>
         </div>

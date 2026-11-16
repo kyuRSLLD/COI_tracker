@@ -66,7 +66,7 @@ function editorDetails(details: FieldsDetails | null): FieldsDetails {
     insurers: (details?.insurers ?? []).map((item) => ({ letter: item.letter ?? '', name: item.name ?? '', naic: item.naic ?? '' })),
     policies: (details?.policies ?? []).map((policy) => ({
       type: policy.type ?? '', insurerLetter: policy.insurerLetter ?? '', policyNumber: policy.policyNumber ?? '',
-      effectiveDate: policy.effectiveDate ?? '', expirationDate: policy.expirationDate ?? '',
+      effectiveDate: policy.effectiveDate ? formatDisplayDate(policy.effectiveDate) : '', expirationDate: policy.expirationDate ? formatDisplayDate(policy.expirationDate) : '',
       limits: (policy.limits ?? []).map((limit) => ({ label: limit.label ?? '', amount: limit?.amount ? formatAmount(limit.amount) : '' })),
     })),
     source: details?.source ?? 'manual',
@@ -730,7 +730,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                 </button>
                 {fieldsReview.editable && (
                   <button type="button" disabled={fieldsReview.saving || fieldsReview.openingOriginal || fieldsReview.extracting || fieldsReview.conflicted || !fieldsReview.coi.certificate_name} onClick={() => void runTextractExtract()} title={fieldsReview.coi.certificate_name ? 'Auto-fill insurance fields using AI' : 'No stored file on this record'} className="inline-flex items-center gap-1 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                    {fieldsReview.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
+                    {fieldsReview.extracting ? 'Validating…' : 'Validate with AI'}
                   </button>
                 )}
               </div>
@@ -762,7 +762,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                   {fieldsReview.error && <button type="button" onClick={() => void openFieldsReview(fieldsReview.coi)} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800">Retry</button>}
                   {fieldsReview.editable && fieldsReview.coi.certificate_name && (
                     <button type="button" disabled={fieldsReview.extracting} onClick={() => void runTextractExtract()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
-                      {fieldsReview.extracting ? 'Auto-filling…' : 'Auto-fill with AI'}
+                      {fieldsReview.extracting ? 'Validating…' : 'Validate with AI'}
                     </button>
                   )}
                 </div>

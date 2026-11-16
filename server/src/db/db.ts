@@ -4,7 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
 import { v4 as uuidv4 } from 'uuid'
-import { normalizeAmount } from '../services/aiExtract.ts'
+import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
 
 dotenv.config()
 
@@ -527,6 +527,8 @@ export async function initDatabase(): Promise<void> {
         if (!Array.isArray(d?.policies)) continue
         let changed = false
         for (const p of d.policies) {
+          if (p?.effectiveDate) { const f = normalizeDate(p.effectiveDate); if (f && f !== p.effectiveDate) { p.effectiveDate = f; changed = true } }
+          if (p?.expirationDate) { const f = normalizeDate(p.expirationDate); if (f && f !== p.expirationDate) { p.expirationDate = f; changed = true } }
           for (const l of p?.limits || []) {
             if (l?.amount) {
               const f = normalizeAmount(l.amount)

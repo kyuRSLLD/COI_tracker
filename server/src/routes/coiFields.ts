@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
 import { requireAuth, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
-import { normalizeAmount } from '../services/aiExtract.ts'
+import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
 
 export const coiFieldsRouter = express.Router()
 
@@ -89,6 +89,8 @@ function formatDetailsAmounts(d: any) {
     ...d,
     policies: d.policies.map((p: any) => ({
       ...p,
+      effectiveDate: p?.effectiveDate ? normalizeDate(p.effectiveDate) ?? p.effectiveDate : p?.effectiveDate,
+      expirationDate: p?.expirationDate ? normalizeDate(p.expirationDate) ?? p.expirationDate : p?.expirationDate,
       limits: Array.isArray(p?.limits)
         ? p.limits.map((l: any) => ({ ...l, amount: l?.amount ? normalizeAmount(l.amount) ?? l.amount : l?.amount }))
         : p?.limits,

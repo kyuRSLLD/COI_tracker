@@ -1,4 +1,5 @@
 import { formatAmount } from '../lib/currency'
+import { formatDisplayDate } from '../lib/date'
 import { AlertCircle, ArrowUpRight, FileText, Info, Plus, Trash2 } from 'lucide-react'
 import { useId, useState, useEffect, type ClipboardEvent } from 'react'
 import type { CoiFields } from '../lib/coiFields'
@@ -165,17 +166,21 @@ function hasFieldValues(details: CoiFields): boolean {
 export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, editable, error, ocrText, ocrWarnings, originalUrl }: CoiFieldsReviewProps) {
   const id = useId()
   const readOnly = !editable || saving
-  // One-time format of any existing unformatted limit amounts on mount
+  // One-time format of any existing unformatted limit amounts and dates on mount
   useEffect(() => {
     let changed = false
     const next = details.policies.map((p) => {
+      let eff = p.effectiveDate
+      let exp = p.expirationDate
+      if (eff) { const f = formatDisplayDate(eff); if (f && f !== '—' && f !== eff) { eff = f; changed = true } }
+      if (exp) { const f = formatDisplayDate(exp); if (f && f !== '—' && f !== exp) { exp = f; changed = true } }
       const limits = p.limits.map((l) => {
         if (!l.amount) return l
         const f = formatAmount(l.amount)
         if (f && f !== '—' && f !== l.amount) { changed = true; return { ...l, amount: f } }
         return l
       })
-      return { ...p, limits }
+      return { ...p, effectiveDate: eff, expirationDate: exp, limits }
     })
     if (changed) onChange({ ...details, policies: next })
   }, [])
@@ -335,8 +340,8 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
                     <div className="lg:col-span-3"><Field label="Type of insurance" value={policy.type} maxLength={256} onChange={(v) => updatePolicy(index, 'type', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-3"><Field label="Insurer letter" value={policy.insurerLetter} maxLength={32} onChange={(v) => updatePolicy(index, 'insurerLetter', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-2"><Field label="Policy number" value={policy.policyNumber} maxLength={256} onChange={(v) => updatePolicy(index, 'policyNumber', v)} readOnly={readOnly} /></div>
-                    <div className="lg:col-span-2"><Field label="Effective date" value={policy.effectiveDate} maxLength={64} onChange={(v) => updatePolicy(index, 'effectiveDate', v)} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
-                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
+                    <div className="lg:col-span-2"><Field label="Effective date" value={policy.effectiveDate} maxLength={64} onChange={(v) => updatePolicy(index, 'effectiveDate', v)} onBlur={() => { const f = formatDisplayDate(policy.effectiveDate); if (f && f !== '\u2014' && f !== policy.effectiveDate) updatePolicy(index, 'effectiveDate', f) }} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
+                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} onBlur={() => { const f = formatDisplayDate(policy.expirationDate); if (f && f !== '\u2014' && f !== policy.expirationDate) updatePolicy(index, 'expirationDate', f) }} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
                   </div>
                   <div className="mt-5 border-t border-slate-200 pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
