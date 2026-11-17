@@ -12,6 +12,7 @@ import { ExpiryBanner } from '../components/ExpiryBanner'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { COIReviewModal } from '../components/COIReviewModal'
 import { AddCOIModal } from '../components/AddCOIModal'
+import { CompanyCOICard } from '../components/CompanyCOICard'
 
 interface Props {
   onOpenRequestCOI?: () => void
@@ -304,6 +305,9 @@ export function Dashboard() {
           <Plus className="w-4 h-4" /> Add subcontractor
         </Button>
       </div>
+
+      {/* Your company's own COI */}
+      <CompanyCOICard />
 
       {/* Modals */}
       <SubcontractorModal

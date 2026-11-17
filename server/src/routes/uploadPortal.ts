@@ -4,6 +4,7 @@ import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { dbAll, dbGet, dbRun } from '../db/db.ts'
 import { storeFile } from '../services/storage.ts'
+import { prepareUploadFile } from '../services/imageFormat.ts'
 import { sendEmail } from '../services/email.ts'
 
 const upload = multer({
@@ -121,7 +122,8 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
 
     // A GC-issued bearer link permits COI submission, not profile changes.
     // The submitted email is used only as a confirmation destination below.
-    const stored = req.file ? await storeFile(req.file) : null
+    const file = req.file ? await prepareUploadFile(req.file) : null
+    const stored = file ? await storeFile(file) : null
     const coiId = uuidv4()
     await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
@@ -130,13 +132,13 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
         stored ? stored.url : null, stored ? stored.key : null, stored ? stored.filename : null,
         stored ? stored.size : null, stored ? stored.mime : null, now, now]
     )
-    if (req.file?.buffer && stored) {
+    if (file?.buffer && stored) {
       try {
         const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
         const { saveExtractedReview } = await import('../routes/coiFields.ts')
         const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
         if (isTextractConfigured()) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          const norm = await normalizeImage(file.buffer, file.originalname)
           if (norm && isTextractCompatible(norm.mime)) {
             const r = await tryAnalyzeCoiDocument(norm.buffer)
             if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields, { overwrite: false, uploaderGcUserId: context.gc.id })

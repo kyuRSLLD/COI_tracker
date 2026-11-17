@@ -38,6 +38,7 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
 
     let sql = `SELECT ${gcSubSelect} FROM subcontractors s
       WHERE EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`
+    sql += ' AND COALESCE(s.is_company, 0) = 0'
     const params: any[] = [req.user!.id]
 
     if (trade && trade !== 'all') {

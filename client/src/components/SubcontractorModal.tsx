@@ -177,16 +177,16 @@ export function SubcontractorModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900">
-              {subcontractor ? 'Edit subcontractor' : 'Add a subcontractor'}
+              {subcontractor ? 'Edit subcontractor' : method === 'request' ? 'Request a COI' : 'Add a subcontractor'}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
               {method === 'request'
-                ? 'Create a shareable upload link — the subcontractor opens it, enters policy details, and attaches the certificate. No account needed.'
-                : 'Contact info is private to your company and is automatically hidden from clients.'}
+                ? 'Create a shareable upload link for a subcontractor — no account needed.'
+                : 'Contact info is private to your company and automatically hidden from clients.'}
             </p>
           </div>
           <button
@@ -200,35 +200,37 @@ export function SubcontractorModal({
 
         {/* Mode tabs — only when adding a new sub */}
         {!subcontractor && (
-          <div className="flex border-b border-slate-200 text-xs font-semibold -mx-6 px-6 mt-4 gap-1 overflow-x-auto">
+          <div className="flex border-b border-slate-200 text-xs font-semibold -mx-5 px-5 sm:-mx-6 sm:px-6 mt-4 gap-1 overflow-x-auto scrollbar-hide">
             {canConnect && (
               <button
                 type="button"
                 onClick={() => setMethod('connect')}
-                className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
+                className={`flex-1 text-center px-1.5 sm:px-3 py-2 border-b-2 transition whitespace-nowrap ${
                   method === 'connect'
                     ? 'border-brand-600 text-brand-700'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Connect (QR / invite)
+                <span className="sm:hidden">Connect</span>
+                <span className="hidden sm:inline">Connect (QR / invite)</span>
               </button>
             )}
             <button
               type="button"
               onClick={() => setMethod('manual')}
-              className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
+              className={`flex-1 text-center px-1.5 sm:px-3 py-2 border-b-2 transition whitespace-nowrap ${
                 method === 'manual'
                   ? 'border-brand-600 text-brand-700'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
-              Enter manually
+              <span className="sm:hidden">Manual</span>
+              <span className="hidden sm:inline">Enter manually</span>
             </button>
             <button
               type="button"
               onClick={() => setMethod('request')}
-              className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
+              className={`flex-1 text-center px-1.5 sm:px-3 py-2 border-b-2 transition whitespace-nowrap ${
                 method === 'request'
                   ? 'border-brand-600 text-brand-700'
                   : 'border-transparent text-slate-500 hover:text-slate-800'

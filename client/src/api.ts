@@ -378,3 +378,47 @@ export const apiPhones = {
   makePrimary: (id: string) =>
     request<{ phones: import('./types').UserPhone[] }>(`/api/auth/phones/${id}/primary`, { method: 'PATCH' }),
 }
+
+// GC's own company COI
+export interface CompanyCOIResponse {
+  company_name: string
+  company_subcontractor_id: string
+  coi: (import('./types').COI & { simulated_carrier_connect?: boolean }) | null
+  share: { token: string; url: string; expires_at: string | null } | null
+}
+
+export const apiCompanyCOI = {
+  get: (expectedToken?: string) =>
+    request<CompanyCOIResponse>('/api/gc/my-coi', {}, true, expectedToken),
+  upload: (form: FormData, expectedToken?: string) =>
+    request<{ coi: import('./types').COI }>('/api/gc/my-coi/upload', { method: 'POST', body: form }, true, expectedToken),
+  validate: (expectedToken?: string) =>
+    request<{ coi: import('./types').COI }>('/api/gc/my-coi/validate', { method: 'POST' }, true, expectedToken),
+  share: (expiresInDays = 90, expectedToken?: string) =>
+    request<{ token: string; url: string; expires_at: string }>('/api/gc/my-coi/share', {
+      method: 'POST',
+      body: JSON.stringify({ expires_in_days: expiresInDays }),
+    }, true, expectedToken),
+}
+
+export interface PublicCompanyCOIResponse {
+  company: { company_name: string }
+  coi: {
+    carrier: string
+    am_best_rating?: string | null
+    policy_number?: string | null
+    effective_date: string
+    expiration_date: string
+    status: string
+    coverages: any[]
+    certificate_name?: string | null
+    created_at?: string
+    days_left: number | null
+  }
+  share: { expires_at: string | null; created_at: string }
+  generated_at: string
+}
+
+export const apiCompanyShare = {
+  get: (token: string) => request<PublicCompanyCOIResponse>(`/api/public/company-share/${token}`, {}, false),
+}

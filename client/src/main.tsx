@@ -14,6 +14,7 @@ import { ProjectsPage } from './pages/ProjectsPage'
 import { EmailLogPage } from './pages/EmailLogPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ClientSharePage } from './pages/ClientSharePage'
+import { CompanySharePage } from './pages/CompanySharePage'
 import { UploadPortalPage } from './pages/UploadPortalPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
 import { AdminCoiReviewPage } from './pages/AdminCoiReviewPage'
@@ -260,6 +261,7 @@ function App() {
             if (sessionVersion.current !== version) throw new Error('Your session changed. Please try signing in again.')
             await establishSession(session)
           }} onSwitchAccount={logout} onSaved={() => { if (sessionToken) loadSubs(renderedVersion, sessionToken) }} />} />
+          <Route path="/share/company/:token" element={<CompanySharePage />} />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -19,6 +19,7 @@ import { subPortalRouter } from './routes/subPortal.ts'
 import { subConnectionQrRouter } from './routes/subConnectionQr.ts'
 import { localCertificatesRouter } from './routes/localCertificates.ts'
 import { coiFieldsRouter } from './routes/coiFields.ts'
+import { gcCompanyRouter, gcPublicRouter } from './routes/gcCompany.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -82,6 +83,8 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   app.use('/api/admin', adminRouter)
   app.use('/api/staff', adminRouter)
   app.use('/api/sub', subPortalRouter)
+  app.use('/api/gc', gcCompanyRouter)
+  app.use('/api/public', gcPublicRouter)
   app.use('/api/connection-qr', subConnectionQrRouter)
   // Express's default 404 echoes the path, which may contain a pasted token.
   app.use('/api/connection-qr', (_req, res) => res.status(404).json({ error: 'Not found' }))

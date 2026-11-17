@@ -6,3 +6,7 @@ export function formatAmount(s?: string | null): string {
   if (!Number.isFinite(n)) return String(s).trim()
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+export function formatCurrencyString(s?: string | null): string {
+  return formatAmount(s)
+}

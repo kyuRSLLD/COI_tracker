@@ -9,7 +9,7 @@ export const statsRouter = Router()
 
 statsRouter.get('/', requireAuth, requireCurrentGC, async (req: AuthRequest, res) => {
   try {
-    const subs = await dbAll(`SELECT s.* FROM subcontractors s WHERE EXISTS (SELECT 1 FROM gc_sub_connections c WHERE c.gc_user_id = ? AND c.subcontractor_id = s.id)`, [req.user!.id])
+    const subs = await dbAll(`SELECT s.* FROM subcontractors s WHERE EXISTS (SELECT 1 FROM gc_sub_connections c WHERE c.gc_user_id = ? AND c.subcontractor_id = s.id) AND COALESCE(s.is_company, 0) = 0`, [req.user!.id])
     const warningDays = 30
     let compliant = 0
     let expiring = 0

@@ -67,10 +67,10 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
       return
     }
     if (
-      !/\.(pdf|png|jpe?g|heic|heif)$/i.test(file.name) &&
-      !['application/pdf', 'image/png', 'image/jpeg', 'image/heic'].includes(file.type)
+      !/\.(pdf|png|jpe?g|heic|heif|avif|webp)$/i.test(file.name) &&
+      !['application/pdf', 'image/png', 'image/jpeg', 'image/heic', 'image/heif', 'image/heic-sequence', 'image/avif', 'image/webp'].includes(file.type)
     ) {
-      setError('Choose a PDF, JPEG, PNG, or HEIC file.')
+      setError('Choose a PDF, JPEG, PNG, HEIC, or WebP file.')
       return
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
@@ -175,7 +175,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
               id="coi-file"
               type="file"
               required
-              accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,application/pdf,image/png,image/jpeg,image/heic"
+              accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,.avif,.webp,application/pdf,image/png,image/jpeg,image/heic,image/heif,image/webp,image/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="mt-2 block w-full text-xs text-slate-600"
             />

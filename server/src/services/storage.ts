@@ -64,6 +64,8 @@ function checkedFile(file: Express.Multer.File): { mime: string; size: number; f
     mime = 'image/png'
   } else if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     mime = 'image/jpeg'
+  } else if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') {
+    mime = 'image/webp'
   } else {
     throw new Error('Invalid certificate file')
   }

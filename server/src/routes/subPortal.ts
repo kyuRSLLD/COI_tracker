@@ -8,6 +8,7 @@ import { dbAll, dbGet, dbRun, isPostgres, lockConnectionUsers, withTransaction }
 import { requireAuth, isGcRole } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl, storeFile } from '../services/storage.ts'
+import { prepareUploadFile } from '../services/imageFormat.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 import { sourceTag } from './coiFields.ts'
 
@@ -199,7 +200,8 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
       return res.status(400).json({ error: 'Provide valid coverage dates in YYYY-MM-DD format' })
     }
     const sub = await resolveSubProfile(req.user!)
-    const stored = await storeFile(req.file)
+    const file = await prepareUploadFile(req.file)
+    const stored = await storeFile(file)
     const coiId = uuidv4()
     const now = new Date().toISOString()
     await dbRun(
@@ -224,13 +226,13 @@ subPortalRouter.post('/quick-upload', requireSub, upload.single('certificate'), 
       ]
     )
     // Best-effort server extraction on every upload (PDFs included); failures are non-blocking.
-    if (req.file?.buffer) {
+    if (file?.buffer) {
       try {
         const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
         const { saveExtractedReview } = await import('../routes/coiFields.ts')
         const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
         if (isTextractConfigured()) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          const norm = await normalizeImage(file.buffer, file.originalname)
           if (norm && isTextractCompatible(norm.mime)) {
             const r = await tryAnalyzeCoiDocument(norm.buffer)
             if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields)

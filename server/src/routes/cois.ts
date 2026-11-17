@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { randomUUID } from 'crypto'
 import { dbAll, dbGet, dbRun, deleteOwnedGcCOI } from '../db/db.ts'
 import { storeFile, getFileViewUrl } from '../services/storage.ts'
+import { prepareUploadFile } from '../services/imageFormat.ts'
 import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { labelSimulatedCarrierCOI } from '../services/compliance.ts'
 
@@ -159,7 +160,8 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [subId, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
 
-    const stored = req.file ? await storeFile(req.file) : undefined
+    const file = req.file ? await prepareUploadFile(req.file) : undefined
+    const stored = file ? await storeFile(file) : undefined
     const id = uuidv4()
     const now = new Date().toISOString()
     const inserted = await dbRun(
@@ -174,13 +176,13 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
     )
     if (!inserted.changes) return res.status(404).json({ error: 'Subcontractor not found' })
 
-    if (req.file?.buffer && stored) {
+    if (file?.buffer && stored) {
       try {
         const { tryAnalyzeCoiDocument, isTextractConfigured } = await import('../services/textract.ts')
         const { saveExtractedReview } = await import('../routes/coiFields.ts')
         const { normalizeImage, isTextractCompatible } = await import('../services/imageFormat.ts')
         if (isTextractConfigured()) {
-          const norm = await normalizeImage(req.file.buffer, req.file.originalname)
+          const norm = await normalizeImage(file.buffer, file.originalname)
           if (norm && isTextractCompatible(norm.mime)) {
             const r = await tryAnalyzeCoiDocument(norm.buffer)
             if (r.ok && r.fields) await saveExtractedReview(id, stored.key || null, r.fields, { overwrite: false, uploaderGcUserId: req.user!.id })

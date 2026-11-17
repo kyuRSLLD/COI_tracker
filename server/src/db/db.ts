@@ -418,6 +418,17 @@ export async function initDatabase(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_user_phones_user ON user_phones(user_id);
     CREATE INDEX IF NOT EXISTS idx_upload_requests_token ON upload_requests(token);
+    CREATE TABLE IF NOT EXISTS company_share_links (
+      id TEXT PRIMARY KEY,
+      gc_user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TEXT,
+      created_at TEXT NOT NULL,
+      access_count INTEGER DEFAULT 0,
+      last_accessed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_company_share_links_token ON company_share_links(token);
+    CREATE INDEX IF NOT EXISTS idx_company_share_links_gc ON company_share_links(gc_user_id);
   `
 
   await dbExec(schema)
@@ -489,6 +500,25 @@ export async function initDatabase(): Promise<void> {
           // suppress unrelated schema or database errors.
           const current = await dbAll<{ name: string }>('PRAGMA table_info(cois)')
           if (!current.some((entry) => entry.name === column)) throw error
+        }
+      }
+    }
+  }
+  if (isPostgres) {
+    await dbRun(`ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS is_company INTEGER DEFAULT 0`)
+    await dbRun(`ALTER TABLE cois ADD COLUMN IF NOT EXISTS is_company_coi INTEGER DEFAULT 0`)
+  } else {
+    for (const [tbl, col, def] of [
+      ['subcontractors', 'is_company', 'INTEGER DEFAULT 0'],
+      ['cois', 'is_company_coi', 'INTEGER DEFAULT 0'],
+    ] as const) {
+      const columns = await dbAll<{ name: string }>(`PRAGMA table_info(${tbl})`)
+      if (!columns.some((entry) => entry.name === col)) {
+        try {
+          await dbRun(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${def}`)
+        } catch (error) {
+          const current = await dbAll<{ name: string }>(`PRAGMA table_info(${tbl})`)
+          if (!current.some((entry) => entry.name === col)) throw error
         }
       }
     }
