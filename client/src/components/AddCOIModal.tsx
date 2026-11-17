@@ -1,5 +1,6 @@
 import { Button } from '../components/Button'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { X, Upload, Shield } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { apiCOIs, apiSubcontractors } from '../api'
@@ -8,18 +9,20 @@ interface Props {
   subcontractor: Subcontractor | null
   onClose: () => void
   onSaved: () => void
+  onAddSub?: () => void
 }
 
 const EMPTY_COVERAGES = [
   { type: 'General Liability', per: '', agg: '', ai: false, wos: false },
   { type: 'Automobile Liability', per: '', agg: '', ai: false, wos: false },
-  { type: 'Workers\' Compensation', per: '', agg: '', ai: false, wos: false },
+  { type: "Workers' Compensation", per: '', agg: '', ai: false, wos: false },
   { type: 'Umbrella Liability', per: '', agg: '', ai: false, wos: false },
 ]
+
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 // Mounted only while open, so each upload starts with a clean form.
-export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
+export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props) {
   const [subs, setSubs] = useState<Subcontractor[]>([])
   const [subId, setSubId] = useState(subcontractor?.id || '')
   const [loadingSubs, setLoadingSubs] = useState(true)
@@ -38,7 +41,12 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
     let active = true
     // Do not use the page's filtered list: the server returns only this GC's connections.
     apiSubcontractors.list().then((res) => {
-      if (active) setSubs(res.subcontractors)
+      if (active) {
+        setSubs(res.subcontractors)
+        if (res.subcontractors.length === 1 && !subId) {
+          setSubId(res.subcontractors[0].id)
+        }
+      }
     }).catch((err: unknown) => {
       if (active) setSubError(err instanceof Error ? err.message : 'Unable to load subcontractors.')
     }).finally(() => {
@@ -54,27 +62,30 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
       setError('Select one of your subcontractors.')
       return
     }
-    if (!carrier.trim() || !effective || !expiration) {
-      setError('Enter the carrier and policy dates shown on the certificate.')
-      return
-    }
     if (!file) {
       setError('Choose a certificate file to upload.')
       return
     }
-    if (!/\.(pdf|png|jpe?g)$/i.test(file.name) && !['application/pdf', 'image/png', 'image/jpeg'].includes(file.type)) {
-      setError('Choose a PDF, JPEG, or PNG file.')
+    if (
+      !/\.(pdf|png|jpe?g|heic|heif)$/i.test(file.name) &&
+      !['application/pdf', 'image/png', 'image/jpeg', 'image/heic'].includes(file.type)
+    ) {
+      setError('Choose a PDF, JPEG, PNG, or HEIC file.')
       return
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
       setError('The certificate must be non-empty and no larger than 25 MB.')
       return
     }
+    if (effective && expiration && effective > expiration) {
+      setError('Effective date must be on or before expiration date.')
+      return
+    }
     setLoading(true)
     try {
       const fd = new FormData()
       fd.append('subcontractor_id', subId)
-      fd.append('carrier', carrier.trim())
+      fd.append('carrier', carrier.trim() || 'Not provided')
       fd.append('am_best_rating', amBest.trim())
       fd.append('policy_number', policyNumber.trim())
       fd.append('effective_date', effective)
@@ -109,7 +120,9 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
               <Shield className="w-3.5 h-3.5" /> Certificate of Insurance
             </div>
             <h2 id="upload-coi-title" className="text-xl font-extrabold text-slate-900 mt-1">Upload COI</h2>
-            <p className="text-xs text-slate-500 mt-1">Upload a certificate you already collected. It will be pending manual review, not verified.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Upload a certificate you collected. AI extracts carrier, policy number, dates, and limits automatically in the background — details remain pending manual review until validated.
+            </p>
           </div>
           <button type="button" onClick={onClose} disabled={loading} aria-label="Close" className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50">
             <X className="w-5 h-5" />
@@ -122,35 +135,34 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div className="text-xs">
             <label htmlFor="coi-subcontractor" className="block font-semibold text-slate-700 mb-1">Subcontractor *</label>
-            <select id="coi-subcontractor" required value={subId} onChange={(e) => setSubId(e.target.value)} disabled={loadingSubs || !!subError || loading} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <select
+              id="coi-subcontractor"
+              required
+              value={subId}
+              onChange={(e) => setSubId(e.target.value)}
+              disabled={loadingSubs || !!subError || loading}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
               <option value="">{loadingSubs ? 'Loading subcontractors…' : 'Select a subcontractor'}</option>
               {subs.map((s) => <option key={s.id} value={s.id}>{s.company_name} — {s.trade}</option>)}
             </select>
-            {!loadingSubs && !subError && subs.length === 0 && <p className="mt-1 text-slate-500">No subcontractors found. Add a subcontractor first.</p>}
-            {!loadingSubs && subId && !subs.some((s) => s.id === subId) && <p className="mt-1 text-rose-700">This subcontractor is no longer available. Select another.</p>}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="sm:col-span-2">
-              <label htmlFor="coi-carrier" className="block font-semibold text-slate-700 mb-1">Insurance carrier *</label>
-              <input id="coi-carrier" required value={carrier} onChange={(e) => setCarrier(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
-            </div>
-            <div>
-              <label htmlFor="coi-rating" className="block font-semibold text-slate-700 mb-1">AM Best rating</label>
-              <input id="coi-rating" value={amBest} onChange={(e) => setAmBest(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
-            </div>
-            <div>
-              <label htmlFor="coi-policy" className="block font-semibold text-slate-700 mb-1">Policy number</label>
-              <input id="coi-policy" value={policyNumber} onChange={(e) => setPolicyNumber(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-['JetBrains_Mono']" />
-            </div>
-            <div>
-              <label htmlFor="coi-effective" className="block font-semibold text-slate-700 mb-1">Effective date *</label>
-              <input id="coi-effective" type="date" required value={effective} onChange={(e) => setEffective(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
-            </div>
-            <div>
-              <label htmlFor="coi-expiration" className="block font-semibold text-slate-700 mb-1">Expiration date *</label>
-              <input id="coi-expiration" type="date" required value={expiration} onChange={(e) => setExpiration(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500" />
-            </div>
+            {!loadingSubs && !subError && subs.length === 0 && (
+              <div className="mt-2 p-3 rounded-xl bg-amber-50 text-amber-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 border border-amber-200">
+                <span>No subcontractors yet. Add a subcontractor first, then upload their certificate.</span>
+                {onAddSub ? (
+                  <button type="button" onClick={() => { onClose(); onAddSub() }} className="font-semibold underline whitespace-nowrap">
+                    Add a subcontractor
+                  </button>
+                ) : (
+                  <Link to="/subcontractors" onClick={onClose} className="font-semibold underline whitespace-nowrap">
+                    Go to Subcontractors
+                  </Link>
+                )}
+              </div>
+            )}
+            {!loadingSubs && subId && !subs.some((s) => s.id === subId) && (
+              <p className="mt-1 text-rose-700">This subcontractor is no longer available. Select another.</p>
+            )}
           </div>
 
           <div>
@@ -158,34 +170,152 @@ export function AddCOIModal({ subcontractor, onClose, onSaved }: Props) {
             <label htmlFor="coi-file" className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-300 hover:border-brand-500 rounded-2xl cursor-pointer bg-slate-50 hover:bg-brand-50/30 transition text-center text-xs">
               <Upload className="w-5 h-5 text-slate-400 mb-1" />
               <span className="font-semibold text-slate-700">{file ? file.name : 'Choose a certificate file'}</span>
-              <span className="text-[11px] text-slate-400">PDF, JPEG, or PNG up to 25 MB</span>
+              <span className="text-[11px] text-slate-400">PDF, JPEG, PNG, or HEIC up to 25 MB</span>
             </label>
-            <input id="coi-file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,application/pdf,image/png,image/jpeg,image/heic" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs text-slate-600" />
+            <input
+              id="coi-file"
+              type="file"
+              required
+              accept=".pdf,.png,.jpg,.jpeg,.heic,.heif,application/pdf,image/png,image/jpeg,image/heic"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="mt-2 block w-full text-xs text-slate-600"
+            />
           </div>
 
-          <div>
-            <div className="text-xs font-bold text-slate-700 mb-1">Coverage lines (optional)</div>
-            <p className="text-xs text-slate-500 mb-2">Only enter details shown on the certificate.</p>
-            <div className="space-y-2 text-xs">
-              {coverages.map((c, i) => (
-                <div key={c.type} className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="font-bold text-slate-900 mb-1">{c.type}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input aria-label={`${c.type} per occurrence`} value={c.per} onChange={(e) => { const next = [...coverages]; next[i] = { ...next[i], per: e.target.value }; setCoverages(next) }} placeholder="Per occurrence" className="rounded-lg border border-slate-300 px-2 py-1 bg-white text-xs" />
-                    <input aria-label={`${c.type} aggregate`} value={c.agg} onChange={(e) => { const next = [...coverages]; next[i] = { ...next[i], agg: e.target.value }; setCoverages(next) }} placeholder="Aggregate" className="rounded-lg border border-slate-300 px-2 py-1 bg-white text-xs" />
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px]">
-                    <label className="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={c.ai} onChange={(e) => { const next = [...coverages]; next[i] = { ...next[i], ai: e.target.checked }; setCoverages(next) }} /> Additional Insured</label>
-                    <label className="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={c.wos} onChange={(e) => { const next = [...coverages]; next[i] = { ...next[i], wos: e.target.checked }; setCoverages(next) }} /> Waiver of Subrogation</label>
-                  </div>
-                </div>
-              ))}
+          <details className="group rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs">
+            <summary className="cursor-pointer font-bold text-slate-800 list-none flex items-center justify-between select-none">
+              <span>Enter details manually (optional)</span>
+              <span className="text-[11px] font-normal text-slate-500">Leave blank to let AI extract them</span>
+            </summary>
+            <p className="text-[11px] text-slate-500 mt-2 mb-3">
+              Only the subcontractor and file are required. Any details you enter here will be saved right away; blank fields get filled in automatically from the document.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label htmlFor="coi-carrier" className="block font-semibold text-slate-700 mb-1">Insurance carrier</label>
+                <input
+                  id="coi-carrier"
+                  value={carrier}
+                  onChange={(e) => setCarrier(e.target.value)}
+                  placeholder="e.g., Travelers"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="coi-rating" className="block font-semibold text-slate-700 mb-1">AM Best rating</label>
+                <input
+                  id="coi-rating"
+                  value={amBest}
+                  onChange={(e) => setAmBest(e.target.value)}
+                  placeholder="e.g., A Excellent"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="coi-policy" className="block font-semibold text-slate-700 mb-1">Policy number</label>
+                <input
+                  id="coi-policy"
+                  value={policyNumber}
+                  onChange={(e) => setPolicyNumber(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-['JetBrains_Mono']"
+                />
+              </div>
+              <div>
+                <label htmlFor="coi-effective" className="block font-semibold text-slate-700 mb-1">Effective date</label>
+                <input
+                  id="coi-effective"
+                  type="date"
+                  value={effective}
+                  onChange={(e) => setEffective(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="coi-expiration" className="block font-semibold text-slate-700 mb-1">Expiration date</label>
+                <input
+                  id="coi-expiration"
+                  type="date"
+                  value={expiration}
+                  onChange={(e) => setExpiration(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
             </div>
-          </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-200">
+              <div className="font-bold text-slate-700 mb-1">Coverage lines (optional)</div>
+              <p className="text-[11px] text-slate-500 mb-2">Only enter details shown on the certificate.</p>
+              <div className="space-y-2 text-xs">
+                {coverages.map((c, i) => (
+                  <div key={c.type} className="p-3 rounded-xl bg-white border border-slate-200">
+                    <div className="font-bold text-slate-900 mb-1">{c.type}</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        aria-label={`${c.type} per occurrence`}
+                        value={c.per}
+                        onChange={(e) => {
+                          const next = [...coverages]
+                          next[i] = { ...next[i], per: e.target.value }
+                          setCoverages(next)
+                        }}
+                        placeholder="Per occurrence"
+                        className="rounded-lg border border-slate-300 px-2 py-1 bg-white text-xs"
+                      />
+                      <input
+                        aria-label={`${c.type} aggregate`}
+                        value={c.agg}
+                        onChange={(e) => {
+                          const next = [...coverages]
+                          next[i] = { ...next[i], agg: e.target.value }
+                          setCoverages(next)
+                        }}
+                        placeholder="Aggregate"
+                        className="rounded-lg border border-slate-300 px-2 py-1 bg-white text-xs"
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px]">
+                      <label className="inline-flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={c.ai}
+                          onChange={(e) => {
+                            const next = [...coverages]
+                            next[i] = { ...next[i], ai: e.target.checked }
+                            setCoverages(next)
+                          }}
+                        />{' '}
+                        Additional Insured
+                      </label>
+                      <label className="inline-flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={c.wos}
+                          onChange={(e) => {
+                            const next = [...coverages]
+                            next[i] = { ...next[i], wos: e.target.checked }
+                            setCoverages(next)
+                          }}
+                        />{' '}
+                        Waiver of Subrogation
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={loading || loadingSubs || !!subError || subs.length === 0}>{loading ? 'Uploading…' : 'Upload COI'}</Button>
+            <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={loading || loadingSubs || !!subError || subs.length === 0 || !subId || !file}
+            >
+              {loading ? 'Uploading…' : 'Upload COI'}
+            </Button>
           </div>
         </form>
       </div>

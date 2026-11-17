@@ -21,6 +21,7 @@ import { SubcontractorDashboardPage } from './pages/SubcontractorDashboardPage'
 import { JoinPage } from './pages/JoinPage'
 import { SubcontractorModal } from './components/SubcontractorModal'
 import { RequestCOIModal } from './components/RequestCOIModal'
+import { AddCOIModal } from './components/AddCOIModal'
 import { ConnectionSession } from './components/ConnectionOptions'
 import { ConnectSubPage, captureConnectionFragment } from './pages/ConnectSubPage'
 
@@ -40,6 +41,7 @@ function App() {
   const observedToken = useRef(getToken())
   const [addSubOpen, setAddSubOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
+  const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [subs, setSubs] = useState<Subcontractor[]>([])
   const location = useLocation()
 
@@ -53,6 +55,7 @@ function App() {
     setSubs([])
     setAddSubOpen(false)
     setRequestOpen(false)
+    setAddCoiOpen(false)
     setSessionError(null)
     if (!token) {
       setSessionStatus('anonymous')
@@ -118,6 +121,7 @@ function App() {
     setSubs([])
     setAddSubOpen(false)
     setRequestOpen(false)
+    setAddCoiOpen(false)
   }, [refreshUser])
 
   const expireSession = useCallback((token: string | null) => {
@@ -131,6 +135,7 @@ function App() {
     setSubs([])
     setAddSubOpen(false)
     setRequestOpen(false)
+    setAddCoiOpen(false)
     setSessionStatus('anonymous')
     setSessionError('Your session has expired. Please sign in again.')
   }, [])
@@ -185,6 +190,7 @@ function App() {
           user={user}
           onLogout={logout}
           onOpenAddSub={() => setAddSubOpen(true)}
+          onOpenUploadCOI={() => setAddCoiOpen(true)}
           onOpenRequestCOI={() => setRequestOpen(true)}
         />
       )}
@@ -276,6 +282,14 @@ function App() {
             open={requestOpen}
             onClose={() => setRequestOpen(false)}
           />
+          {addCoiOpen && (
+            <AddCOIModal
+              subcontractor={null}
+              onClose={() => setAddCoiOpen(false)}
+              onAddSub={() => { setAddCoiOpen(false); setAddSubOpen(true) }}
+              onSaved={() => {}}
+            />
+          )}
         </>
       )}
     </div>

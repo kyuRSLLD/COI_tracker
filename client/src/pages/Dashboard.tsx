@@ -1,7 +1,7 @@
 import { formatDisplayDate } from '../lib/date'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
+import { Plus, Upload, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
 import type { Stats, Subcontractor, COI, GCSettings } from '../types'
 import { Button } from '../components/Button'
 import { apiStats, apiSubcontractors, apiCOIs, apiSettings, apiEmails, ApiError } from '../api'
@@ -12,6 +12,7 @@ import { ExpiryBanner } from '../components/ExpiryBanner'
 import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { COIReviewModal } from '../components/COIReviewModal'
+import { AddCOIModal } from '../components/AddCOIModal'
 
 interface Props {
   onOpenRequestCOI?: () => void
@@ -26,6 +27,7 @@ export function Dashboard() {
   const [requestModal, setRequestModal] = useState(false)
   const [requestSubId, setRequestSubId] = useState<string | undefined>()
   const [addSubModal, setAddSubModal] = useState(false)
+  const [addCoiModal, setAddCoiModal] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<COI | null>(null)
   const [reviewModal, setReviewModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -93,6 +95,13 @@ export function Dashboard() {
             className="flex-1 sm:flex-initial"
           >
             <Plus className="w-4 h-4" /> Add subcontractor
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setAddCoiModal(true)}
+            className="flex-1 sm:flex-initial"
+          >
+            <Upload className="w-4 h-4" /> Upload COI
           </Button>
           <Button
             variant="primary"
@@ -289,6 +298,17 @@ export function Dashboard() {
         onUpdated={() => { showToast('COI status updated'); load() }}
         gcSettings={gcSettings}
       />
+      {addCoiModal && (
+        <AddCOIModal
+          subcontractor={null}
+          onClose={() => setAddCoiModal(false)}
+          onAddSub={() => setAddSubModal(true)}
+          onSaved={() => {
+            showToast('Certificate uploaded — extraction running in background')
+            load()
+          }}
+        />
+      )}
     </div>
   )
 }

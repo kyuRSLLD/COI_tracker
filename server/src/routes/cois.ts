@@ -133,8 +133,14 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
   try {
     const { subcontractor_id, carrier, am_best_rating, policy_number, effective_date,
       expiration_date, status, reviewer_notes } = req.body || {}
-    if (!subcontractor_id || !carrier || !effective_date || !expiration_date) {
-      return res.status(400).json({ error: 'subcontractor_id, carrier, effective_date, and expiration_date are required' })
+    if (!subcontractor_id) {
+      return res.status(400).json({ error: 'subcontractor_id is required' })
+    }
+    const carrierVal = (typeof carrier === 'string' && carrier.trim()) || 'Not provided'
+    const effVal = typeof effective_date === 'string' ? effective_date : ''
+    const expVal = typeof expiration_date === 'string' ? expiration_date : ''
+    if (effVal && expVal && effVal > expVal) {
+      return res.status(400).json({ error: 'Effective date must be on or before expiration date' })
     }
 
     const sub = await dbGet(`SELECT s.id FROM subcontractors s WHERE s.id = ? AND EXISTS
@@ -147,10 +153,10 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
     const inserted = await dbRun(
       `INSERT INTO cois (id, subcontractor_id, owner_gc_user_id, carrier, am_best_rating, policy_number, effective_date, expiration_date, status, reviewer_notes, certificate_url, certificate_key, certificate_name, certificate_size, certificate_mime, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM gc_sub_connections g JOIN subcontractors s ON s.id = g.subcontractor_id
-         WHERE g.subcontractor_id = ? AND g.gc_user_id = ?)`,
-      [id, subcontractor_id, req.user!.id, carrier, am_best_rating || null, policy_number || null,
-        effective_date, expiration_date, status || 'pending_review', reviewer_notes || null,
+        WHERE EXISTS (SELECT 1 FROM gc_sub_connections g JOIN subcontractors s ON s.id = g.subcontractor_id
+          WHERE g.subcontractor_id = ? AND g.gc_user_id = ?)`,
+      [id, subcontractor_id, req.user!.id, carrierVal, am_best_rating || null, policy_number || null,
+        effVal, expVal, status || 'pending_review', reviewer_notes || null,
         stored ? stored.url : null, stored ? stored.key : null, stored ? stored.filename : null,
         stored ? stored.size : null, stored ? stored.mime : null, now, now, subcontractor_id, req.user!.id]
     )

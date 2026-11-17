@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
-  ShieldCheck, Users, FolderKanban, Mail, Settings, Plus, FileText, LogOut, Crown,
+  ShieldCheck, Users, FolderKanban, Mail, Settings, Plus, Upload, FileText, LogOut, Crown,
 } from 'lucide-react'
 import type { User } from '../types'
 
@@ -9,9 +9,10 @@ interface Props {
   onLogout: () => void
   onOpenAddSub?: () => void
   onOpenRequestCOI?: () => void
+  onOpenUploadCOI?: () => void
 }
 
-export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props) {
+export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI, onOpenUploadCOI }: Props) {
   const loc = useLocation()
 
   const nav = (() => {
@@ -76,6 +77,16 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI }: Props
                   className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" /> <span className="hidden sm:inline">+ Sub</span>
+                </button>
+              )}
+              {user.role !== 'sub' && onOpenUploadCOI && (
+                <button
+                  onClick={onOpenUploadCOI}
+                  title="Upload certificate of insurance"
+                  aria-label="Upload certificate of insurance"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 border border-slate-300 hover:bg-slate-100 transition whitespace-nowrap"
+                >
+                  <Upload className="w-4 h-4" /> <span className="hidden sm:inline">Upload</span>
                 </button>
               )}
               {user.role !== 'sub' && onOpenRequestCOI && (

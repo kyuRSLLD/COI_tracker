@@ -709,6 +709,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
       {addCoiOpen && <AddCOIModal
         subcontractor={addCoiSub}
         onClose={() => setAddCoiOpen(false)}
+        onAddSub={() => setAddSubOpen(true)}
         onSaved={() => { showToast('COI uploaded — pending review. Open its subcontractor and select Review document data.'); load() }}
       />}
       <COIReviewModal
