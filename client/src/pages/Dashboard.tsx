@@ -90,21 +90,14 @@ export function Dashboard() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="secondary"
-            onClick={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
-            className="flex-1 sm:flex-initial"
-          >
-            <Plus className="w-4 h-4" /> Add subcontractor
-          </Button>
-          <Button
-            variant="secondary"
+            variant="primary"
             onClick={() => setAddCoiModal(true)}
             className="flex-1 sm:flex-initial"
           >
             <Upload className="w-4 h-4" /> Upload COI
           </Button>
           <Button
-            variant="primary"
+            variant="secondary"
             onClick={() => { setSubModalMode('request'); setSubModalSubId(undefined); setSubModalOpen(true) }}
             className="flex-1 sm:flex-initial"
           >
@@ -296,6 +289,20 @@ export function Dashboard() {
             )
           })}
         </div>
+      </div>
+
+      {/* Connect a subcontractor — moved to the bottom of the page */}
+      <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="font-bold text-slate-900 text-sm">Need to add another subcontractor?</div>
+          <p className="text-xs text-slate-500 mt-0.5">Connect subcontractors by QR code, invite link, or enter their details manually.</p>
+        </div>
+        <Button
+          variant="secondary"
+          onClick={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
+        >
+          <Plus className="w-4 h-4" /> Add subcontractor
+        </Button>
       </div>
 
       {/* Modals */}
