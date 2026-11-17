@@ -27,8 +27,7 @@ export function Dashboard() {
   const [gcSettings, setGcSettings] = useState<GCSettings | undefined>()
   const [loading, setLoading] = useState(true)
   const [subModalOpen, setSubModalOpen] = useState(false)
-  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual' | 'request'>('connect')
-  const [subModalSubId, setSubModalSubId] = useState<string | undefined>()
+  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual'>('connect')
   const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [addCoiModal, setAddCoiModal] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<COI | null>(null)
@@ -102,10 +101,10 @@ export function Dashboard() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => { setSubModalMode('request'); setSubModalSubId(undefined); setSubModalOpen(true) }}
+            onClick={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
             className="flex-1 sm:flex-initial"
           >
-            <FileText className="w-4 h-4" /> Request a COI
+            <Plus className="w-4 h-4" /> Add subcontractor
           </Button>
         </div>
       </div>
@@ -119,7 +118,7 @@ export function Dashboard() {
       {/* Compliance score + quick facts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} onAddSub={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }} />
+          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} onAddSub={() => { setSubModalMode('connect'); setSubModalOpen(true) }} />
         </div>
         <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
           <div>
@@ -303,7 +302,7 @@ export function Dashboard() {
         </div>
         <Button
           variant="secondary"
-          onClick={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
+          onClick={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
         >
           <Plus className="w-4 h-4" /> Add subcontractor
         </Button>
@@ -316,7 +315,6 @@ export function Dashboard() {
       <SubcontractorModal
         open={subModalOpen}
         initialMode={subModalMode}
-        initialRequestSubId={subModalSubId}
         onClose={() => setSubModalOpen(false)}
         onSaved={() => { showToast('Saved'); load() }}
       />
@@ -331,7 +329,7 @@ export function Dashboard() {
         <AddCOIModal
           subcontractor={null}
           onClose={() => setAddCoiModal(false)}
-          onAddSub={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
+          onAddSub={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
           onSaved={() => {
             showToast('Certificate uploaded — extraction running in background')
             load()
@@ -344,7 +342,7 @@ export function Dashboard() {
           bucket={kpiFilter}
           subs={subs}
           onClose={() => setKpiFilter(null)}
-          onRequestCOI={(subId) => { setSubModalMode('request'); setSubModalSubId(subId); setSubModalOpen(true) }}
+          onRequestCOI={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
           onUploadCOI={() => setAddCoiModal(true)}
         />
       )}

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { X, Search, Phone, Mail, MapPin, ExternalLink, FileText, Upload } from 'lucide-react'
+import { X, Search, Phone, Mail, MapPin, ExternalLink, FileText, Upload, Eye, Download } from 'lucide-react'
 import type { Subcontractor } from '../types'
 import { formatDisplayDate } from '../lib/date'
 import { ExpirationBadge } from './ExpirationBadge'
+import { viewCertificate, downloadCertificate } from '../lib/certificateFile'
 
 export type KpiBucket = 'all' | 'compliant' | 'expiring_soon' | 'expired' | 'missing' | 'pending_review'
 
@@ -203,20 +204,41 @@ export function KpiSubListModal({ open, bucket = 'all', subs = [], onClose, onRe
                       View subcontractor <ExternalLink className="w-3.5 h-3.5" />
                     </Link>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => { onRequestCOI?.(s.id); onClose() }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> Request COI
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { onUploadCOI?.(s.id); onClose() }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700"
-                      >
-                        <Upload className="w-3.5 h-3.5" /> Upload COI
-                      </button>
+                      {s.best_coi ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void viewCertificate(s.best_coi!)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-brand-600" /> View COI
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadCertificate(s.best_coi!, `${s.company_name || 'sub'}-coi`)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700"
+                          >
+                            <Download className="w-3.5 h-3.5" /> Download
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { onRequestCOI?.(s.id); onClose() }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> Request COI
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { onUploadCOI?.(s.id); onClose() }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700"
+                          >
+                            <Upload className="w-3.5 h-3.5" /> Upload COI
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

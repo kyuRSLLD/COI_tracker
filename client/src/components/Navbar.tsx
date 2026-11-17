@@ -8,11 +8,10 @@ interface Props {
   user: User | null
   onLogout: () => void
   onOpenAddSub?: () => void
-  onOpenRequestCOI?: () => void
   onOpenUploadCOI?: () => void
 }
 
-export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI, onOpenUploadCOI }: Props) {
+export function Navbar({ user, onLogout, onOpenAddSub, onOpenUploadCOI }: Props) {
   const loc = useLocation()
 
   const nav = (() => {
@@ -89,16 +88,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenRequestCOI, onOpenU
                   <Upload className="w-4 h-4" /> <span className="hidden sm:inline">Upload</span>
                 </button>
               )}
-              {user.role !== 'sub' && onOpenRequestCOI && (
-                <button
-                  onClick={onOpenRequestCOI}
-                  title="Request certificate of insurance"
-                  aria-label="Request certificate of insurance"
-                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm whitespace-nowrap"
-                >
-                  <FileText className="w-4 h-4" /> <span>Request</span>
-                </button>
-              )}
+
               <div className="hidden md:flex flex-col text-right text-xs leading-tight ml-2">
                 <span className="font-semibold text-slate-800">{user.company_name || user.name}</span>
                 <span className="text-slate-400">{user.email}</span>

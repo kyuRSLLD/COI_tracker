@@ -40,7 +40,7 @@ function App() {
   const sessionVersion = useRef(0)
   const observedToken = useRef(getToken())
   const [subModalOpen, setSubModalOpen] = useState(false)
-  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual' | 'request'>('connect')
+  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual'>('connect')
   const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [subs, setSubs] = useState<Subcontractor[]>([])
   const location = useLocation()
@@ -187,7 +187,6 @@ function App() {
           onLogout={logout}
           onOpenAddSub={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
           onOpenUploadCOI={() => setAddCoiOpen(true)}
-          onOpenRequestCOI={() => { setSubModalMode('request'); setSubModalOpen(true) }}
         />
       )}
       {sessionError && (

@@ -54,13 +54,13 @@ export function connectionError(err: unknown): string {
 const inputClass = 'w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500'
 const buttonClass = 'min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 active:bg-brand-800 disabled:opacity-50 transition inline-flex items-center justify-center shadow-xs'
 
-export function ConnectionOptions({ onSaved, onManual }: { onSaved: () => void; onManual: () => void }) {
+export function ConnectionOptions({ onSaved }: { onSaved: () => void }) {
   const { role, token: sessionToken } = useContext(ConnectionSession)
   if (role !== 'gc' || !sessionToken) return null
-  return <SessionConnectionOptions key={sessionToken} sessionToken={sessionToken} onSaved={onSaved} onManual={onManual} />
+  return <SessionConnectionOptions key={sessionToken} sessionToken={sessionToken} onSaved={onSaved} />
 }
 
-function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { sessionToken: string; onSaved: () => void; onManual: () => void }) {
+function SessionConnectionOptions({ sessionToken, onSaved }: { sessionToken: string; onSaved: () => void }) {
   const [mode, setMode] = useState<'qr' | 'camera' | 'email'>('qr')
   const [qrToken, setQrToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -207,7 +207,7 @@ function SessionConnectionOptions({ sessionToken, onSaved, onManual }: { session
         fileInput.current?.click()
       }} className="min-h-[44px] w-full rounded-xl px-3 py-2.5 font-semibold text-xs sm:text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50 transition">Upload sub QR</button>
       <button type="button" disabled={working} aria-pressed={mode === 'email'} onClick={() => { camera.current?.stop(); source.current = null; resetQrState(); setMode('email') }} className={`min-h-[44px] w-full rounded-xl px-3 py-2.5 font-semibold text-xs sm:text-sm disabled:opacity-50 transition ${mode === 'email' ? 'bg-brand-600 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Invite by email</button>
-      <button type="button" disabled={working} onClick={() => { camera.current?.stop(); source.current = null; resetQrState(); setMode('qr'); onManual() }} className="min-h-[44px] w-full rounded-xl px-3 py-2.5 font-semibold text-xs sm:text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50 transition">Enter manually</button>
+
     </div>
     {error && <p role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">{error}</p>}
     {mode === 'camera' && <CameraQrScanner ref={camera} key={cameraVersion} sessionKey={sessionToken} isSessionValid={() => cameraSessionValid(cameraVersion)} onSessionInvalid={() => cameraSessionInvalid(cameraVersion)} onDecoded={value => cameraDecoded(value, cameraVersion)} onClose={() => {

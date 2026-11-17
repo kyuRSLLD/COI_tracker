@@ -21,9 +21,7 @@ function queueResult(item: AdminCoiValidationItem): { label: string; chip: strin
   if (item.status === 'rejected') return { label: 'Rejected', chip: 'badge-fail' }
   if (item.status === 'needs_revision') return { label: 'Needs revision', chip: 'badge-warn' }
   if ((item.days_left ?? 0) < 0) return { label: 'Expired', chip: 'badge-fail' }
-  if (item.insured_match === false || (item.carrier && !item.insurer_naic)) return { label: 'Failed', chip: 'badge-fail' }
-  if (item.insurer_is_parent || item.ai_pending) return { label: 'Needs review', chip: 'badge-warn' }
-  return { label: 'Awaiting agent', chip: 'badge-info' }
+  return { label: 'Pending', chip: 'badge-info' }
 }
 
 export function AdminDashboardPage() {

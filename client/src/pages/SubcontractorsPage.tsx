@@ -4,12 +4,13 @@ import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComponentProps } from 'react'
 import { useLocation, Link } from 'react-router-dom'
-import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check, Eye, Download } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
 import { ApiError, apiCoiFields, apiSubcontractors, apiCOIs, apiSettings, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
 import { ExpirationBadge } from '../components/ExpirationBadge'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { AddCOIModal } from '../components/AddCOIModal'
+import { viewCertificate, downloadCertificate } from '../lib/certificateFile'
 import { COIReviewModal } from '../components/COIReviewModal'
 import { CertificateViewer } from '../components/CertificateViewer'
 import { ConnectionSession } from '../components/ConnectionOptions'
@@ -73,8 +74,6 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
   const [selectedSub, setSelectedSub] = useState<Subcontractor | null>(null)
   const [editSub, setEditSub] = useState<Subcontractor | null>(null)
   const [addSubOpen, setAddSubOpen] = useState(false)
-  const [requestModalOpen, setRequestModalOpen] = useState(false)
-  const [requestModalSubId, setRequestModalSubId] = useState<string | undefined>()
   const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [addCoiSub, setAddCoiSub] = useState<Subcontractor | null>(null)
   const [addCoiOpen, setAddCoiOpen] = useState(false)
@@ -485,21 +484,38 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                     </td>
                     <td className="py-3.5 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1">
-                        <button
-                          onClick={() => { setRequestModalSubId(s.id); setRequestModalOpen(true) }}
-                          title="Request COI"
-                          className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50"
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => { setAddCoiSub(s); setAddCoiOpen(true) }}
-                          title={`Upload COI for ${s.company_name}`}
-                          aria-label={`Upload COI for ${s.company_name}`}
-                          className="inline-flex items-center gap-1 p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 font-semibold"
-                        >
-                          <Upload className="w-4 h-4" /> Upload COI
-                        </button>
+                        {s.best_coi ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void viewCertificate(s.best_coi!)}
+                              title={`View ${s.company_name}'s certificate`}
+                              aria-label={`View ${s.company_name}'s certificate`}
+                              className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void downloadCertificate(s.best_coi!, `${s.company_name || 'sub'}-coi`)}
+                              title={`Download ${s.company_name}'s certificate`}
+                              aria-label={`Download ${s.company_name}'s certificate`}
+                              className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setAddCoiSub(s); setAddCoiOpen(true) }}
+                            title={`Upload COI for ${s.company_name}`}
+                            aria-label={`Upload COI for ${s.company_name}`}
+                            className="inline-flex items-center gap-1 p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 font-semibold text-xs"
+                          >
+                            <Upload className="w-4 h-4" /> Upload COI
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => { if (s.best_coi) void openFieldsReview(s.best_coi) }}
@@ -573,13 +589,6 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                   className="text-xs font-semibold text-brand-600 hover:text-brand-700"
                 >
                   Upload COI
-                </button>
-                <span className="text-slate-300">·</span>
-                <button
-                  onClick={() => { setRequestModalSubId(selectedSub.id); setRequestModalOpen(true) }}
-                  className="text-xs font-semibold text-brand-600 hover:text-brand-700"
-                >
-                  Request upload link
                 </button>
               </div>
             </div>
@@ -708,13 +717,6 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
         onClose={() => { setAddSubOpen(false); setEditSub(null) }}
         subcontractor={editSub}
         onSaved={() => { showToast('Subcontractor saved'); load() }}
-      />
-      <SubcontractorModal
-        open={requestModalOpen}
-        initialMode="request"
-        initialRequestSubId={requestModalSubId}
-        onClose={() => setRequestModalOpen(false)}
-        onSaved={() => { showToast('Saved'); load() }}
       />
       {addCoiOpen && <AddCOIModal
         subcontractor={addCoiSub}
