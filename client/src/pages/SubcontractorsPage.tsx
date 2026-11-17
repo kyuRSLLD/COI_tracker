@@ -187,10 +187,10 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
   }, [trade, status, search])
   useEffect(() => {
     const state = location.state as { openSubId?: string } | null
-    if (state?.openSubId) {
-      void loadDetail(state.openSubId)
-    }
-  }, [location.key])
+    const highlight = new URLSearchParams(location.search).get('highlight')
+    const target = state?.openSubId || highlight
+    if (target) void loadDetail(target)
+  }, [location.key, location.search])
   useEffect(() => {
     if (!fieldsReview?.saving) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }

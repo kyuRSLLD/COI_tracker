@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { isRealEmailConfigured, emailMode } from '../services/email.ts'
 import express from 'express'
-import { dbGet, dbAll, dbRun, planToMRR, PLAN_PRICES } from '../db/db.ts'
+import { dbGet, dbAll, dbRun, adminDeleteCOI, planToMRR, PLAN_PRICES } from '../db/db.ts'
 import { randomUUID } from 'crypto'
 import { requireAdmin, requireAuth } from '../middleware/auth.ts'
 import type { AuthRequest } from '../middleware/auth.ts'
@@ -540,6 +540,16 @@ adminRouter.post('/cois/:id/validate', requireAdmin, async (req, res) => {
     }
     const coi = await dbGet<CoiRow>('SELECT * FROM cois WHERE id = ?', [req.params.id])
     res.json({ coi })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.delete('/cois/:id', requireAdmin, async (req, res) => {
+  try {
+    const deleted = await adminDeleteCOI(req.params.id)
+    if (!deleted) return res.status(404).json({ error: 'COI not found' })
+    res.json({ success: true, id: req.params.id })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

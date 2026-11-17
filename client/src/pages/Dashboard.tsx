@@ -13,6 +13,8 @@ import { SubcontractorModal } from '../components/SubcontractorModal'
 import { COIReviewModal } from '../components/COIReviewModal'
 import { AddCOIModal } from '../components/AddCOIModal'
 import { CompanyCOICard } from '../components/CompanyCOICard'
+import { KpiSubListModal } from '../components/KpiSubListModal'
+import type { KpiBucket } from '../components/KpiSubListModal'
 
 interface Props {
   onOpenRequestCOI?: () => void
@@ -32,6 +34,7 @@ export function Dashboard() {
   const [reviewCoi, setReviewCoi] = useState<COI | null>(null)
   const [reviewModal, setReviewModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [kpiFilter, setKpiFilter] = useState<KpiBucket | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -111,7 +114,7 @@ export function Dashboard() {
       <ExpiryBanner upcoming={stats.upcoming} onReminderSent={() => { showToast('Renewal reminder queued (simulated)'); load() }} />
 
       {/* Stats grid */}
-      <StatsGrid stats={stats} />
+      <StatsGrid stats={stats} onFilterClick={(bucket) => setKpiFilter(bucket as KpiBucket)} />
 
       {/* Compliance score + quick facts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -333,6 +336,16 @@ export function Dashboard() {
             showToast('Certificate uploaded — extraction running in background')
             load()
           }}
+        />
+      )}
+      {kpiFilter && (
+        <KpiSubListModal
+          open
+          bucket={kpiFilter}
+          subs={subs}
+          onClose={() => setKpiFilter(null)}
+          onRequestCOI={(subId) => { setSubModalMode('request'); setSubModalSubId(subId); setSubModalOpen(true) }}
+          onUploadCOI={() => setAddCoiModal(true)}
         />
       )}
     </div>

@@ -310,6 +310,8 @@ export const apiAdmin = {
     request<{ results: Array<{ id: string; ok: boolean; error?: string }> }>('/api/admin/cois/batch-extract', { method: 'POST', body: JSON.stringify({ ids }) }),
   coiCertificateUrl: (id: string) =>
     request<{ url: string }>(`/api/admin/cois/${id}/certificate-url`),
+  deleteCoi: (id: string) =>
+    request<{ success: boolean; id: string }>(`/api/admin/cois/${id}`, { method: 'DELETE' }),
 }
 
 // Subcontractor portal

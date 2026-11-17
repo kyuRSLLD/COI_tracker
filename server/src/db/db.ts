@@ -638,3 +638,36 @@ export async function deleteOwnedSubCOI(id: string, subUserId: string): Promise<
     }
   })
 }
+
+// Admin delete of any COI (plus coverages and field reviews). No ownership filter.
+export async function adminDeleteCOI(id: string): Promise<boolean> {
+  const deleteSql = `DELETE FROM cois WHERE id = ?`
+  if (isPostgres) {
+    const client = await getPgPool().connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('DELETE FROM coi_field_reviews WHERE coi_id = $1', [id])
+      await client.query('DELETE FROM coi_coverages WHERE coi_id = $1', [id])
+      const result = await client.query(toPgSql(deleteSql), [id])
+      await client.query('COMMIT')
+      return Boolean(result.rowCount)
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally { client.release() }
+  }
+  return withSqliteLock(async () => {
+    const db = await getSqlite()
+    await sqliteRun(db, 'BEGIN IMMEDIATE')
+    try {
+      await sqliteRun(db, 'DELETE FROM coi_field_reviews WHERE coi_id = ?', [id])
+      await sqliteRun(db, 'DELETE FROM coi_coverages WHERE coi_id = ?', [id])
+      const result = await sqliteRun(db, deleteSql, [id])
+      await sqliteRun(db, 'COMMIT')
+      return Boolean(result.changes)
+    } catch (error) {
+      try { await sqliteRun(db, 'ROLLBACK') } catch { /* preserve */ }
+      throw error
+    }
+  })
+}

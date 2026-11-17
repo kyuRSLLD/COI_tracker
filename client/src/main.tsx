@@ -303,12 +303,32 @@ function SessionChecking() {
 function SessionUnavailable() {
   return <div className="p-8 text-center text-sm text-slate-500">Your session could not be verified. Retry or switch account above.</div>
 }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: any) { console.error('ErrorBoundary', error, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-8 text-center text-xs text-rose-800 font-mono space-y-2">
+          <p className="font-bold">Something went wrong (ErrorBoundary)</p>
+          <p className="text-[11px] whitespace-pre-wrap">{String(this.state.error.message || this.state.error)}</p>
+          <p className="text-[11px] whitespace-pre-wrap text-slate-400">{String(this.state.error.stack || '')}</p>
+          <button type="button" className="underline font-semibold" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 captureConnectionFragment()
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>
 )

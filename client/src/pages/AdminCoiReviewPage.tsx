@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { apiAdmin } from '../api'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
-import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles } from 'lucide-react'
+import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2 } from 'lucide-react'
 import { isExpiredDate, formatDisplayDate } from '../lib/date'
 
 interface Check {
@@ -76,6 +76,21 @@ export function AdminCoiReviewPage() {
       else navigate('/staff')
     } catch (err: any) {
       setError(err?.message || 'Could not save decision')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!coiId) return
+    if (!window.confirm('Delete this certificate? This cannot be undone — use for test or duplicate records.')) return
+    setSaving(true)
+    try {
+      await apiAdmin.deleteCoi(coiId)
+      if (nextId && nextId !== coiId) navigate(`/staff/coi/${nextId}`)
+      else navigate('/staff')
+    } catch (err: any) {
+      setError(err?.message || 'Could not delete certificate')
     } finally {
       setSaving(false)
     }
@@ -409,6 +424,18 @@ export function AdminCoiReviewPage() {
                   </Button>
                 </div>
               )}
+              {/* Admin delete — for test/duplicate records */}
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-slate-400">Test or duplicate certificate? Delete it instead of validating.</span>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={saving}
+                  className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 hover:border-rose-400 disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete certificate
+                </button>
+              </div>
             </section>
           </div>
         )}

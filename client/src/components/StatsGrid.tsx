@@ -27,7 +27,7 @@ export function StatsGrid({ stats, onFilterClick }: Props) {
             key={c.num}
             type="button"
             onClick={() => onFilterClick && onFilterClick(c.key)}
-            className={`text-left bg-white rounded-2xl p-4 border border-slate-200 shadow-card transition-all ${
+            className={`group text-left bg-white rounded-2xl p-4 border border-slate-200 shadow-card transition-all ${
               clickable ? 'hover:shadow-card-hover hover:-translate-y-0.5 cursor-pointer' : ''
             }`}
           >
@@ -42,6 +42,11 @@ export function StatsGrid({ stats, onFilterClick }: Props) {
             </div>
             <div className="mt-1 text-xs font-semibold text-slate-700 leading-snug">{c.label}</div>
             <div className="text-[11px] text-slate-400 mt-0.5 truncate">{c.sub}</div>
+            {clickable && (
+              <div className="text-[10px] font-semibold text-brand-600 mt-2 opacity-0 group-hover:opacity-100 transition">
+                Click to view list →
+              </div>
+            )}
           </button>
         )
       })}

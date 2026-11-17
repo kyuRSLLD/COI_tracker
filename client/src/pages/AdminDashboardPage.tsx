@@ -176,6 +176,22 @@ export function AdminDashboardPage() {
     }
   }
 
+  const handleDeleteCoi = async (id: string, label?: string | null) => {
+    const name = label ? `certificate for ${label}` : 'this certificate'
+    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return
+    try {
+      setBusy(id, 'deleting')
+      await apiAdmin.deleteCoi(id)
+      notify('Certificate deleted')
+      setSelectedCoiIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      notify(err?.message || 'Delete failed')
+    } finally {
+      setBusy(id, null)
+    }
+  }
+
   const handleBatchValidate = async () => {
     const ids = Array.from(selectedCoiIds)
     if (!ids.length) return
@@ -919,6 +935,15 @@ export function AdminDashboardPage() {
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCoi(item.id, item.sub_company_name)}
+                              title="Delete certificate (no validation needed for test records)"
+                              disabled={busy === 'deleting'}
+                              className="h-8 w-8 rounded-md text-xs inline-flex items-center justify-center border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 hover:border-rose-400 disabled:opacity-50 shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                             <select
                               value={item.status}
                               onChange={(e) => handleSetStatus(item.id, e.target.value)}
@@ -1013,6 +1038,15 @@ export function AdminDashboardPage() {
                       <option value="needs_revision">Needs revision</option>
                       <option value="rejected">Rejected</option>
                     </select>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCoi(item.id, item.sub_company_name)}
+                      title="Delete certificate"
+                      disabled={busy === 'deleting'}
+                      className="h-8 w-8 rounded-md text-xs inline-flex items-center justify-center border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-50 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               )
