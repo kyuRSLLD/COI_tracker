@@ -1,4 +1,4 @@
-import { formatDisplayDate } from '../lib/date'
+import { formatDisplayDate, isExpiredDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
@@ -6,9 +6,8 @@ import type { ComponentProps } from 'react'
 import { useLocation, Link } from 'react-router-dom'
 import { Plus, Search, FileText, Edit2, Trash2, Upload, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import type { Subcontractor, GCSettings, COI } from '../types'
-import { ApiError, apiCoiFields, apiSubcontractors, apiSettings, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
+import { ApiError, apiCoiFields, apiSubcontractors, apiCOIs, apiSettings, getToken, SESSION_CHANGED_EVENT, SESSION_EXPIRED_EVENT } from '../api'
 import { ExpirationBadge } from '../components/ExpirationBadge'
-import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { AddCOIModal } from '../components/AddCOIModal'
 import { COIReviewModal } from '../components/COIReviewModal'
@@ -20,15 +19,6 @@ import { CoiFieldsReview } from '../components/CoiFieldsReview'
 // certificates or the connected subcontractor's own certificates. It includes
 // both owner fields, although they are not part of the shared COI type.
 type DetailCOI = COI & { owner_gc_user_id?: string | null; owner_sub_user_id?: string | null }
-
-function canReviewCertificate(coi: DetailCOI): boolean {
-  // Mirror the review endpoint: malformed dual-owned or unknown rows are not writable.
-  return typeof coi.owner_gc_user_id === 'string' && coi.owner_gc_user_id.length > 0 && coi.owner_sub_user_id === null
-}
-
-function isSubOwnedCertificate(coi: DetailCOI): boolean {
-  return coi.owner_gc_user_id === null && typeof coi.owner_sub_user_id === 'string' && coi.owner_sub_user_id.length > 0
-}
 
 // Remount the entire page for a new authenticated identity, including legacy
 // modals. Never render a previous account's data under a newly stored token.
@@ -83,8 +73,9 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
   const [selectedSub, setSelectedSub] = useState<Subcontractor | null>(null)
   const [editSub, setEditSub] = useState<Subcontractor | null>(null)
   const [addSubOpen, setAddSubOpen] = useState(false)
-  const [requestModal, setRequestModal] = useState(false)
-  const [requestSubId, setRequestSubId] = useState<string | undefined>()
+  const [requestModalOpen, setRequestModalOpen] = useState(false)
+  const [requestModalSubId, setRequestModalSubId] = useState<string | undefined>()
+  const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [addCoiSub, setAddCoiSub] = useState<Subcontractor | null>(null)
   const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<any>(null)
@@ -502,7 +493,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                     <td className="py-3.5 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1">
                         <button
-                          onClick={() => { setRequestSubId(s.id); setRequestModal(true) }}
+                          onClick={() => { setRequestModalSubId(s.id); setRequestModalOpen(true) }}
                           title="Request COI"
                           className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50"
                         >
@@ -592,7 +583,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                 </button>
                 <span className="text-slate-300">·</span>
                 <button
-                  onClick={() => { setRequestSubId(selectedSub.id); setRequestModal(true) }}
+                  onClick={() => { setRequestModalSubId(selectedSub.id); setRequestModalOpen(true) }}
                   className="text-xs font-semibold text-brand-600 hover:text-brand-700"
                 >
                   Request upload link
@@ -621,24 +612,36 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                         >
                           Review document data
                         </button>
-                        {canReviewCertificate(c) && (
+                        {c.status === 'pending_review' && !isExpiredDate(c.expiration_date) && (
                           <button
-                            onClick={() => { setReviewCoi({ ...c, company_name: selectedSub.company_name, trade: selectedSub.trade }); }}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
+                            type="button"
+                            disabled={validating[c.id]}
+                            onClick={async () => {
+                              setValidating((m) => ({ ...m, [c.id]: true }))
+                              try {
+                                await apiCOIs.validate(c.id)
+                                showToast(`Validated — ${c.carrier || 'COI'}`)
+                                load()
+                              } catch (e: any) {
+                                showToast(e.message || 'Validation failed')
+                              } finally {
+                                setValidating((m) => ({ ...m, [c.id]: false }))
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50"
                           >
-                            Review
+                            {validating[c.id] ? 'Validating…' : 'Validate'}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => { setReviewCoi({ ...c, company_name: selectedSub.company_name, trade: selectedSub.trade }); }}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
+                        >
+                          Review
+                        </button>
                       </div>
                     </div>
-
-                    {!canReviewCertificate(c) && (
-                      <p className="mt-2 text-[11px] text-slate-600">
-                        {isSubOwnedCertificate(c)
-                          ? 'Uploaded by the subcontractor. GC review is not available yet. Select Review document data to view structured document data.'
-                          : 'GC review is unavailable for this certificate.'}
-                      </p>
-                    )}
 
                     {c.certificate_url && !c.simulated_carrier_connect && (
                       <div className="mt-2 text-[11px]">
@@ -695,16 +698,16 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
       {/* Modals */}
       <SubcontractorModal
         open={addSubOpen}
-        onClose={() => setAddSubOpen(false)}
+        onClose={() => { setAddSubOpen(false); setEditSub(null) }}
         subcontractor={editSub}
         onSaved={() => { showToast('Subcontractor saved'); load() }}
       />
-      <RequestCOIModal
-        subcontractors={subs}
-        open={requestModal}
-        onClose={() => setRequestModal(false)}
-        initialSubId={requestSubId}
-        onSuccess={() => { showToast('Upload link created'); load() }}
+      <SubcontractorModal
+        open={requestModalOpen}
+        initialMode="request"
+        initialRequestSubId={requestModalSubId}
+        onClose={() => setRequestModalOpen(false)}
+        onSaved={() => { showToast('Saved'); load() }}
       />
       {addCoiOpen && <AddCOIModal
         subcontractor={addCoiSub}

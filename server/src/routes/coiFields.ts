@@ -5,7 +5,7 @@ import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction }
 import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
 import { getFileViewUrl } from '../services/storage.ts'
 import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
-import { applyExtractedFieldsToCoi } from '../services/coiFieldSync.ts'
+import { applyExtractedFieldsToCoi, matchOrCreateSubcontractorFromInsured } from '../services/coiFieldSync.ts'
 
 export const coiFieldsRouter = express.Router()
 
@@ -15,7 +15,10 @@ const producer = z.object({
   name: z.string().max(256).optional(), address: z.string().max(2000).optional(),
   phone: z.string().max(128).optional(), email: z.string().max(254).optional(),
 }).strict()
-const insured = z.object({ name: z.string().max(256).optional(), address: z.string().max(2000).optional() }).strict()
+const insured = z.object({
+  name: z.string().max(256).optional(), address: z.string().max(2000).optional(),
+  phone: z.string().max(128).optional(), email: z.string().max(254).optional(),
+}).strict()
 const insurer = z.object({
   letter: z.string().max(32).optional(), name: z.string().max(256).optional(), naic: z.string().max(64).optional(),
 }).strict()
@@ -199,7 +202,7 @@ coiFieldsRouter.put('/:coiId', async (req: AuthRequest, res) => {
 // Save machine-extracted fields on behalf of the system (post-upload). Never overwrites
 // an existing review and only succeeds while the certificate key still matches the
 // moment of extraction. Bumps the review revision exactly like a user save.
-export async function saveExtractedReview(coiId: string, certificateKey: string | null, details: unknown, options: { overwrite?: boolean } = {}): Promise<boolean> {
+export async function saveExtractedReview(coiId: string, certificateKey: string | null, details: unknown, options: { overwrite?: boolean; uploaderGcUserId?: string } = {}): Promise<boolean> {
   const parsed = detailsSchema.safeParse(details)
   if (!parsed.success) return false
   const tag = sourceTag(coiId, certificateKey)
@@ -220,6 +223,7 @@ export async function saveExtractedReview(coiId: string, certificateKey: string 
       [coiId, randomUUID()],
     )
     try { await applyExtractedFieldsToCoi(coiId, parsed.data, options) } catch (e) { console.error('applyExtractedFieldsToCoi failed:', e) }
+    try { await matchOrCreateSubcontractorFromInsured(coiId, parsed.data, { uploaderGcUserId: options.uploaderGcUserId }) } catch (e) { console.error('matchOrCreateSubcontractorFromInsured failed:', e) }
     return true
   } catch (err) { console.error('saveExtractedReview failed:', err); return false }
 }
@@ -244,7 +248,10 @@ coiFieldsRouter.post('/:coiId/extract', async (req: AuthRequest, res) => {
     if (!norm || !isTextractCompatible(norm.mime)) return res.status(400).json({ error: 'Unsupported file format — PNG, JPEG, PDF, TIFF, and HEIC photos are supported' })
     const r = await tryAnalyzeCoiDocument(norm.buffer)
     if (!r.ok || !r.fields) return res.status(502).json({ error: r.error || 'The AI could not extract fields from this document' })
-    const ok = await saveExtractedReview(req.params.coiId, row.certificate_key, r.fields, { overwrite: true })
+    const ok = await saveExtractedReview(req.params.coiId, row.certificate_key, r.fields, {
+      overwrite: true,
+      uploaderGcUserId: req.user?.role === 'admin' ? undefined : req.user?.id,
+    })
     if (!ok) return res.status(500).json({ error: 'Could not save the extracted fields — please try again' })
     const fresh = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
     const body = fresh ? responseFor(fresh, req.user!.id) : null

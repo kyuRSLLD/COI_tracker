@@ -139,7 +139,7 @@ uploadPortalRouter.post('/submit/:token', upload.single('certificate'), async (r
           const norm = await normalizeImage(req.file.buffer, req.file.originalname)
           if (norm && isTextractCompatible(norm.mime)) {
             const r = await tryAnalyzeCoiDocument(norm.buffer)
-            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields, { overwrite: false })
+            if (r.ok && r.fields) await saveExtractedReview(coiId, stored.key || null, r.fields, { overwrite: false, uploaderGcUserId: context.gc.id })
           }
         }
       } catch (e) { console.error('Upload portal auto-extraction failed:', e) }

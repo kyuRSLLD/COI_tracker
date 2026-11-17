@@ -1,4 +1,4 @@
-import { formatDisplayDate } from '../lib/date'
+import { formatDisplayDate, isExpiredDate } from '../lib/date'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Upload, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
@@ -9,7 +9,6 @@ import { StatsGrid } from '../components/StatsGrid'
 import { ComplianceScore } from '../components/ComplianceScore'
 import { ExpirationBadge } from '../components/ExpirationBadge'
 import { ExpiryBanner } from '../components/ExpiryBanner'
-import { RequestCOIModal } from '../components/RequestCOIModal'
 import { SubcontractorModal } from '../components/SubcontractorModal'
 import { COIReviewModal } from '../components/COIReviewModal'
 import { AddCOIModal } from '../components/AddCOIModal'
@@ -24,9 +23,10 @@ export function Dashboard() {
   const [pendingCois, setPendingCois] = useState<COI[]>([])
   const [gcSettings, setGcSettings] = useState<GCSettings | undefined>()
   const [loading, setLoading] = useState(true)
-  const [requestModal, setRequestModal] = useState(false)
-  const [requestSubId, setRequestSubId] = useState<string | undefined>()
-  const [addSubModal, setAddSubModal] = useState(false)
+  const [subModalOpen, setSubModalOpen] = useState(false)
+  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual' | 'request'>('connect')
+  const [subModalSubId, setSubModalSubId] = useState<string | undefined>()
+  const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [addCoiModal, setAddCoiModal] = useState(false)
   const [reviewCoi, setReviewCoi] = useState<COI | null>(null)
   const [reviewModal, setReviewModal] = useState(false)
@@ -91,7 +91,7 @@ export function Dashboard() {
         <div className="flex items-center gap-2">
           <Button
             variant="secondary"
-            onClick={() => setAddSubModal(true)}
+            onClick={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
             className="flex-1 sm:flex-initial"
           >
             <Plus className="w-4 h-4" /> Add subcontractor
@@ -105,7 +105,7 @@ export function Dashboard() {
           </Button>
           <Button
             variant="primary"
-            onClick={() => { setRequestSubId(undefined); setRequestModal(true) }}
+            onClick={() => { setSubModalMode('request'); setSubModalSubId(undefined); setSubModalOpen(true) }}
             className="flex-1 sm:flex-initial"
           >
             <FileText className="w-4 h-4" /> Request a COI
@@ -122,7 +122,7 @@ export function Dashboard() {
       {/* Compliance score + quick facts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} onAddSub={() => setAddSubModal(true)} />
+          <ComplianceScore scorecard={{ ...stats.totals, pending: stats.totals.pending }} onAddSub={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }} />
         </div>
         <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
           <div>
@@ -168,8 +168,28 @@ export function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-center">
                   <ExpirationBadge status="pending_review" size="sm" showCountdown={false} />
+                  {!isExpiredDate(c.expiration_date) && (
+                    <Button
+                      variant="primary"
+                      disabled={validating[c.id]}
+                      onClick={async () => {
+                        setValidating((m) => ({ ...m, [c.id]: true }))
+                        try {
+                          await apiCOIs.validate(c.id)
+                          showToast(`Validated — ${c.company_name}`)
+                          load()
+                        } catch (e: any) {
+                          showToast(e.message || 'Validation failed')
+                        } finally {
+                          setValidating((m) => ({ ...m, [c.id]: false }))
+                        }
+                      }}
+                    >
+                      {validating[c.id] ? 'Validating…' : 'Validate'}
+                    </Button>
+                  )}
                   <Button
-                    variant="primary"
+                    variant="secondary"
                     onClick={() => { setReviewCoi(c); setReviewModal(true) }}
                   >
                     Review COI
@@ -279,17 +299,12 @@ export function Dashboard() {
       </div>
 
       {/* Modals */}
-      <RequestCOIModal
-        subcontractors={subs}
-        open={requestModal}
-        onClose={() => setRequestModal(false)}
-        initialSubId={requestSubId}
-        onSuccess={() => { showToast('COI request link created'); load() }}
-      />
       <SubcontractorModal
-        open={addSubModal}
-        onClose={() => setAddSubModal(false)}
-        onSaved={() => { showToast('Subcontractor saved'); load() }}
+        open={subModalOpen}
+        initialMode={subModalMode}
+        initialRequestSubId={subModalSubId}
+        onClose={() => setSubModalOpen(false)}
+        onSaved={() => { showToast('Saved'); load() }}
       />
       <COIReviewModal
         coi={reviewCoi}
@@ -302,7 +317,7 @@ export function Dashboard() {
         <AddCOIModal
           subcontractor={null}
           onClose={() => setAddCoiModal(false)}
-          onAddSub={() => setAddSubModal(true)}
+          onAddSub={() => { setSubModalMode('connect'); setSubModalSubId(undefined); setSubModalOpen(true) }}
           onSaved={() => {
             showToast('Certificate uploaded — extraction running in background')
             load()

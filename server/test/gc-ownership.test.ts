@@ -187,13 +187,12 @@ test('GC COI ownership stays isolated across connected GCs and public views', as
         'POLICY-a', 'POLICY-b', 'POLICY-sub', 'POLICY-legacy', 'CARRIER-', 'reviewer_notes', 'COVERAGE-SECRET'], 'upload history')
     })
 
-    await t.test(`${gc.id}: cannot change, review or delete other, sub-owned, or ambiguous COIs`, async () => {
+    await t.test(`${gc.id}: cannot change or delete other, sub-owned, or ambiguous COIs (and cannot review other/legacy COIs)`, async () => {
       const beforeCois = await dbAll('SELECT * FROM cois ORDER BY id')
       const beforeCoverage = await dbAll('SELECT * FROM coi_coverages ORDER BY id')
       for (const id of [gc.other.id, fixtures.sub.id, fixtures.legacy.id]) {
         for (const [method, suffix, body] of [
           ['PUT', '', { carrier: 'UNAUTHORIZED CHANGE', reviewer_notes: 'UNAUTHORIZED NOTE' }],
-          ['PUT', '/review', { status: 'rejected', reviewer_notes: 'UNAUTHORIZED REVIEW' }],
           ['DELETE', '', undefined],
         ] as const) {
           const result = await mutation(gc.id, method, `/api/cois/${id}${suffix}`, body)
@@ -201,8 +200,19 @@ test('GC COI ownership stays isolated across connected GCs and public views', as
           assertNoText(result.text, [gc.other.note, fixtures.sub.note, fixtures.legacy.note], 'denied mutation')
         }
       }
+      for (const id of [gc.other.id, fixtures.legacy.id]) {
+        const result = await mutation(gc.id, 'PUT', `/api/cois/${id}/review`, { status: 'rejected', reviewer_notes: 'UNAUTHORIZED REVIEW' })
+        assert.ok([403, 404].includes(result.response.status), `${gc.id} PUT /review ${id}: ${result.response.status}`)
+      }
       assert.deepEqual(await dbAll('SELECT * FROM cois ORDER BY id'), beforeCois, 'denied requests must not modify COIs')
       assert.deepEqual(await dbAll('SELECT * FROM coi_coverages ORDER BY id'), beforeCoverage, 'denied requests must not modify coverages')
+    })
+    await t.test(`${gc.id}: can review the connected sub-owned COI status`, async () => {
+      const result = await mutation(gc.id, 'PUT', `/api/cois/${fixtures.sub.id}/review`, { status: 'rejected', reviewer_notes: 'REVIEWED' })
+      assert.equal(result.response.status, 200, result.text)
+      assert.equal(JSON.parse(result.text).coi.status, 'rejected')
+      // restore for following assertions
+      await dbRun("UPDATE cois SET status = 'compliant' WHERE id = ?", [fixtures.sub.id])
     })
   }
 

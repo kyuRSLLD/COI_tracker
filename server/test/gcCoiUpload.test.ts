@@ -80,15 +80,20 @@ test('GC upload suite', async (t) => {
     assert.equal(row.expiration_date, '')
   })
 
-  await t.test('POST /api/cois without subcontractor_id returns 400', async () => {
+  await t.test('POST /api/cois without subcontractor_id creates a provisional subcontractor', async () => {
     const fd = makeForm({ carrier: 'Travelers' })
     const res = await fetch(`${base}/api/cois`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}` },
       body: fd,
     })
-    assert.equal(res.status, 400)
-    assert.match(JSON.parse(await res.text()).error, /subcontractor_id is required/)
+    assert.equal(res.status, 201)
+    const coi = JSON.parse(await res.text()).coi
+    const sub = await dbGet<any>('SELECT company_name, trade FROM subcontractors WHERE id = ?', [coi.subcontractor_id])
+    assert.equal(sub.company_name, 'Pending document scan')
+    assert.equal(sub.trade, 'Other')
+    const conn = await dbGet<any>('SELECT 1 FROM gc_sub_connections WHERE gc_user_id = ? AND subcontractor_id = ?', [gcId, coi.subcontractor_id])
+    assert.ok(conn)
   })
 
   await t.test('POST /api/cois with effective > expiration returns 400', async () => {

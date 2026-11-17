@@ -1,10 +1,10 @@
-import { randomUUID } from 'crypto'
-import { dbRun, dbGet, dbAll } from '../db/db.ts'
+import { randomUUID } from 'node:crypto'
+import { dbRun, dbGet, dbAll, isPostgres } from '../db/db.ts'
 import { normalizeDate, normalizeAmount } from './aiExtract.ts'
 
 export interface ExtractedFields {
   producer?: { name?: string; address?: string; phone?: string; email?: string }
-  insured?: { name?: string; address?: string }
+  insured?: { name?: string; address?: string; phone?: string; email?: string }
   insurers?: Array<{ letter?: string; name?: string; naic?: string }>
   insurer?: { name?: string; naic?: string }
   carrier?: string
@@ -81,8 +81,6 @@ export async function applyExtractedFieldsToCoi(coiId: string, fields: unknown, 
       )
     }
   } else {
-    // Fill-only mode (used for automatic post-upload extraction): keep any values
-    // the user manually entered and only backfill placeholders.
     const row = await dbGet<any>('SELECT carrier, policy_number, effective_date, expiration_date FROM cois WHERE id = ?', [coiId])
     if (!row) return
     const carrier = row.carrier && row.carrier !== 'Not provided' ? row.carrier : norm.carrier
@@ -104,4 +102,147 @@ export async function applyExtractedFieldsToCoi(coiId: string, fields: unknown, 
       }
     }
   }
+}
+
+/**
+ * Normalizes a company name for fuzzy-ish matching:
+ * lowercase, strip common suffixes (LLC, Inc, Corp, Corporation, Company, Co,
+ * Ltd, Limited, LP, LLP), collapse whitespace and punctuation.
+ */
+export function normalizeCompanyName(name?: string | null): string {
+  if (!name) return ''
+  return name
+    .toLowerCase()
+    .replace(/[&.,'ʼ'`"/\\#@]/g, ' ')
+    .replace(/\b(llc|inc|corp|corporation|company|co|ltd|limited|lp|llp|sons|son|bros|brothers)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Returns true when two company names match under normalizeCompanyName.
+ * Both sides must be non-empty after normalization.
+ */
+export function companyNamesMatch(a?: string | null, b?: string | null): boolean {
+  const na = normalizeCompanyName(a)
+  const nb = normalizeCompanyName(b)
+  return Boolean(na) && Boolean(nb) && na === nb
+}
+
+export function extractInsuredName(fields: unknown): string | null {
+  const f: any = fields && typeof fields === 'object' ? fields : {}
+  const name =
+    (typeof f.insured?.name === 'string' && f.insured.name.trim()) ||
+    (typeof f.insured?.company_name === 'string' && f.insured.company_name.trim()) ||
+    (typeof f.insured === 'string' && f.insured.trim()) ||
+    null
+  return name && name.length > 0 ? name : null
+}
+
+function extractContacts(fields: unknown): {
+  contactPerson?: string | null
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+} {
+  const f: any = fields && typeof fields === 'object' ? fields : {}
+  const i = f.insured || {}
+  const p = f.producer || {}
+  const s = (v: any) => (typeof v === 'string' && v.trim()) || null
+  return {
+    contactPerson: s(i.contactPerson ?? i.contact_person ?? i.contact ?? p.contactPerson ?? p.contact_person),
+    phone: s(i.phone ?? p.phone),
+    email: s(i.email ?? p.email),
+    address: s(i.address ?? p.address),
+  }
+}
+
+export interface SubcontractorMatchResult {
+  subcontractorId: string
+  created: boolean
+  matchedName: string
+}
+
+/**
+ * Resolves or creates a subcontractor for the given COI based on the
+ * AI-extracted insured name:
+ *
+ * 1. Find the GC(s) in scope: `owner_gc_user_id` on the COI, or `options.uploaderGcUserId`.
+ *    If none, but any GCs are connected to the COI's current sub, use those GCs.
+ * 2. Look up all connected subcontractors for those GC(s).
+ * 3. If a connected sub's normalized name matches insured.name -> keep/move the COI there.
+ * 4. If none match -> CREATE a new subcontractor with the extracted insured
+ *    name (and contacts if available), connect it to each relevant GC, and
+ *    reassign the COI.
+ * 5. If the COI was previously filed under a provisional placeholder sub
+ *    ("Pending document scan") that now has 0 COIs, clean it up.
+ */
+export async function matchOrCreateSubcontractorFromInsured(
+  coiId: string,
+  fields: unknown,
+  options: { uploaderGcUserId?: string } = {},
+): Promise<SubcontractorMatchResult | null> {
+  const insuredName = extractInsuredName(fields)
+  if (!insuredName) return null
+
+  const coi = await dbGet<any>('SELECT id, subcontractor_id, owner_gc_user_id FROM cois WHERE id = ?', [coiId])
+  if (!coi) return null
+
+  const gcIds = new Set<string>()
+  if (options.uploaderGcUserId) gcIds.add(options.uploaderGcUserId)
+  if (coi.owner_gc_user_id) gcIds.add(coi.owner_gc_user_id)
+  if (gcIds.size === 0) {
+    const conns = await dbAll<any>('SELECT gc_user_id FROM gc_sub_connections WHERE subcontractor_id = ?', [coi.subcontractor_id])
+    for (const c of conns) if (c.gc_user_id) gcIds.add(c.gc_user_id)
+  }
+  if (gcIds.size === 0) return null
+
+  const gcList = [...gcIds]
+  const rows = await dbAll<any>(
+    `SELECT DISTINCT s.id, s.company_name, s.user_id FROM subcontractors s
+     JOIN gc_sub_connections g ON g.subcontractor_id = s.id
+     WHERE g.gc_user_id IN (${gcList.map(() => '?').join(',')})`,
+    gcList,
+  )
+
+  const matched = rows.find((r) => companyNamesMatch(r.company_name, insuredName))
+  const previousSubId = coi.subcontractor_id
+  let targetSubId: string
+  let created = false
+
+  if (matched) {
+    targetSubId = matched.id
+  } else {
+    targetSubId = randomUUID()
+    const now = new Date().toISOString()
+    const contacts = extractContacts(fields)
+    await dbRun(
+      `INSERT INTO subcontractors (id, company_name, trade, contact_person, phone, email, address, created_at, updated_at)
+       VALUES (?, ?, 'Other', ?, ?, ?, ?, ?, ?)`,
+      [targetSubId, insuredName, contacts.contactPerson ?? null, contacts.phone ?? null, contacts.email ?? null, contacts.address ?? null, now, now],
+    )
+    for (const gid of gcIds) {
+      if (isPostgres) {
+        await dbRun('INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [gid, targetSubId, now])
+      } else {
+        await dbRun('INSERT OR IGNORE INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?)', [gid, targetSubId, now])
+      }
+    }
+    created = true
+  }
+
+  if (targetSubId !== previousSubId) {
+    const now = new Date().toISOString()
+    await dbRun('UPDATE cois SET subcontractor_id = ?, updated_at = ? WHERE id = ?', [targetSubId, now, coiId])
+    const prev = await dbGet<any>('SELECT company_name FROM subcontractors WHERE id = ?', [previousSubId])
+    if (prev && prev.company_name === 'Pending document scan') {
+      const remaining = await dbAll<any>('SELECT id FROM cois WHERE subcontractor_id = ? LIMIT 1', [previousSubId])
+      if (remaining.length === 0) {
+        await dbRun('DELETE FROM gc_sub_connections WHERE subcontractor_id = ?', [previousSubId])
+        await dbRun('DELETE FROM subcontractors WHERE id = ?', [previousSubId])
+      }
+    }
+  }
+
+  return { subcontractorId: targetSubId, created, matchedName: insuredName }
 }

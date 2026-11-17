@@ -155,6 +155,11 @@ export const apiCOIs = {
     request<{ coi: COI }>(`/api/cois/${id}`, { method: 'PUT', body: formData }),
   review: (id: string, body: { status: string; reviewer_notes?: string }) =>
     request<{ coi: COI }>(`/api/cois/${id}/review`, { method: 'PUT', body: JSON.stringify(body) }),
+  validate: (id: string, notes?: string) =>
+    request<{ coi: COI }>(`/api/cois/${id}/validate`, {
+      method: 'POST',
+      body: JSON.stringify(notes ? { notes } : {}),
+    }),
   delete: (id: string) => request<{ success: boolean }>(`/api/cois/${id}`, { method: 'DELETE' }),
   expiring: (days = 30) => request<{ alerts: any[]; window_days: number }>(`/api/cois/alerts/expiring?days=${days}`),
 }

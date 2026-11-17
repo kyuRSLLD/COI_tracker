@@ -1,6 +1,7 @@
 import express from 'express'; const Router = express.Router
 import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import { dbAll, dbGet, dbRun, deleteOwnedGcCOI } from '../db/db.ts'
 import { storeFile, getFileViewUrl } from '../services/storage.ts'
 import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
@@ -133,8 +134,19 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
   try {
     const { subcontractor_id, carrier, am_best_rating, policy_number, effective_date,
       expiration_date, status, reviewer_notes } = req.body || {}
-    if (!subcontractor_id) {
-      return res.status(400).json({ error: 'subcontractor_id is required' })
+    let subId = typeof subcontractor_id === 'string' && subcontractor_id.trim() ? subcontractor_id.trim() : null
+    if (!subId) {
+      const provisionalId = uuidv4()
+      const nowProv = new Date().toISOString()
+      await dbRun(
+        'INSERT INTO subcontractors (id, company_name, trade, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [provisionalId, 'Pending document scan', 'Other', nowProv, nowProv],
+      )
+      await dbRun(
+        'INSERT INTO gc_sub_connections (gc_user_id, subcontractor_id, created_at) VALUES (?, ?, ?)',
+        [req.user!.id, provisionalId, nowProv],
+      )
+      subId = provisionalId
     }
     const carrierVal = (typeof carrier === 'string' && carrier.trim()) || 'Not provided'
     const effVal = typeof effective_date === 'string' ? effective_date : ''
@@ -144,7 +156,7 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
     }
 
     const sub = await dbGet(`SELECT s.id FROM subcontractors s WHERE s.id = ? AND EXISTS
-      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [subcontractor_id, req.user!.id])
+      (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [subId, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
 
     const stored = req.file ? await storeFile(req.file) : undefined
@@ -155,10 +167,10 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE EXISTS (SELECT 1 FROM gc_sub_connections g JOIN subcontractors s ON s.id = g.subcontractor_id
           WHERE g.subcontractor_id = ? AND g.gc_user_id = ?)`,
-      [id, subcontractor_id, req.user!.id, carrierVal, am_best_rating || null, policy_number || null,
+      [id, subId, req.user!.id, carrierVal, am_best_rating || null, policy_number || null,
         effVal, expVal, status || 'pending_review', reviewer_notes || null,
         stored ? stored.url : null, stored ? stored.key : null, stored ? stored.filename : null,
-        stored ? stored.size : null, stored ? stored.mime : null, now, now, subcontractor_id, req.user!.id]
+        stored ? stored.size : null, stored ? stored.mime : null, now, now, subId, req.user!.id]
     )
     if (!inserted.changes) return res.status(404).json({ error: 'Subcontractor not found' })
 
@@ -171,7 +183,7 @@ coisRouter.post('/', upload.single('certificate'), async (req: AuthRequest, res)
           const norm = await normalizeImage(req.file.buffer, req.file.originalname)
           if (norm && isTextractCompatible(norm.mime)) {
             const r = await tryAnalyzeCoiDocument(norm.buffer)
-            if (r.ok && r.fields) await saveExtractedReview(id, stored.key || null, r.fields, { overwrite: false })
+            if (r.ok && r.fields) await saveExtractedReview(id, stored.key || null, r.fields, { overwrite: false, uploaderGcUserId: req.user!.id })
           }
         }
       } catch (e) { console.error('GC upload auto-extraction failed:', e) }
@@ -238,23 +250,87 @@ coisRouter.put('/:id', upload.single('certificate'), async (req: AuthRequest, re
   }
 })
 
+function parseAnyDate(s?: string | null): Date | null {
+  if (!s) return null
+  const t = s.trim()
+  const m1 = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
+  if (m1) {
+    const d = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]))
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const m2 = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/)
+  if (m2) {
+    const y = m2[3].length === 2 ? Number(`20${m2[3]}`) : Number(m2[3])
+    const d = new Date(y, Number(m2[1]) - 1, Number(m2[2]))
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  return null
+}
+
+async function applyComplianceReview(coiId: string, gcUserId: string, status: string, notes?: string | null) {
+  const target = await dbGet<any>(
+    `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+     WHERE c.id = ? AND ${readAccess}`,
+    [coiId, gcUserId, gcUserId],
+  )
+  if (!target) return { ok: false as const, status: 404, error: 'COI not found' }
+  if (status === 'compliant') {
+    const exp = parseAnyDate(target.expiration_date)
+    if (exp && exp.getTime() < Date.now()) {
+      return { ok: false as const, status: 400, error: 'This certificate has expired and cannot be validated' }
+    }
+  }
+  const now = new Date().toISOString()
+  await dbRun(
+    `UPDATE cois SET status = ?, reviewer_notes = COALESCE(?, reviewer_notes), review_date = ?, updated_at = ?
+     WHERE id = ?`,
+    [status, notes ?? null, now, now, coiId],
+  )
+  if (status === 'compliant') {
+    const rev = await dbGet<{ details_json: string }>('SELECT details_json FROM coi_field_reviews WHERE coi_id = ?', [coiId])
+    if (rev?.details_json) {
+      try {
+        const d = JSON.parse(rev.details_json)
+        if (d.source === 'ocr' || d.source === 'mixed') {
+          d.source = 'manual'
+          await dbRun('UPDATE coi_field_reviews SET details_json = ? WHERE coi_id = ?', [JSON.stringify(d), coiId])
+          await dbRun(
+            `INSERT INTO coi_field_review_versions (coi_id, revision) VALUES (?, ?)
+             ON CONFLICT(coi_id) DO UPDATE SET revision = excluded.revision`,
+            [coiId, randomUUID()],
+          )
+        }
+      } catch {}
+    }
+  }
+  const updated = await dbGet<any>(
+    `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+     WHERE c.id = ? AND ${readAccess}`,
+    [coiId, gcUserId, gcUserId],
+  )
+  if (!updated) return { ok: false as const, status: 404, error: 'COI not found' }
+  return { ok: true as const, coi: await publicCOI(updated) }
+}
+
+coisRouter.post('/:id/validate', async (req: AuthRequest, res) => {
+  try {
+    const r = await applyComplianceReview(req.params.id, req.user!.id, 'compliant', req.body?.notes)
+    if (!r.ok) return res.status(r.status).json({ error: r.error })
+    res.json({ coi: r.coi })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 coisRouter.put('/:id/review', async (req: AuthRequest, res) => {
   try {
     const { status, reviewer_notes } = req.body || {}
     if (!status || !['compliant', 'needs_revision', 'rejected', 'pending_review'].includes(status)) {
       return res.status(400).json({ error: 'Valid status required: compliant, needs_revision, rejected, pending_review' })
     }
-    const now = new Date().toISOString()
-    const result = await dbRun(
-      `UPDATE cois SET status = ?, reviewer_notes = COALESCE(?, reviewer_notes), review_date = ?, updated_at = ?
-       WHERE id = ? AND ${writeAccessForUpdate}`,
-      [status, reviewer_notes ?? null, now, now, req.params.id, req.user!.id, req.user!.id]
-    )
-    if (!result.changes) return res.status(404).json({ error: 'COI not found' })
-    const updated = await dbGet(`SELECT c.* FROM cois c WHERE c.id = ? AND ${writeAccess}`,
-      [req.params.id, req.user!.id, req.user!.id])
-    if (!updated) return res.status(404).json({ error: 'COI not found' })
-    res.json({ coi: await publicCOI(updated) })
+    const r = await applyComplianceReview(req.params.id, req.user!.id, status, reviewer_notes)
+    if (!r.ok) return res.status(r.status).json({ error: r.error })
+    res.json({ coi: r.coi })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

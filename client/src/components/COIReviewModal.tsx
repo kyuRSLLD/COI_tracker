@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isExpiredDate } from '../lib/date'
 import { X, CheckCircle2, FileQuestion, Ban, FileText, ShieldCheck } from 'lucide-react'
 import type { COI, GCSettings } from '../types'
 import { Button } from './Button'
@@ -18,6 +19,7 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewingCertificate, setViewingCertificate] = useState(false)
+  const isExp = isExpiredDate(coi?.expiration_date)
 
   useEffect(() => {
     if (!open) setViewingCertificate(false)
@@ -159,6 +161,11 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
         </div>
 
         {/* Actions */}
+        {isExp && (
+          <p className="mt-4 p-2.5 rounded-xl bg-amber-50 text-amber-900 text-xs border border-amber-200">
+            This certificate has expired and cannot be marked compliant. You can still request a revision or reject it.
+          </p>
+        )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <Button
             type="button"
@@ -186,7 +193,8 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
           <Button
             type="button"
             variant="primary"
-            disabled={loading}
+            disabled={loading || isExp}
+            title={isExp ? 'Expired certificates cannot be marked compliant' : undefined}
             onClick={() => applyStatus('compliant')}
           >
             <CheckCircle2 className="w-4 h-4" /> Approve & mark compliant

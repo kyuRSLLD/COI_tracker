@@ -58,7 +58,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (!subs.some((s) => s.id === subId)) {
+    if (subId && !subs.some((s) => s.id === subId)) {
       setError('Select one of your subcontractors.')
       return
     }
@@ -84,7 +84,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
     setLoading(true)
     try {
       const fd = new FormData()
-      fd.append('subcontractor_id', subId)
+      if (subId) fd.append('subcontractor_id', subId)
       fd.append('carrier', carrier.trim() || 'Not provided')
       fd.append('am_best_rating', amBest.trim())
       fd.append('policy_number', policyNumber.trim())
@@ -134,21 +134,20 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div className="text-xs">
-            <label htmlFor="coi-subcontractor" className="block font-semibold text-slate-700 mb-1">Subcontractor *</label>
+            <label htmlFor="coi-subcontractor" className="block font-semibold text-slate-700 mb-1">Subcontractor (optional)</label>
             <select
               id="coi-subcontractor"
-              required
               value={subId}
               onChange={(e) => setSubId(e.target.value)}
               disabled={loadingSubs || !!subError || loading}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="">{loadingSubs ? 'Loading subcontractors…' : 'Select a subcontractor'}</option>
+              <option value="">{loadingSubs ? 'Loading subcontractors…' : (subs.length === 0 ? '— Auto-detect from certificate (AI will create the subcontractor) —' : '— Auto-detect from certificate (or pick a subcontractor) —')}</option>
               {subs.map((s) => <option key={s.id} value={s.id}>{s.company_name} — {s.trade}</option>)}
             </select>
             {!loadingSubs && !subError && subs.length === 0 && (
               <div className="mt-2 p-3 rounded-xl bg-amber-50 text-amber-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 border border-amber-200">
-                <span>No subcontractors yet. Add a subcontractor first, then upload their certificate.</span>
+                <span>No subcontractors yet. Leave blank and AI will read the insured company name to create one automatically, or add one first.</span>
                 {onAddSub ? (
                   <button type="button" onClick={() => { onClose(); onAddSub() }} className="font-semibold underline whitespace-nowrap">
                     Add a subcontractor
@@ -188,7 +187,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
               <span className="text-[11px] font-normal text-slate-500">Leave blank to let AI extract them</span>
             </summary>
             <p className="text-[11px] text-slate-500 mt-2 mb-3">
-              Only the subcontractor and file are required. Any details you enter here will be saved right away; blank fields get filled in automatically from the document.
+              Only the certificate file is required. Any details you enter here will be saved right away; blank fields get filled in automatically from the document.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
@@ -312,7 +311,7 @@ export function AddCOIModal({ subcontractor, onClose, onSaved, onAddSub }: Props
             <Button
               type="submit"
               variant="primary"
-              disabled={loading || loadingSubs || !!subError || subs.length === 0 || !subId || !file}
+              disabled={loading || loadingSubs || !!subError || !file}
             >
               {loading ? 'Uploading…' : 'Upload COI'}
             </Button>

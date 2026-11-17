@@ -20,7 +20,6 @@ import { AdminCoiReviewPage } from './pages/AdminCoiReviewPage'
 import { SubcontractorDashboardPage } from './pages/SubcontractorDashboardPage'
 import { JoinPage } from './pages/JoinPage'
 import { SubcontractorModal } from './components/SubcontractorModal'
-import { RequestCOIModal } from './components/RequestCOIModal'
 import { AddCOIModal } from './components/AddCOIModal'
 import { ConnectionSession } from './components/ConnectionOptions'
 import { ConnectSubPage, captureConnectionFragment } from './pages/ConnectSubPage'
@@ -39,8 +38,8 @@ function App() {
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const sessionVersion = useRef(0)
   const observedToken = useRef(getToken())
-  const [addSubOpen, setAddSubOpen] = useState(false)
-  const [requestOpen, setRequestOpen] = useState(false)
+  const [subModalOpen, setSubModalOpen] = useState(false)
+  const [subModalMode, setSubModalMode] = useState<'connect' | 'manual' | 'request'>('connect')
   const [addCoiOpen, setAddCoiOpen] = useState(false)
   const [subs, setSubs] = useState<Subcontractor[]>([])
   const location = useLocation()
@@ -53,8 +52,7 @@ function App() {
     setUser(null)
     setSessionToken(null)
     setSubs([])
-    setAddSubOpen(false)
-    setRequestOpen(false)
+    setSubModalOpen(false)
     setAddCoiOpen(false)
     setSessionError(null)
     if (!token) {
@@ -100,8 +98,7 @@ function App() {
       setVerifiedToken(token)
       setSessionToken(token)
       setSubs([])
-      setAddSubOpen(false)
-      setRequestOpen(false)
+      setSubModalOpen(false)
       setUser(nextUser)
       setSessionStatus('authenticated')
       setSessionError(null)
@@ -119,8 +116,7 @@ function App() {
     setSessionStatus('anonymous')
     setSessionError(null)
     setSubs([])
-    setAddSubOpen(false)
-    setRequestOpen(false)
+    setSubModalOpen(false)
     setAddCoiOpen(false)
   }, [refreshUser])
 
@@ -133,8 +129,7 @@ function App() {
     setUser(null)
     setSessionToken(null)
     setSubs([])
-    setAddSubOpen(false)
-    setRequestOpen(false)
+    setSubModalOpen(false)
     setAddCoiOpen(false)
     setSessionStatus('anonymous')
     setSessionError('Your session has expired. Please sign in again.')
@@ -189,9 +184,9 @@ function App() {
         <Navbar
           user={user}
           onLogout={logout}
-          onOpenAddSub={() => setAddSubOpen(true)}
+          onOpenAddSub={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
           onOpenUploadCOI={() => setAddCoiOpen(true)}
-          onOpenRequestCOI={() => setRequestOpen(true)}
+          onOpenRequestCOI={() => { setSubModalMode('request'); setSubModalOpen(true) }}
         />
       )}
       {sessionError && (
@@ -273,20 +268,16 @@ function App() {
       {user && user.role !== 'sub' && (
         <>
           <SubcontractorModal
-            open={addSubOpen}
-            onClose={() => setAddSubOpen(false)}
+            open={subModalOpen}
+            initialMode={subModalMode}
+            onClose={() => setSubModalOpen(false)}
             onSaved={() => { if (sessionToken) loadSubs(renderedVersion, sessionToken) }}
-          />
-          <RequestCOIModal
-            subcontractors={subs}
-            open={requestOpen}
-            onClose={() => setRequestOpen(false)}
           />
           {addCoiOpen && (
             <AddCOIModal
               subcontractor={null}
               onClose={() => setAddCoiOpen(false)}
-              onAddSub={() => { setAddCoiOpen(false); setAddSubOpen(true) }}
+              onAddSub={() => { setAddCoiOpen(false); setSubModalMode('manual'); setSubModalOpen(true) }}
               onSaved={() => {}}
             />
           )}
