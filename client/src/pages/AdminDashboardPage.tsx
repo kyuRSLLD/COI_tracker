@@ -2,7 +2,7 @@ import { Button } from '../components/Button'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiAdmin, apiAdminArticles, apiMe } from '../api'
+import { apiAdmin, apiAdminArticles, apiMe, signOut } from '../api'
 import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts, Article } from '../types'
 import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe } from 'lucide-react'
 import { formatDisplayDate } from '../lib/date'
@@ -495,10 +495,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  const handleSignOut = () => {
-    localStorage.removeItem('token')
-    window.location.href = '/login'
-  }
+  const handleSignOut = () => signOut('/login')
 
   const filteredCompanies = useMemo(() => {
     const q = companySearch.trim().toLowerCase()

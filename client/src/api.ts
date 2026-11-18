@@ -115,6 +115,15 @@ export function apiLogout(): void {
   setToken(null)
   setStoredUser(null)
 }
+
+export function signOut(redirectTo = '/login'): void {
+  setVerifiedToken(null)
+  apiLogout()
+  try { localStorage.removeItem('token') } catch {}
+  try { localStorage.removeItem('user') } catch {}
+  try { window.dispatchEvent(new Event(SESSION_CHANGED_EVENT)) } catch {}
+  window.location.href = redirectTo
+}
 export async function apiChangePassword(current_password: string, new_password: string): Promise<{ success: boolean; message: string }> {
   return request<{ success: boolean; message: string }>('/api/auth/change-password', {
     method: 'POST',

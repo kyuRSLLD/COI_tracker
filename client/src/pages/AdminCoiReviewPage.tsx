@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { apiAdmin } from '../api'
+import { apiAdmin, signOut } from '../api'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
 import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2 } from 'lucide-react'
@@ -102,7 +102,7 @@ export function AdminCoiReviewPage() {
   const score = data?.score ?? 0
 
   return (
-    <StaffSidebar user={null} onSignOut={() => { localStorage.removeItem('token'); window.location.href = '/login' }} pendingQueueCount={pendingIds.length}>
+    <StaffSidebar user={null} onSignOut={() => signOut('/login')} pendingQueueCount={pendingIds.length}>
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-4 max-w-[1500px]">
         {/* Breadcrumb + queue position */}
