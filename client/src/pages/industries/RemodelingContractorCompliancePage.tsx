@@ -128,7 +128,7 @@ export function RemodelingContractorCompliancePage() {
             { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
             { to: '/features/acord-25-endorsement-verification', label: 'ACORD 25 verification' },
             { to: '/pricing', label: 'Pricing' },
-            { to: '/blog', label: 'Blog' },
+            { to: '/articles/', label: 'Articles', external: true },
           ]}
         />
       </div>

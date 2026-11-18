@@ -1,16 +1,23 @@
 import { Link } from 'react-router-dom'
 
-interface MarketingFooterProps {
-  links?: { to: string; label: string }[]
+interface MarketingFooterLink {
+  to: string
+  label: string
+  /** Static documents under /articles are served outside the SPA, so they need a real navigation. */
+  external?: boolean
 }
 
-const defaultLinks = [
+interface MarketingFooterProps {
+  links?: MarketingFooterLink[]
+}
+
+const defaultLinks: MarketingFooterLink[] = [
   { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
   { to: '/industries/remodeling-contractor-compliance', label: 'Remodeling' },
   { to: '/features/acord-25-endorsement-verification', label: 'ACORD 25 verification' },
   { to: '/tools/insurance-clause-generator', label: 'Clause generator' },
   { to: '/pricing', label: 'Pricing' },
-  { to: '/blog', label: 'Blog' },
+  { to: '/articles/', label: 'Articles', external: true },
 ]
 
 export function MarketingFooter({ links = defaultLinks }: MarketingFooterProps) {
@@ -21,11 +28,17 @@ export function MarketingFooter({ links = defaultLinks }: MarketingFooterProps) 
         <strong>Not affiliated with Safeco Insurance.</strong>
       </span>
       <div className="flex flex-wrap gap-4">
-        {links.map((l) => (
-          <Link key={l.to} to={l.to} className="hover:underline">
-            {l.label}
-          </Link>
-        ))}
+        {links.map((l) =>
+          l.external ? (
+            <a key={l.to} href={l.to} className="hover:underline">
+              {l.label}
+            </a>
+          ) : (
+            <Link key={l.to} to={l.to} className="hover:underline">
+              {l.label}
+            </Link>
+          ),
+        )}
       </div>
     </footer>
   )

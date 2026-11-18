@@ -126,7 +126,7 @@ export function Acord25EndorsementVerificationPage() {
             { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
             { to: '/industries/remodeling-contractor-compliance', label: 'Remodeling' },
             { to: '/pricing', label: 'Pricing' },
-            { to: '/blog', label: 'Blog' },
+            { to: '/articles/', label: 'Articles', external: true },
           ]}
         />
       </div>

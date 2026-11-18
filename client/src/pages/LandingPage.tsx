@@ -507,6 +507,59 @@ export function LandingPage({ onLogin }: Props) {
         </div>
       </section>
 
+      {/* Field guides — static pages served from /articles */}
+      <section className="py-16 bg-slate-50 border-t border-slate-200">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-600">Field guides</p>
+              <h2 className="mt-2 text-2xl sm:text-3xl font-extrabold text-slate-900">
+                Certificates, endorsements, and the gaps between them.
+              </h2>
+              <p className="mt-2 text-sm text-slate-600 max-w-2xl">
+                Practical reading for GCs who have to check the paperwork themselves — no fluff, no insurance-speak.
+              </p>
+            </div>
+            <a href="/articles/" className="text-sm font-bold text-brand-700 hover:underline">
+              All articles →
+            </a>
+          </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            {[
+              {
+                href: '/articles/check-acord-25-before-sub-on-site/',
+                tag: 'ACORD 25',
+                title: 'What to check on an ACORD 25 before a sub starts',
+                blurb: 'Nine checks — named insured, dates, limits, NAIC numbers, endorsements.',
+              },
+              {
+                href: '/articles/additional-insured-vs-certificate-holder/',
+                tag: 'Endorsements',
+                title: 'Additional insured vs. certificate holder',
+                blurb: 'Why the certificate holder box grants nothing, and what to ask for instead.',
+              },
+              {
+                href: '/articles/cg-20-10-vs-cg-20-37/',
+                tag: 'ISO forms',
+                title: 'CG 20 10 vs. CG 20 37',
+                blurb: 'Ongoing operations or completed operations — most packets have one, not both.',
+              },
+            ].map((g) => (
+              <a
+                key={g.href}
+                href={g.href}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-card hover:border-brand-300 hover:shadow-lg transition flex flex-col"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-600">{g.tag}</span>
+                <h3 className="mt-2 text-sm font-bold text-slate-900 leading-snug">{g.title}</h3>
+                <p className="mt-2 text-xs text-slate-600 leading-relaxed flex-1">{g.blurb}</p>
+                <span className="mt-3 text-xs font-bold text-brand-700 group-hover:underline">Read →</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* CTA Footer */}
       <section className="bg-brand-950 text-white py-16">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">

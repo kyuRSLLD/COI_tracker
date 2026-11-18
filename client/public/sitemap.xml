@@ -42,39 +42,55 @@
     <priority>0.8</priority>
   </url>
 
-  <!-- Pricing & Product -->
+  <!-- Articles (static pages served from client/public/articles) -->
   <url>
-    <loc>https://safecoi.com/pricing</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>monthly</changefreq>
+    <loc>https://safecoi.com/articles/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://safecoi.com/articles/check-acord-25-before-sub-on-site/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://safecoi.com/articles/additional-insured-vs-certificate-holder/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://safecoi.com/articles/cg-20-10-vs-cg-20-37/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://safecoi.com/articles/waiver-of-subrogation-construction/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://safecoi.com/articles/primary-and-non-contributory-endorsement/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://safecoi.com/articles/pass-workers-comp-audit-subcontractors/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
 
-  <!-- Blog Hub & Articles -->
-  <url>
-    <loc>https://safecoi.com/blog</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://safecoi.com/blog/pass-workers-comp-audit-subcontractors</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://safecoi.com/blog/check-acord-25-before-sub-on-site</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://safecoi.com/blog/additional-insured-vs-certificate-holder</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
+  <!--
+    Not listed until their routes ship: /pricing (pricing lives at /#pricing), /about,
+    /legal/*, and /blog — the React router has no route for those paths, so they fall
+    through to the catch-all and redirect to "/", which reads as a soft 404 to crawlers.
+  -->
 
   <!-- Company & Legal -->
   <url>

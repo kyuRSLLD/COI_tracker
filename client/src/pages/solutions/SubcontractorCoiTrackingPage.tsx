@@ -122,7 +122,7 @@ export function SubcontractorCoiTrackingPage() {
           links={[
             { to: '/tools/insurance-clause-generator', label: 'Clause generator' },
             { to: '/pricing', label: 'Pricing' },
-            { to: '/blog', label: 'Blog' },
+            { to: '/articles/', label: 'Articles', external: true },
             { to: '/legal/privacy', label: 'Privacy' },
           ]}
         />
