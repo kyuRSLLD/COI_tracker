@@ -10,7 +10,10 @@ const focusClassName = 'focus-visible:outline-none focus-visible:ring-2 focus-vi
 
 export function LoginPage({ onLogin, getSessionVersion }: { onLogin: (session: { token: string; user: User }, version: number) => Promise<void>; getSessionVersion: () => number }) {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  // Marketing pages link to /login?mode=register so the signup form opens directly.
+  const [mode, setMode] = useState<'login' | 'register'>(() =>
+    new URLSearchParams(window.location.search).get('mode') === 'register' ? 'register' : 'login',
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
