@@ -30,6 +30,7 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenUploadCOI }: Props)
     { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
     { to: '/features/acord-25-endorsement-verification', label: 'ACORD & endorsements' },
     { href: '/#pricing', label: 'Pricing' },
+    { href: '/articles/', label: 'Articles' },
   ]
 
   const nav = (() => {
