@@ -1,14 +1,15 @@
 import type sqlite3 from 'sqlite3'
 import pg from 'pg'
 import path from 'path'
-import fs from 'fs'
-import dotenv from 'dotenv'
-import { v4 as uuidv4 } from 'uuid'
-import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
-
-dotenv.config()
-
-const DB_FILE =
+  import fs from 'fs'
+  import { fileURLToPath } from 'url'
+  import dotenv from 'dotenv'
+  import { v4 as uuidv4 } from 'uuid'
+  import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
+  dotenv.config()
+  const __filename = fileURLToPath(import.meta.url)
+  const __dirname = path.dirname(__filename)
+  const DB_FILE =
   process.env.SQLITE_PATH ||
   (process.cwd().endsWith('server')
     ? path.resolve(process.cwd(), 'coi.db')
@@ -429,6 +430,23 @@ export async function initDatabase(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_company_share_links_token ON company_share_links(token);
     CREATE INDEX IF NOT EXISTS idx_company_share_links_gc ON company_share_links(gc_user_id);
+    CREATE TABLE IF NOT EXISTS articles (
+      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      reading_time_min INTEGER NOT NULL DEFAULT 6,
+      body_html TEXT NOT NULL,
+      og_image_url TEXT,
+      status TEXT NOT NULL DEFAULT 'published',
+      position INTEGER NOT NULL DEFAULT 0,
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_articles_status_pos ON articles(status, position);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);
   `
 
   await dbExec(schema)
@@ -606,6 +624,11 @@ export async function initDatabase(): Promise<void> {
   } catch (e: any) {
     console.warn('[db] limit amounts backfill warning:', e?.message)
   }
+  try {
+    await seedArticlesIfEmpty()
+  } catch (e: any) {
+    console.warn('[db] article seed warning:', e?.message)
+  }
 }
 
 // Subcontractor deletes their own COI (and its coverages). Authorization embedded in DELETE.
@@ -670,4 +693,81 @@ export async function adminDeleteCOI(id: string): Promise<boolean> {
       throw error
     }
   })
+}
+
+
+function findArticlesDir(): string | null {
+  const candidates = [
+    path.resolve(__dirname, '../../../client/public/articles'),
+    path.resolve(__dirname, '../../dist/articles'),
+    path.resolve(__dirname, '../../client/dist/articles'),
+    path.resolve(process.cwd(), 'client/public/articles'),
+    path.resolve(process.cwd(), 'client/dist/articles'),
+  ]
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'index.html'))) return c
+  }
+  return null
+}
+
+function parseDateStr(s: string): string {
+  const d = new Date(s.trim())
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  return new Date().toISOString().slice(0, 10)
+}
+
+function decodeHtml(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+}
+
+export async function seedArticlesIfEmpty(): Promise<void> {
+  const count = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM articles')
+  if (count && Number(count.n) > 0) return
+  const dir = findArticlesDir()
+  if (!dir) {
+    console.warn('[db] articles seed: static articles directory not found')
+    return
+  }
+  const hub = fs.readFileSync(path.join(dir, 'index.html'), 'utf8')
+  const order = new Map<string, number>()
+  const re = /<a class="post" href="\/articles\/([^/]+)\/"/g
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = re.exec(hub))) order.set(m[1], i++)
+  const now = new Date().toISOString()
+  const slugs = fs.readdirSync(dir)
+  for (const slug of slugs) {
+    const full = path.join(dir, slug)
+    if (!fs.statSync(full).isDirectory()) continue
+    const idx = path.join(full, 'index.html')
+    if (!fs.existsSync(idx)) continue
+    const c = fs.readFileSync(idx, 'utf8')
+    const titleMatch = c.match(/<h1>(.*?)<\/h1>/s)
+    const descMatch = c.match(/<meta name="description" content="(.*?)"/s)
+    const ogMatch = c.match(/<meta property="og:image" content="(.*?)"/s)
+    const tagMatch = c.match(/<span class="kicker">(.*?)<\/span>/s)
+    const rtMatch = c.match(/(\d+)\s+min read/)
+    const dateMatch = c.match(/<p class="meta"><span>([^<]+)<\/span>/)
+    const proseMatch = c.match(/<div class="prose">(.*?)<\/div>\s*<\/article>/s)
+    const title = decodeHtml(titleMatch?.[1]?.trim() || slug)
+    const description = decodeHtml(descMatch?.[1]?.trim() || '')
+    const og = ogMatch?.[1] || null
+    const tag = decodeHtml(tagMatch?.[1]?.trim() || 'General')
+    const readingTime = rtMatch ? parseInt(rtMatch[1], 10) : 6
+    const publishedAt = dateMatch ? parseDateStr(dateMatch[1]) : null
+    const prose = (proseMatch?.[1] || '').trim()
+    const pos = order.get(slug) ?? 99
+    await dbRun(
+      `INSERT INTO articles (id, slug, title, description, tag, reading_time_min, body_html, og_image_url, status, position, published_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?)`,
+      [uuidv4(), slug, title, description, tag, readingTime, prose, og, pos, publishedAt, now, now]
+    )
+  }
+  const done = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM articles')
+  console.log(`[db] seeded ${done?.n ?? 0} articles`)
 }

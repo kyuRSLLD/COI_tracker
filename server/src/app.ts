@@ -20,6 +20,7 @@ import { subConnectionQrRouter } from './routes/subConnectionQr.ts'
 import { localCertificatesRouter } from './routes/localCertificates.ts'
 import { coiFieldsRouter } from './routes/coiFields.ts'
 import { gcCompanyRouter, gcPublicRouter } from './routes/gcCompany.ts'
+import { articlesRouter } from './routes/articles.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -88,6 +89,7 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   app.use('/api/connection-qr', subConnectionQrRouter)
   // Express's default 404 echoes the path, which may contain a pasted token.
   app.use('/api/connection-qr', (_req, res) => res.status(404).json({ error: 'Not found' }))
+  app.use(articlesRouter)
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {

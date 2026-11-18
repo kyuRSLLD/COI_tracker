@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { isRealEmailConfigured, emailMode } from '../services/email.ts'
 import express from 'express'
@@ -748,6 +749,126 @@ adminRouter.post('/cois/:id/decision', requireAdmin, async (req, res) => {
       [decision, notes || null, new Date().toISOString().slice(0, 10), req.params.id],
     )
     res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+
+// ---------------- Articles (SEO field guides) ----------------
+const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const articleCreateSchema = z.object({
+  title: z.string().min(1).max(200),
+  slug: z.string().min(1).max(150).regex(slugRegex, 'slug must be kebab-case (e.g. "my-article-title")'),
+  description: z.string().min(1).max(500),
+  tag: z.string().min(1).max(60),
+  reading_time_min: z.number().int().min(1).max(60).default(6),
+  body_html: z.string().min(1),
+  og_image_url: z.string().url().nullable().optional(),
+  status: z.enum(['published', 'draft']).default('published'),
+  position: z.number().int().min(0).optional(),
+})
+const articleUpdateSchema = articleCreateSchema.partial()
+
+adminRouter.get('/articles', requireAdmin, async (_req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT id, slug, title, description, tag, reading_time_min, status, position,
+              published_at, created_at, updated_at
+       FROM articles
+       ORDER BY position ASC, updated_at DESC`
+    )
+    res.json({ articles: rows })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.get('/articles/:id', requireAdmin, async (req, res) => {
+  try {
+    const row = await dbGet('SELECT * FROM articles WHERE id = ?', [req.params.id])
+    if (!row) return res.status(404).json({ error: 'Article not found' })
+    res.json({ article: row })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.post('/articles', requireAdmin, async (req, res) => {
+  try {
+    const parsed = articleCreateSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid body' })
+    const { title, slug, description, tag, reading_time_min, body_html, og_image_url, status, position } = parsed.data
+    const taken = await dbGet('SELECT id FROM articles WHERE slug = ?', [slug])
+    if (taken) return res.status(409).json({ error: 'An article with this slug already exists' })
+    let pos = position
+    if (pos === undefined) {
+      const max = await dbGet<{ next_pos: number }>('SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM articles')
+      pos = max?.next_pos ?? 0
+    }
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const publishedAt = status === 'published' ? now : null
+    await dbRun(
+      `INSERT INTO articles (id, slug, title, description, tag, reading_time_min, body_html, og_image_url, status, position, published_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, slug, title, description, tag, reading_time_min, body_html, og_image_url || null, status, pos, publishedAt, now, now]
+    )
+    const row = await dbGet('SELECT * FROM articles WHERE id = ?', [id])
+    res.status(201).json({ article: row })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.put('/articles/:id', requireAdmin, async (req, res) => {
+  try {
+    const existing = await dbGet<any>('SELECT * FROM articles WHERE id = ?', [req.params.id])
+    if (!existing) return res.status(404).json({ error: 'Article not found' })
+    const parsed = articleUpdateSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid body' })
+    const d = parsed.data
+    if (d.slug && d.slug !== existing.slug) {
+      const taken = await dbGet('SELECT id FROM articles WHERE slug = ? AND id != ?', [d.slug, req.params.id])
+      if (taken) return res.status(409).json({ error: 'An article with this slug already exists' })
+    }
+    const now = new Date().toISOString()
+    const nextPublishedAt =
+      d.status === 'published' && existing.status !== 'published' && !existing.published_at ? now : (existing.published_at || null)
+    await dbRun(
+      `UPDATE articles SET
+         slug = ?, title = ?, description = ?, tag = ?, reading_time_min = ?,
+         body_html = ?, og_image_url = ?, status = ?, position = ?,
+         published_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        d.slug ?? existing.slug,
+        d.title ?? existing.title,
+        d.description ?? existing.description,
+        d.tag ?? existing.tag,
+        d.reading_time_min ?? existing.reading_time_min,
+        d.body_html ?? existing.body_html,
+        d.og_image_url !== undefined ? (d.og_image_url || null) : existing.og_image_url,
+        d.status ?? existing.status,
+        d.position ?? existing.position,
+        nextPublishedAt,
+        now,
+        req.params.id,
+      ]
+    )
+    const row = await dbGet('SELECT * FROM articles WHERE id = ?', [req.params.id])
+    res.json({ article: row })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.delete('/articles/:id', requireAdmin, async (req, res) => {
+  try {
+    const existing = await dbGet('SELECT id FROM articles WHERE id = ?', [req.params.id])
+    if (!existing) return res.status(404).json({ error: 'Article not found' })
+    await dbRun('DELETE FROM articles WHERE id = ?', [req.params.id])
+    res.json({ success: true, deleted: req.params.id })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

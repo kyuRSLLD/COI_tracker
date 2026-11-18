@@ -424,3 +424,43 @@ export interface PublicCompanyCOIResponse {
 export const apiCompanyShare = {
   get: (token: string) => request<PublicCompanyCOIResponse>(`/api/public/company-share/${token}`, {}, false),
 }
+
+export const apiAdminArticles = {
+  list: () => request<{ articles: import('./types').Article[] }>('/api/admin/articles'),
+  get: (id: string) => request<{ article: import('./types').Article }>(`/api/admin/articles/${id}`),
+  create: (body: {
+    title: string
+    slug: string
+    description: string
+    tag: string
+    reading_time_min?: number
+    body_html: string
+    og_image_url?: string | null
+    status?: 'published' | 'draft'
+    position?: number
+  }) =>
+    request<{ article: import('./types').Article }>('/api/admin/articles', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  update: (
+    id: string,
+    body: {
+      title?: string
+      slug?: string
+      description?: string
+      tag?: string
+      reading_time_min?: number
+      body_html?: string
+      og_image_url?: string | null
+      status?: 'published' | 'draft'
+      position?: number
+    }
+  ) =>
+    request<{ article: import('./types').Article }>(`/api/admin/articles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    request<{ success: boolean; deleted: string }>(`/api/admin/articles/${id}`, { method: 'DELETE' }),
+}

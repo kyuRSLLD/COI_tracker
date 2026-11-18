@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileText, Building2, Users, DollarSign, Target, Mail, Settings, Menu, X, Shield, ArrowUpRight, LogOut, KeyRound, Eye, EyeOff, Check, AlertTriangle } from 'lucide-react'
+import { LayoutDashboard, FileText, Building2, Users, DollarSign, Target, Mail, Settings, Menu, X, Shield, ArrowUpRight, LogOut, KeyRound, Eye, EyeOff, Check, AlertTriangle, BookOpen } from 'lucide-react'
 import type { User } from '../types'
 import { apiChangePassword } from '../api'
 
@@ -34,6 +34,7 @@ export function StaffSidebar({ user, onSignOut, pendingQueueCount, children }: P
     { label: 'Companies', hash: 'companies', icon: Building2 },
     { label: 'Users', hash: 'users', icon: Users },
     { label: 'Revenue', hash: 'revenue', icon: DollarSign },
+    { label: 'Articles', hash: 'articles', icon: BookOpen },
     { label: 'Leads (permits)', to: '/emails?type=coi_request', icon: Target, badge: 'soon', badgeTone: 'gray', disabled: true },
     { label: 'Email log', to: '/emails', icon: Mail },
     { label: 'Settings', icon: Settings, onSelect: () => setPwOpen(true) },

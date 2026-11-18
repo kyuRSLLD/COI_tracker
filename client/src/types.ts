@@ -376,3 +376,19 @@ export interface PlanChange {
   reason?: string | null
   changed_at: string
 }
+
+export interface Article {
+  id: string
+  slug: string
+  title: string
+  description: string
+  tag: string
+  reading_time_min: number
+  body_html?: string
+  og_image_url?: string | null
+  status: 'published' | 'draft'
+  position: number
+  published_at?: string | null
+  created_at: string
+  updated_at: string
+}

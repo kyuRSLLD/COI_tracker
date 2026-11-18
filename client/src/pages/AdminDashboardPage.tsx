@@ -2,9 +2,9 @@ import { Button } from '../components/Button'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiAdmin, apiMe } from '../api'
-import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy } from 'lucide-react'
+import { apiAdmin, apiAdminArticles, apiMe } from '../api'
+import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts, Article } from '../types'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe } from 'lucide-react'
 import { formatDisplayDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 
@@ -71,6 +71,27 @@ export function AdminDashboardPage() {
   const [selectedCoiIds, setSelectedCoiIds] = useState<Set<string>>(new Set())
   const [coiBusy, setCoiBusy] = useState<Record<string, string>>({})
   const [expandedCoiId, setExpandedCoiId] = useState<string | null>(null)
+  const [articles, setArticles] = useState<Article[]>([])
+  const [articlesLoading, setArticlesLoading] = useState(false)
+  const [articleFilter, setArticleFilter] = useState<'all' | 'published' | 'draft'>('all')
+  const [articleSearch, setArticleSearch] = useState('')
+  const [articleModal, setArticleModal] = useState<{ open: boolean; mode: 'create' | 'edit'; id?: string }>({ open: false, mode: 'create' })
+  const [artTitle, setArtTitle] = useState('')
+  const [artSlug, setArtSlug] = useState('')
+  const [artTag, setArtTag] = useState('')
+  const [artReadingTime, setArtReadingTime] = useState(6)
+  const [artStatus, setArtStatus] = useState<'published' | 'draft'>('published')
+  const [artPosition, setArtPosition] = useState(0)
+  const [artOgImage, setArtOgImage] = useState('')
+  const [artDescription, setArtDescription] = useState('')
+  const [artBodyHtml, setArtBodyHtml] = useState('')
+  const [artPreview, setArtPreview] = useState(false)
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [articleSaving, setArticleSaving] = useState(false)
+  const [articleError, setArticleError] = useState<string | null>(null)
+  const [articleNotice, setArticleNotice] = useState<string | null>(null)
+  const [articleDeleteModal, setArticleDeleteModal] = useState<{ open: boolean; article: Article | null }>({ open: false, article: null })
+  const [articleDeleting, setArticleDeleting] = useState(false)
 
   const notify = (msg: string) => {
     setStatusMsg(msg)
@@ -83,15 +104,17 @@ export function AdminDashboardPage() {
       setError(null)
       const xt = excludeTestOverride ?? excludeTest
       const rg = rangeOverride ?? growthRange
-      const [ov, comps, usrs, meData] = await Promise.all([
+      const [ov, comps, usrs, arts, meData] = await Promise.all([
         apiAdmin.overview({ exclude_test: xt, range: rg }),
         apiAdmin.companies(),
         apiAdmin.users(),
+        apiAdminArticles.list().then((r) => r.articles).catch(() => [] as Article[]),
         apiMe().catch(() => null),
       ])
       setOverview(ov)
       setCompanies(comps.companies)
       setUsers(usrs.users)
+      setArticles(arts)
       if (meData?.user) setMe(meData.user)
       setLastRefreshed(new Date())
     } catch (err: any) {
@@ -114,6 +137,127 @@ export function AdminDashboardPage() {
       setCoiLoading(false)
     }
   }, [coiFilter, coiSearch])
+
+  const loadArticles = async () => {
+    try {
+      setArticlesLoading(true)
+      const res = await apiAdminArticles.list()
+      setArticles(res.articles || [])
+    } catch (err: any) {
+      notify(err?.message || 'Failed to load articles')
+    } finally {
+      setArticlesLoading(false)
+    }
+  }
+
+  const openArticleCreate = () => {
+    const nextPos = articles.length ? Math.max(...articles.map((a) => a.position)) + 1 : 0
+    setArticleModal({ open: true, mode: 'create' })
+    setArtTitle('')
+    setArtSlug('')
+    setArtTag('')
+    setArtReadingTime(6)
+    setArtStatus('published')
+    setArtPosition(nextPos)
+    setArtOgImage('')
+    setArtDescription('')
+    setArtBodyHtml('')
+    setArtPreview(false)
+    setSlugTouched(false)
+    setArticleError(null)
+  }
+
+  const openArticleEdit = async (a: Article) => {
+    setArticleModal({ open: true, mode: 'edit', id: a.id })
+    setArtTitle(a.title)
+    setArtSlug(a.slug)
+    setArtTag(a.tag)
+    setArtReadingTime(a.reading_time_min)
+    setArtStatus(a.status)
+    setArtPosition(a.position)
+    setArtOgImage(a.og_image_url || '')
+    setArtDescription(a.description)
+    setArtBodyHtml(a.body_html || '')
+    setArtPreview(false)
+    setSlugTouched(true)
+    setArticleError(null)
+    try {
+      const full = await apiAdminArticles.get(a.id)
+      if (full.article) {
+        setArtBodyHtml(full.article.body_html || '')
+        setArtDescription(full.article.description || a.description)
+        setArtOgImage(full.article.og_image_url || '')
+      }
+    } catch {
+      /* fallback to row data */
+    }
+  }
+
+  const saveArticle = async () => {
+    setArticleError(null)
+    const slugClean = artSlug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    if (!artTitle.trim()) return setArticleError('Title is required')
+    if (!slugClean) return setArticleError('Valid slug is required (kebab-case)')
+    if (!artDescription.trim()) return setArticleError('Description is required')
+    if (!artTag.trim()) return setArticleError('Category / tag is required')
+    if (!artBodyHtml.trim()) return setArticleError('Body HTML is required')
+    try {
+      setArticleSaving(true)
+      const payload = {
+        title: artTitle.trim(),
+        slug: slugClean,
+        description: artDescription.trim(),
+        tag: artTag.trim(),
+        reading_time_min: Math.max(1, Math.min(60, artReadingTime)),
+        body_html: artBodyHtml,
+        og_image_url: artOgImage.trim() || null,
+        status: artStatus,
+        position: artPosition,
+      }
+      if (articleModal.mode === 'create') {
+        await apiAdminArticles.create(payload)
+        setArticleNotice('Article created and published!')
+      } else if (articleModal.id) {
+        await apiAdminArticles.update(articleModal.id, payload)
+        setArticleNotice('Article updated')
+      }
+      await loadArticles()
+      setArticleModal({ open: false, mode: 'create' })
+      setTimeout(() => setArticleNotice(null), 4000)
+    } catch (err: any) {
+      setArticleError(err?.message || 'Save failed')
+    } finally {
+      setArticleSaving(false)
+    }
+  }
+
+  const deleteArticle = async () => {
+    const a = articleDeleteModal.article
+    if (!a) return
+    try {
+      setArticleDeleting(true)
+      await apiAdminArticles.remove(a.id)
+      setArticleDeleteModal({ open: false, article: null })
+      notify(`Deleted "${a.title}"`)
+      await loadArticles()
+    } catch (err: any) {
+      notify(err?.message || 'Delete failed')
+    } finally {
+      setArticleDeleting(false)
+    }
+  }
+
+  const filteredArticles = useMemo(() => {
+    const q = articleSearch.trim().toLowerCase()
+    return articles.filter((a) => {
+      const matchStatus = articleFilter === 'all' ? true : a.status === articleFilter
+      if (!matchStatus) return false
+      if (!q) return true
+      return a.title?.toLowerCase().includes(q) || a.slug?.toLowerCase().includes(q) || a.tag?.toLowerCase().includes(q)
+    })
+  }, [articles, articleSearch, articleFilter])
+
+  const tagSuggestions = ["Workers' Comp & Audits", 'ACORD 25 & COI Review', 'Endorsements & Coverage', 'Waivers & Risk Transfer']
 
   useEffect(() => { load() }, [])
 
@@ -1354,6 +1498,135 @@ export function AdminDashboardPage() {
             </table>
           </div>
         </div>
+
+        {/* Articles */}
+        <div id="articles" className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div>
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-brand-primary" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Articles ({articles.length})
+                </h2>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                SEO field guides live at <a href="/articles/" target="_blank" rel="noopener" className="underline hover:text-slate-700">safecoi.com/articles</a>
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap gap-1 text-xs">
+                {(['all', 'published', 'draft'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setArticleFilter(r)}
+                    className={`min-h-[36px] px-2.5 py-1 rounded-full font-semibold transition ${
+                      articleFilter === r ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {r === 'published' ? 'Published' : r === 'draft' ? 'Drafts' : 'All'}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search articles…"
+                  value={articleSearch}
+                  onChange={(e) => setArticleSearch(e.target.value)}
+                  className="text-xs border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 bg-white focus:outline-none focus:border-slate-500 w-full sm:w-56"
+                />
+              </div>
+              <Button className="text-xs shrink-0 flex items-center gap-1" onClick={openArticleCreate}>
+                <Plus className="w-3.5 h-3.5" /> New article
+              </Button>
+            </div>
+          </div>
+          {articleNotice && (
+            <div className="mt-3 p-2 rounded-lg text-xs bg-emerald-50 text-emerald-800 flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0" /> {articleNotice}
+            </div>
+          )}
+          <div className="overflow-x-auto mt-3">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100">
+                  <th className="py-2 pr-3 w-8">#</th>
+                  <th className="py-2 pr-3">Title</th>
+                  <th className="py-2 pr-3">Category</th>
+                  <th className="py-2 pr-3">Reading</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">Updated</th>
+                  <th className="py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredArticles.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-slate-400">
+                      {articlesLoading ? 'Loading articles…' : 'No articles match this filter'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredArticles.map((a) => (
+                    <tr key={a.id} className="hover:bg-slate-50">
+                      <td className="py-2.5 pr-3 font-mono text-slate-400">{a.position}</td>
+                      <td className="py-2.5 pr-3 max-w-md">
+                        <div className="font-semibold text-slate-900 line-clamp-1">{a.title}</div>
+                        <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 flex-wrap">
+                          <span>/articles/{a.slug}/</span>
+                          {a.status === 'published' && (
+                            <a
+                              href={`/articles/${a.slug}/`}
+                              target="_blank"
+                              rel="noopener"
+                              className="inline-flex items-center gap-0.5 text-brand-primary hover:underline font-sans"
+                            >
+                              view <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3 text-slate-600">{a.tag}</td>
+                      <td className="py-2.5 pr-3 text-slate-500">{a.reading_time_min} min</td>
+                      <td className="py-2.5 pr-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            a.status === 'published' ? 'badge-pass' : 'badge-warn'
+                          }`}
+                        >
+                          {a.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-3 text-slate-500 font-mono">{(a.updated_at || '').slice(0, 10)}</td>
+                      <td className="py-2.5 text-right">
+                        <div className="inline-flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => openArticleEdit(a)}
+                            title="Edit article"
+                            className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-primary hover:bg-slate-100 transition"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setArticleDeleteModal({ open: true, article: a })}
+                            title="Delete article"
+                            className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Change plan modal */}
@@ -1501,6 +1774,303 @@ export function AdminDashboardPage() {
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="secondary" className="text-xs" onClick={() => setPwResetModal({ open: false, user: null })}>Cancel</Button>
               <Button className="text-xs" disabled={pwResetSaving} onClick={confirmPwReset}>{pwResetSaving ? 'Saving…' : 'Set password'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Article edit / create modal */}
+      {articleModal.open && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto"
+          onClick={() => setArticleModal({ open: false, mode: 'create' })}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-6 space-y-4 shadow-xl border border-slate-200 my-8 text-xs text-slate-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {articleModal.mode === 'create' ? 'New article' : 'Edit article'}
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Changes appear live at safecoi.com/articles after saving
+                </p>
+              </div>
+              <button
+                onClick={() => setArticleModal({ open: false, mode: 'create' })}
+                className="text-slate-400 hover:text-slate-700 text-lg px-1"
+              >
+                ×
+              </button>
+            </div>
+
+            {articleError && (
+              <div className="p-2 rounded-lg text-xs bg-rose-50 text-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {articleError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Title *</label>
+                <input
+                  type="text"
+                  value={artTitle}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setArtTitle(v)
+                    if (!slugTouched && articleModal.mode === 'create') {
+                      setArtSlug(v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''))
+                    }
+                  }}
+                  placeholder="e.g. How General Contractors Pass a Workers' Comp Audit"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-slate-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Slug * (kebab-case, part of the URL)
+                </label>
+                <div className="flex items-center">
+                  <span className="text-[11px] text-slate-400 font-mono px-2 py-2 bg-slate-100 border border-r-0 border-slate-300 rounded-l-lg select-none">
+                    /articles/
+                  </span>
+                  <input
+                    type="text"
+                    value={artSlug}
+                    onChange={(e) => {
+                      setSlugTouched(true)
+                      setArtSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                    }}
+                    placeholder="my-article-title"
+                    className="flex-1 font-mono border border-slate-300 rounded-r-lg px-3 py-2 text-xs focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Category / tag *</label>
+                <input
+                  type="text"
+                  value={artTag}
+                  onChange={(e) => setArtTag(e.target.value)}
+                  placeholder="e.g. Endorsements & Coverage"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-slate-500"
+                />
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {tagSuggestions.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setArtTag(t)}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Reading time (minutes)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={artReadingTime}
+                  onChange={(e) => setArtReadingTime(parseInt(e.target.value || '6', 10))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-slate-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Status</label>
+                <select
+                  value={artStatus}
+                  onChange={(e) => setArtStatus(e.target.value as 'published' | 'draft')}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-slate-500"
+                >
+                  <option value="published">Published</option>
+                  <option value="draft">Draft (hidden from hub & search)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Order position (0 = top of hub)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={artPosition}
+                  onChange={(e) => setArtPosition(parseInt(e.target.value || '0', 10))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-slate-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">OG image URL (optional)</label>
+                <input
+                  type="url"
+                  value={artOgImage}
+                  onChange={(e) => setArtOgImage(e.target.value)}
+                  placeholder="https://…/image.png (leave blank for default)"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-slate-500"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Short description * (hub card snippet + meta description)
+                </label>
+                <textarea
+                  rows={2}
+                  value={artDescription}
+                  onChange={(e) => setArtDescription(e.target.value)}
+                  placeholder="1–2 practical sentences summarizing the article"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-slate-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-700">Body HTML *</label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400">
+                    {artBodyHtml.replace(/<[^>]+>/g, '').trim().split(/\s+/).filter(Boolean).length} words ·{' '}
+                    {artBodyHtml.length} chars
+                  </span>
+                  <div className="flex rounded-md border border-slate-200 overflow-hidden text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setArtPreview(false)}
+                      className={`px-2.5 py-1 font-semibold ${
+                        !artPreview ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Write HTML
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setArtPreview(true)}
+                      className={`px-2.5 py-1 font-semibold ${
+                        artPreview ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-2">
+                Write raw HTML. Supports &lt;h2&gt;, &lt;p&gt;, &lt;ul&gt;, &lt;ol&gt;, &lt;strong&gt;, &lt;em&gt;,
+                &lt;div class=&quot;table-wrap&quot;&gt;&lt;table&gt;, &lt;div class=&quot;callout&quot;&gt;.
+              </p>
+              {!artPreview ? (
+                <textarea
+                  rows={18}
+                  value={artBodyHtml}
+                  onChange={(e) => setArtBodyHtml(e.target.value)}
+                  placeholder="<h2>Section heading</h2>&#10;<p>Paragraph text…</p>"
+                  className="w-full border border-slate-300 rounded-lg p-3 font-mono text-[11px] leading-relaxed focus:outline-none focus:border-slate-500 bg-slate-50"
+                  spellCheck={false}
+                />
+              ) : (
+                <div className="border border-slate-300 rounded-lg p-5 bg-white max-h-[500px] overflow-y-auto">
+                  <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 mb-1">{artTag}</div>
+                  <h1 className="text-xl font-bold font-serif text-slate-900 mb-2">{artTitle || 'Untitled'}</h1>
+                  <p className="text-[11px] text-slate-400 mb-4 font-mono">{artReadingTime} min read</p>
+                  <div
+                    className="text-xs text-slate-800 leading-relaxed space-y-3 font-serif [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-slate-900 [&_h2]:mt-5 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_.table-wrap]:overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-slate-300 [&_th]:p-1.5 [&_th]:bg-slate-50 [&_td]:border [&_td]:border-slate-300 [&_td]:p-1.5 [&_.callout]:border-l-4 [&_.callout]:border-brand-primary [&_.callout]:bg-slate-50 [&_.callout]:p-3 [&_.callout]:rounded-r-md"
+                    dangerouslySetInnerHTML={{ __html: artBodyHtml || '<p class="text-slate-400 italic">No content yet</p>' }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <div>
+                {articleModal.mode === 'edit' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const full = articles.find((a) => a.id === articleModal.id)
+                      if (full) setArticleDeleteModal({ open: true, article: full })
+                    }}
+                    className="text-xs text-rose-600 hover:underline font-semibold"
+                  >
+                    Delete this article…
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                {articleModal.mode === 'edit' && artStatus === 'published' && artSlug && (
+                  <a
+                    href={`/articles/${artSlug}/`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-xs text-brand-primary hover:underline font-semibold inline-flex items-center gap-1 mr-2"
+                  >
+                    View live <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                <Button
+                  variant="secondary"
+                  className="text-xs"
+                  onClick={() => setArticleModal({ open: false, mode: 'create' })}
+                >
+                  Cancel
+                </Button>
+                <Button className="text-xs" disabled={articleSaving} onClick={saveArticle}>
+                  {articleSaving ? 'Saving…' : articleModal.mode === 'create' ? 'Create article' : 'Save article'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Article delete confirmation modal */}
+      {articleDeleteModal.open && articleDeleteModal.article && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setArticleDeleteModal({ open: false, article: null })}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3 shadow-xl border border-slate-200 text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Delete article?</h3>
+                <p className="text-slate-500 mt-1">
+                  <strong>{articleDeleteModal.article.title}</strong>
+                </p>
+                <p className="text-[11px] font-mono text-slate-400 mt-0.5">
+                  /articles/{articleDeleteModal.article.slug}/
+                </p>
+              </div>
+            </div>
+            <p className="text-slate-600">
+              This permanently removes the article from the database. Its URL will return a 404 page and it will
+              disappear from the articles hub and the sitemap. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                className="text-xs"
+                onClick={() => setArticleDeleteModal({ open: false, article: null })}
+              >
+                Cancel
+              </Button>
+              <button
+                type="button"
+                disabled={articleDeleting}
+                onClick={deleteArticle}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+              >
+                {articleDeleting ? 'Deleting…' : 'Delete article'}
+              </button>
             </div>
           </div>
         </div>
