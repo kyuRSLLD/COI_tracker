@@ -28,10 +28,8 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenUploadCOI }: Props)
   > = [
     { href: '/#how-it-works', label: 'How it works' },
     { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
-    { to: '/industries/remodeling-contractor-compliance', label: 'Remodeling' },
     { to: '/features/acord-25-endorsement-verification', label: 'ACORD & endorsements' },
     { href: '/#pricing', label: 'Pricing' },
-    { to: '/tools/insurance-clause-generator', label: 'Clause generator' },
   ]
 
   const nav = (() => {
