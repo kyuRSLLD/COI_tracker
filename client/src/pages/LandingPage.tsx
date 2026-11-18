@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   ShieldCheck, ArrowRight, CheckCircle2, Clock, Share2, FileCheck, Users, Lock, ChevronRight, Building, Check,
 } from 'lucide-react'
-
+import { SEO } from '../components/SEO'
+import { MarketingFooter } from '../components/MarketingFooter'
 interface Props {
   onLogin: () => void
 }
@@ -78,6 +79,12 @@ export function LandingPage({ onLogin }: Props) {
   ]
 
   return (
+    <>
+      <SEO
+        title="COI Tracking & Validation Software for Contractors | Safecoi"
+        description="Safecoi is B2B software that helps general contractors collect, read, and verify subcontractor certificates of insurance and endorsements with AI — before anyone steps on site."
+        canonical="https://safecoi.com/"
+      />
     <div className="min-h-screen bg-slate-50">
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-b from-brand-950 via-slate-900 to-slate-950 text-white">
@@ -526,7 +533,9 @@ export function LandingPage({ onLogin }: Props) {
           </p>
         </div>
       </section>
+      <MarketingFooter />
     </div>
+    </>
   )
 }
 

@@ -1,0 +1,33 @@
+# robots.txt for safecoi.com
+# Allow all major search engines to crawl public marketing pages and blog.
+# Keep authenticated app routes, API endpoints, and private share links out of the index.
+
+User-agent: *
+Allow: /
+Allow: /solutions/
+Allow: /industries/
+Allow: /features/
+Allow: /tools/
+Allow: /pricing
+Allow: /about
+Allow: /blog
+Allow: /blog/
+Allow: /legal/
+
+# Block the authenticated app and API (these require login anyway; noindex is also set per-route)
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /subcontractor
+Disallow: /subs
+Disallow: /review
+Disallow: /settings
+Disallow: /client-view
+Disallow: /share/
+Disallow: /preview/
+Disallow: /onboarding
+
+# Sitemap location
+Sitemap: https://safecoi.com/sitemap.xml

@@ -14,6 +14,12 @@ interface Props {
 export function Navbar({ user, onLogout, onOpenAddSub, onOpenUploadCOI }: Props) {
   const loc = useLocation()
 
+  const publicNav = [
+    { to: '/solutions/subcontractor-coi-tracking', label: 'Sub tracking' },
+    { to: '/industries/remodeling-contractor-compliance', label: 'Remodeling' },
+    { to: '/features/acord-25-endorsement-verification', label: 'ACORD 25 & endorsements' },
+    { to: '/tools/insurance-clause-generator', label: 'Clause generator' },
+  ]
   const nav = (() => {
     if (user?.role === 'sub') {
       return [
@@ -58,6 +64,26 @@ export function Navbar({ user, onLogout, onOpenAddSub, onOpenUploadCOI }: Props)
                     }`}
                   >
                     <Icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
+          )}
+          {!user && (
+            <nav className="hidden md:flex items-center gap-1 text-xs sm:text-sm font-medium">
+              {publicNav.map((item) => {
+                const active = loc.pathname === item.to
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                      active
+                        ? 'text-brand-700 bg-brand-50 font-semibold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
                     {item.label}
                   </Link>
                 )

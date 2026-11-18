@@ -1,0 +1,68 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://safecoi.com/#organization",
+      "name": "Safecoi",
+      "legalName": "Safecoi LLC",
+      "url": "https://safecoi.com",
+      "logo": "https://safecoi.com/logo.png",
+      "description": "Safecoi is independent B2B compliance software for general contractors \u2014 automated certificate of insurance (COI) collection, AI-powered ACORD 25 and endorsement verification, and expiration tracking. Safecoi is not affiliated with Safeco Insurance.",
+      "knowsAbout": [
+        "certificates of insurance",
+        "COI tracking",
+        "ACORD 25",
+        "additional insured endorsements",
+        "waiver of subrogation",
+        "subcontractor insurance compliance",
+        "workers compensation audit",
+        "construction risk management"
+      ],
+      "sameAs": []
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://safecoi.com/#website",
+      "url": "https://safecoi.com",
+      "name": "Safecoi",
+      "description": "Certificate of insurance tracking and AI validation software for general contractors.",
+      "publisher": {
+        "@id": "https://safecoi.com/#organization"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://safecoi.com/#software",
+      "name": "Safecoi",
+      "url": "https://safecoi.com",
+      "applicationCategory": "BusinessApplication",
+      "applicationSubCategory": "Certificate of Insurance Validation Software",
+      "operatingSystem": "Web, iOS, Android (PWA)",
+      "description": "AI-powered certificate of insurance (COI) tracking and validation software for general contractors in commercial construction, residential remodeling, and home repair. Automatically reads ACORD 25 certificates and endorsements, checks limits and dates, alerts on expirations, and keeps sub files audit-ready. Not affiliated with Safeco Insurance.",
+      "featureList": [
+        "AI-powered ACORD 25 certificate reading",
+        "Endorsement verification (Additional Insured CG 20 10 / CG 20 37, Waiver of Subrogation, Primary & Non-Contributory)",
+        "Expiration tracking and automated alerts",
+        "Subcontractor onboarding via QR code or invite link (no sub account needed)",
+        "Human review workflow \u2014 AI assists, humans decide",
+        "Workers' comp audit-ready compliance records",
+        "Public compliance sharing links for clients"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "name": "Free trial",
+        "description": "Validate your first certificates of insurance free."
+      },
+      "audience": {
+        "@type": "BusinessAudience",
+        "audienceType": "General contractors, remodeling contractors, home repair contractors, subcontractors, commercial construction companies"
+      },
+      "creator": {
+        "@id": "https://safecoi.com/#organization"
+      }
+    }
+  ]
+}

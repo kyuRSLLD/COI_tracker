@@ -24,7 +24,10 @@ import { SubcontractorModal } from './components/SubcontractorModal'
 import { AddCOIModal } from './components/AddCOIModal'
 import { ConnectionSession } from './components/ConnectionOptions'
 import { ConnectSubPage, captureConnectionFragment } from './pages/ConnectSubPage'
-
+import { SubcontractorCoiTrackingPage } from './pages/solutions/SubcontractorCoiTrackingPage'
+import { RemodelingContractorCompliancePage } from './pages/industries/RemodelingContractorCompliancePage'
+import { Acord25EndorsementVerificationPage } from './pages/features/Acord25EndorsementVerificationPage'
+import { InsuranceClauseGeneratorPage } from './pages/tools/InsuranceClauseGeneratorPage'
 function roleHome(u: User | null): string {
   if (!u) return '/login'
   if (u.role === 'admin') return '/staff'
@@ -212,6 +215,10 @@ function App() {
             }} />}
           />
           <Route path="/demo" element={<Navigate to="/login" replace />} />
+          <Route path="/solutions/subcontractor-coi-tracking" element={<SubcontractorCoiTrackingPage />} />
+          <Route path="/industries/remodeling-contractor-compliance" element={<RemodelingContractorCompliancePage />} />
+          <Route path="/features/acord-25-endorsement-verification" element={<Acord25EndorsementVerificationPage />} />
+          <Route path="/tools/insurance-clause-generator" element={<InsuranceClauseGeneratorPage />} />
           <Route element={sessionStatus === 'checking' ? <SessionChecking /> : sessionStatus === 'error' ? <SessionUnavailable /> : <Outlet />}>
           <Route
             path="/dashboard"
