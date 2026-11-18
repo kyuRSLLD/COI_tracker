@@ -211,7 +211,7 @@ export function LandingPage({ onLogin }: Props) {
       </section>
 
       {/* How it works — three sides, one platform */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-20">
+      <section id="how-it-works" className="max-w-6xl mx-auto px-4 sm:px-6 py-20">
         <div className="text-center max-w-2xl mx-auto">
           <div className="text-xs font-bold uppercase tracking-wider text-brand-600 font-['JetBrains_Mono']">How it works</div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 mt-2">All three sides of compliance, one place</h2>
