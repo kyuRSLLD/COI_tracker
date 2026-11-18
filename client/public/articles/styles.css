@@ -304,10 +304,19 @@ h3.card-h{font-size:1.06rem;line-height:1.35;color:var(--ink);font-weight:680;ma
   .site-header .wrap{height:auto;flex-wrap:wrap;padding:10px 24px;gap:8px}
   .nav{display:flex;width:100%;overflow-x:auto;gap:18px;font-size:13.5px;margin-left:0;padding-bottom:4px;scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}
+  .nav a{white-space:nowrap}
   .nav .btn{margin-left:auto;padding:7px 13px;white-space:nowrap}
   .hero{padding:44px 0 40px}
   .section{padding:52px 0}
   .article-head{padding-top:26px}
+}
+/* phones: brand plus one action, no scrolling nav */
+@media(max-width:560px){
+  .site-header .wrap{padding:10px 20px}
+  .nav{width:auto;margin-left:auto;gap:0;overflow:visible}
+  .nav a:not(.btn){display:none}
+  .hero{padding:32px 0 30px}
+  .page-hero{padding:40px 0 32px}
 }
 .nav a.on{color:var(--ink);font-weight:640}
 
