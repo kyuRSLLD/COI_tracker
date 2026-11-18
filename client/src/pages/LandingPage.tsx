@@ -40,8 +40,8 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       num: '04',
-      title: 'Shareable project reports',
-      body: 'Share a project report with inspectors, lenders, or owners and print it for your records. Reminder emails are simulated and are not delivered.',
+      title: 'Audit-ready records on file',
+      body: "Every COI, endorsement status, and renewal date is stored and dated. Print project reports or export your roster before your annual Workers' Comp audit, GL review, or owner meeting — the documentation trail is already built.",
       icon: FileCheck,
       tint: 'bg-sky-100 text-sky-700',
     },
@@ -62,7 +62,7 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       q: 'Where are my certificates stored?',
-      a: 'Files are stored in Amazon S3 for durable, encrypted storage, with a zero-config local storage fallback during development. The app is ready to deploy on Railway with a PostgreSQL database.',
+      a: "Files are stored in Amazon S3 for durable, encrypted storage, with a zero-config local storage fallback during development. The app is ready to deploy on Railway with a PostgreSQL database. Every submission is stamped with dates and status history so you have an organized, defensible record for Workers' Comp audits and GL reviews.",
     },
     {
       q: 'How do expiration reminders work?',
@@ -82,7 +82,7 @@ export function LandingPage({ onLogin }: Props) {
     <>
       <SEO
         title="COI Tracking & Validation Software for Contractors | Safecoi"
-        description="Safecoi is B2B software that helps general contractors collect, read, and verify subcontractor certificates of insurance and endorsements with AI — before anyone steps on site."
+        description="Safecoi is B2B software that helps general contractors collect, organize, and verify subcontractor COIs and endorsements — so your records are audit-ready before anyone steps on site."
         canonical="https://safecoi.com/"
       />
     <div className="min-h-screen bg-slate-50">
@@ -104,7 +104,7 @@ export function LandingPage({ onLogin }: Props) {
               </span>
             </h1>
             <p className="mt-5 text-base sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              One platform where General Contractors request Certificates of Insurance, subcontractors upload them, and clients can view anonymized project reports. Reports do not verify insurance coverage.
+              One place for every subcontractor certificate: collected, organized by trade, status, and project, and kept on record for your Workers' Comp audits and insurance reviews. Clients can also view anonymized project reports. Reports do not verify insurance coverage.
             </p>
           </div>
 
@@ -207,6 +207,35 @@ export function LandingPage({ onLogin }: Props) {
               <div className="text-xs text-slate-600 mt-1 leading-snug">{c.label}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Audit-readiness ribbon */}
+      <section className="bg-slate-900 text-white py-10 border-t border-white/10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="max-w-2xl">
+            <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 font-['JetBrains_Mono']">
+              Audit-ready by default
+            </div>
+            <p className="text-sm sm:text-base text-slate-200 mt-2 font-medium leading-relaxed">
+              One uninsured sub on paper can get added to your payroll at audit time. Safecoi keeps every active
+              certificate on record — organized by project, status, and trade — so you never scramble for paper.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <a
+              href="/articles/pass-workers-comp-audit-subcontractors/"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-white hover:text-emerald-300 underline underline-offset-4"
+            >
+              Read the GC audit survival guide <ArrowRight className="w-3.5 h-3.5" />
+            </a>
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-emerald-300 hover:bg-emerald-400 transition"
+            >
+              Get audit-ready free
+            </Link>
+          </div>
         </div>
       </section>
 
