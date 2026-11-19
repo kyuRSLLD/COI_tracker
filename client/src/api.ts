@@ -473,3 +473,57 @@ export const apiAdminArticles = {
   remove: (id: string) =>
     request<{ success: boolean; deleted: string }>(`/api/admin/articles/${id}`, { method: 'DELETE' }),
 }
+
+
+export const apiAgentAdmin = {
+  keys: () => request<{ keys: import('./types').AgentApiKey[] }>('/api/agent/v1/admin/keys'),
+  createKey: (name: string, scopes?: string) =>
+    request<{ ok: boolean; key: { id: string; key: string; prefix: string; name: string; scopes: string; created_at: string } }>('/api/agent/v1/admin/keys', {
+      method: 'POST',
+      body: JSON.stringify({ name, scopes }),
+    }),
+  revokeKey: (id: string) =>
+    request<{ ok: boolean }>(`/api/agent/v1/admin/keys/${id}`, { method: 'DELETE' }),
+  stats: () =>
+    request<{
+      counts: Array<{ status: string; channel: string; c: number }>
+      recent: Array<import('./types').AgentConfirmationItem & { carrier?: string | null; sub_company_name?: string | null }>
+    }>('/api/agent/v1/admin/stats'),
+}
+
+export const apiAgent = {
+  queue: (params?: { channel?: string; status?: string; has_phone?: boolean; has_email?: boolean; limit?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.channel) q.set('channel', params.channel)
+    if (params?.status) q.set('status', params.status)
+    if (params?.has_phone) q.set('has_phone', 'true')
+    if (params?.has_email) q.set('has_email', 'true')
+    if (params?.limit) q.set('limit', String(params.limit))
+    return request<{ count: number; items: import('./types').ConfirmationQueueItem[] }>(`/api/agent/v1/queue?${q.toString()}`)
+  },
+  brief: (coiId: string) => request<any>(`/api/agent/v1/brief/${coiId}`),
+  dispatchCall: (body: { coiId: string; toPhone?: string; provider?: 'twilio' | 'elevenlabs' | 'external' }) =>
+    request<{ confirmation: import('./types').AgentConfirmationItem; dialing: { to: string; script_prompt: string; provider: string; provider_call_id?: string } }>('/api/agent/v1/calls/dispatch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  recordCallResult: (confirmationId: string, outcome: 'verified' | 'rejected' | 'unreachable' | 'failed' | 'voicemail', body?: { notes?: string; recordingUrl?: string }) =>
+    request<{ ok: boolean; confirmation: import('./types').AgentConfirmationItem }>(`/api/agent/v1/calls/${confirmationId}/result`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, ...(body || {}) }),
+    }),
+  sendEmail: (body: { coiId: string; toEmail?: string; personalMessage?: string }) =>
+    request<{ confirmation: import('./types').AgentConfirmationItem; emailId: string; template: { subject: string; body: string } }>('/api/agent/v1/emails/send', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  emailTemplate: (coiId: string) =>
+    request<{ subject: string; body: string }>(`/api/agent/v1/emails/template/${coiId}`),
+  recordEmailResult: (confirmationId: string, outcome: 'verified' | 'rejected' | 'unreachable', notes?: string) =>
+    request<{ ok: boolean; confirmation: import('./types').AgentConfirmationItem }>(`/api/agent/v1/emails/${confirmationId}/result`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, notes }),
+    }),
+  confirmations: (coiId: string) =>
+    request<{ confirmations: import('./types').AgentConfirmationItem[] }>(`/api/agent/v1/cois/${coiId}/confirmations`),
+}

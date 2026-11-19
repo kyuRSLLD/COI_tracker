@@ -392,3 +392,43 @@ export interface Article {
   created_at: string
   updated_at: string
 }
+
+export interface AgentApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  scopes: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  created_by_email?: string | null
+}
+
+export interface AgentConfirmationItem {
+  id: string
+  coi_id: string
+  channel: 'call' | 'email'
+  target: 'agency' | 'carrier'
+  recipient?: string | null
+  status: 'queued' | 'in_progress' | 'verified' | 'rejected' | 'unreachable' | 'failed'
+  result_notes?: string | null
+  answers_json?: string | null
+  recording_url?: string | null
+  agent_id?: string | null
+  verified_policies_json?: string | null
+  provider_payload_json?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConfirmationQueueItem {
+  coi_id: string
+  sub_company_name: string | null
+  carrier: string | null
+  expiration_date: string | null
+  producer_phone: string | null
+  producer_email: string | null
+  preferred_channel: 'call' | 'email' | 'both' | 'none'
+  last_confirmation?: AgentConfirmationItem | null
+}

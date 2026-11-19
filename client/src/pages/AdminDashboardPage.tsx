@@ -1,5 +1,6 @@
 import { Button } from '../components/Button'
 import { StaffSidebar } from '../components/StaffSidebar'
+import { AgentControlPanel } from '../components/AgentControlPanel'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiAdmin, apiAdminArticles, apiMe, signOut, apiCoiFields, getToken, ApiError } from '../api'
@@ -1766,6 +1767,7 @@ export function AdminDashboardPage() {
             </table>
           </div>
         </div>
+        <AgentControlPanel onRefreshMain={() => { loadCoiQueue(coiFilter, coiSearch); load() }} />
       </div>
 
       {/* Change plan modal */}

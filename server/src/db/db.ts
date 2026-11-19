@@ -447,6 +447,37 @@ export async function initDatabase(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_articles_status_pos ON articles(status, position);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);
+    CREATE TABLE IF NOT EXISTS agent_api_keys (
+      id TEXT PRIMARY KEY,
+      key_hash TEXT UNIQUE NOT NULL,
+      key_prefix TEXT NOT NULL,
+      name TEXT NOT NULL,
+      scopes TEXT NOT NULL DEFAULT 'coi:confirm',
+      created_by_user_id TEXT,
+      last_used_at TEXT,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_api_keys_hash ON agent_api_keys(key_hash);
+    CREATE TABLE IF NOT EXISTS coi_confirmations (
+      id TEXT PRIMARY KEY,
+      coi_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      target TEXT NOT NULL DEFAULT 'agency',
+      recipient TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      result_notes TEXT,
+      answers_json TEXT,
+      recording_url TEXT,
+      agent_id TEXT,
+      verified_policies_json TEXT,
+      provider_payload_json TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_coi_confirmations_coi ON coi_confirmations(coi_id);
+    CREATE INDEX IF NOT EXISTS idx_coi_confirmations_status ON coi_confirmations(status);
   `
 
   await dbExec(schema)
@@ -623,6 +654,29 @@ export async function initDatabase(): Promise<void> {
     }
   } catch (e: any) {
     console.warn('[db] limit amounts backfill warning:', e?.message)
+  }
+  try {
+    for (const [tbl, col, def] of [
+      ['cois', 'confirmed_via', 'TEXT'],
+      ['cois', 'confirmed_at', 'TEXT'],
+      ['cois', 'confirmed_notes', 'TEXT'],
+    ] as const) {
+      if (isPostgres) {
+        await dbRun(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS ${col} ${def}`)
+      } else {
+        const columns = await dbAll<{ name: string }>(`PRAGMA table_info(${tbl})`)
+        if (!columns.some((entry) => entry.name === col)) {
+          try {
+            await dbRun(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${def}`)
+          } catch (error) {
+            const current = await dbAll<{ name: string }>(`PRAGMA table_info(${tbl})`)
+            if (!current.some((entry) => entry.name === col)) throw error
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[db] confirmation columns migration warning:', e?.message)
   }
   try {
     await seedArticlesIfEmpty()

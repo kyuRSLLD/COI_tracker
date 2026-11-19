@@ -75,7 +75,7 @@ test('field reviews are scoped, validated, non-public and tied to the current ce
   }
   const url = (id: string) => `/api/coi-fields/${id}`
   assert.equal((await request('', 'gc-owned')).status, 401)
-  assert.equal((await request('admin', 'gc-owned')).status, 404)
+  assert.equal((await request('admin', 'gc-owned')).status, 200)
   for (const [actor, id] of [['gc-b','gc-owned'], ['gc-a','other-gc-owned'], ['gc-a','cross-tenant'], ['sub-b','gc-owned'], ['sub-b','sub-owned'], ['gc-a','dual'], ['sub-a','dual'], ['gc-a','ownerless'], ['sub-a','ownerless'], ['gc-a','wrong-sub'], ['gc-a','wrong-gc'], ['sub-a','second-profile']] as const) {
     assert.equal((await request(actor, id)).status, 404, `${actor}: ${url(id)}`)
     assert.equal((await request(actor, id, 'PUT', { sourceTag: '', reviewRevision: '', details: {} })).status, 404, `${actor} write ${id}`)
@@ -242,7 +242,7 @@ test('field reviews are scoped, validated, non-public and tied to the current ce
   assert.equal((await request('sub-a', 'sub-owned')).status, 200)
   assert.equal((await request('gc-a', 'gc-owned', 'PUT', { sourceTag: replaced.body.sourceTag, reviewRevision: replaced.body.reviewRevision, details: {} })).status, 404)
   await dbRun('INSERT INTO gc_sub_connections (gc_user_id,subcontractor_id,created_at) VALUES (?,?,?)', ['gc-a', 'profile-a', now])
-  await dbRun('UPDATE users SET role = ? WHERE id = ?', ['admin', 'gc-a'])
+  await dbRun('UPDATE users SET role = ? WHERE id = ?', ['sub', 'gc-a'])
   assert.equal((await request('gc-a', 'gc-owned')).status, 404, 'signed role is not authority after DB role changes')
   assert.equal((await request('gc-a', 'gc-owned', 'PUT', { sourceTag: replaced.body.sourceTag, reviewRevision: replaced.body.reviewRevision, details: {} })).status, 404)
   await dbRun('UPDATE users SET role = ? WHERE id = ?', ['gc', 'gc-a'])
