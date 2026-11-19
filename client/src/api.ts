@@ -35,7 +35,10 @@ export function setToken(token: string | null): void {
 export function getStoredUser(): User | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return null
+    let u: unknown = JSON.parse(raw)
+    if (typeof u === 'string') { try { u = JSON.parse(u) } catch {} }
+    return (u && typeof u === 'object') ? (u as User) : null
   } catch {
     return null
   }

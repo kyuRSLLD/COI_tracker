@@ -64,6 +64,9 @@ export interface COI {
   company_name?: string
   trade?: string
   contact_person?: string | null
+  owner_sub_user_id?: string | null
+  owner_gc_user_id?: string | null
+  is_company_coi?: boolean
   coverages?: COICoverage[]
 }
 

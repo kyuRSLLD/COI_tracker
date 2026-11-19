@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, Download, X, FileText, Layers, ExternalLink, Printer } from 'lucide-react'
 import type { COI } from '../types'
-import { getToken, SESSION_CHANGED_EVENT } from '../api'
+import { getToken, getStoredUser, SESSION_CHANGED_EVENT } from '../api'
 import { ConnectionSession } from './ConnectionOptions'
 import { AcordCertificateForm } from './AcordCertificateForm'
 
@@ -63,6 +63,18 @@ export function CertificateViewer({ certificate, onClose, returnLabel, onEdit, i
   const fileUrl = docProxyUrl || signedUrl
   const kind = certificatePreviewKind(certificate)
   const hasFile = Boolean(certificate.certificate_key || certificate.certificate_url)
+
+  // PDF copy rule: subs/GCs cannot download PDFs of their own unverified certificates;
+  // GCs and Admin may download PDFs even for unverified certificates of their subs.
+  const currentUser = getStoredUser()
+  const role = currentUser?.role
+  const isVerified = certificate.status === 'compliant'
+  const isGc = role === 'gc' || role === 'pro_gc'
+  const isSub = role === 'sub'
+  const isOwnCoi =
+    (isSub && (certificate.owner_sub_user_id === currentUser?.id || certificate.owner_gc_user_id == null)) ||
+    (isGc && (certificate.owner_gc_user_id === currentUser?.id || Boolean((certificate as any).is_company_coi)))
+  const canDownloadPdf = isOwnCoi ? isVerified : isVerified || isGc || role === 'admin' || role === 'staff'
 
   const hasExtractedData = useMemo(() => {
     const rd: any = certificate.review_details
@@ -270,7 +282,7 @@ export function CertificateViewer({ certificate, onClose, returnLabel, onEdit, i
             </button>
           </div>
           <div className="flex items-center gap-1.5 py-1">
-            {docProxyUrl && (
+            {docProxyUrl && canDownloadPdf && (
               <a
                 href={docProxyUrl}
                 target="_blank"
@@ -358,14 +370,22 @@ export function CertificateViewer({ certificate, onClose, returnLabel, onEdit, i
                 : 'If the PDF does not render, use the “Certificate form” tab above, or download the original file below.'}
             </p>
             {hasFile && (
-              <button
-                type="button"
-                onClick={download}
-                disabled={downloading}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Download aria-hidden="true" className="h-4 w-4" /> {downloading ? 'Downloading…' : 'Download original PDF'}
-              </button>
+              hasFile && (
+                canDownloadPdf ? (
+                  <button
+                    type="button"
+                    onClick={download}
+                    disabled={downloading}
+                    className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Download aria-hidden="true" className="h-4 w-4" /> {downloading ? 'Downloading…' : 'Download original PDF'}
+                  </button>
+                ) : isOwnCoi ? (
+                  <span className="text-xs text-slate-400 italic">
+                    PDF copy available once this certificate is verified.
+                  </span>
+                ) : null
+              )
             )}
           </div>
           {downloadError && (
