@@ -74,13 +74,31 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
           best_coi: computed.bestCOI ? labelSimulatedCarrierCOI(computed.bestCOI) : null,
           days_left: computed.daysLeft,
           coi_count: cois.length,
+          _coisRaw: cois,
         }
       })
     )
 
+    const allCoiIds = Array.from(new Set(enriched.flatMap((s: any) => (s._coisRaw || []).map((c: any) => c.id)).filter(Boolean)))
+    const coveragesByCoi: Record<string, any[]> = {}
+    if (allCoiIds.length) {
+      const ph = allCoiIds.map(() => '?').join(',')
+      const covRows = await dbAll(`SELECT * FROM coi_coverages WHERE coi_id IN (${ph})`, allCoiIds)
+      for (const cov of covRows) (coveragesByCoi[cov.coi_id] ||= []).push(cov)
+    }
+    const safeEnriched = enriched.map((s: any) => {
+      const cois = (s._coisRaw || []).map((c: any) => {
+        let review_details: any = null
+        if (c.review_details_json) { try { review_details = JSON.parse(c.review_details_json) } catch {} }
+        const { certificate_key: _k, review_details_json: _rj, ...pub } = c
+        return { ...labelSimulatedCarrierCOI(pub), coverages: coveragesByCoi[c.id] || [], review_details }
+      })
+      const { _coisRaw: _raw, ...rest } = s
+      return { ...rest, cois }
+    })
     const filtered = status && status !== 'all'
-      ? enriched.filter((s) => s.computed_status === status)
-      : enriched
+      ? safeEnriched.filter((s: any) => s.computed_status === status)
+      : safeEnriched
 
     res.json({ subcontractors: filtered })
   } catch (err: any) {

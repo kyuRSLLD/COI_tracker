@@ -15,6 +15,7 @@ import { COIReviewModal } from '../components/COIReviewModal'
 import { AddCOIModal } from '../components/AddCOIModal'
 import { CompanyCOICard } from '../components/CompanyCOICard'
 import { KpiSubListModal } from '../components/KpiSubListModal'
+import { SubcontractorsDesktopTable } from '../components/SubcontractorsDesktopTable'
 import type { KpiBucket } from '../components/KpiSubListModal'
 
 interface Props {
@@ -35,6 +36,7 @@ export function Dashboard() {
   const [reviewModal, setReviewModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [kpiFilter, setKpiFilter] = useState<KpiBucket | null>(null)
+  const [totalTableOpen, setTotalTableOpen] = useState(false)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -114,7 +116,27 @@ export function Dashboard() {
       <ExpiryBanner upcoming={stats.upcoming} onReminderSent={() => { showToast('Renewal reminder queued (simulated)'); load() }} />
 
       {/* Stats grid */}
-      <StatsGrid stats={stats} onFilterClick={(bucket) => setKpiFilter(bucket as KpiBucket)} />
+      <StatsGrid
+        stats={stats}
+        onFilterClick={(bucket) => {
+          if (bucket === 'all') {
+            if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+              setTotalTableOpen((v) => !v)
+            } else {
+              setKpiFilter('all')
+            }
+          } else {
+            setKpiFilter(bucket as KpiBucket)
+          }
+        }}
+      />
+      <SubcontractorsDesktopTable
+        open={totalTableOpen}
+        subs={subs}
+        onClose={() => setTotalTableOpen(false)}
+        onRequestCOI={() => { setSubModalMode('connect'); setSubModalOpen(true) }}
+        onUploadCOI={() => setAddCoiModal(true)}
+      />
 
       {/* Compliance score + quick facts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
