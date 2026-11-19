@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ShieldCheck, ArrowRight } from 'lucide-react'
+import { ShieldCheck, ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { apiLogin, apiRegister, getToken } from '../api'
 import { formatPhone, US_PHONE_PATTERN } from '../lib/formatPhone'
 import type { User } from '../types'
@@ -16,6 +16,7 @@ export function LoginPage({ onLogin, getSessionVersion }: { onLogin: (session: {
   )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [phone, setPhone] = useState('')
@@ -181,15 +182,27 @@ export function LoginPage({ onLogin, getSessionVersion }: { onLogin: (session: {
             </div>
             <div className="space-y-1">
               <label htmlFor="auth-password" className="text-[11px] font-semibold text-slate-600">Password</label>
-              <input
-                id="auth-password"
-                required
-                type="password"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClassName}
-              />
+              <div className="relative">
+                <input
+                  id="auth-password"
+                  required
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={`${inputClassName} pr-11`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center justify-center w-11 text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-700 rounded-r-xl"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
