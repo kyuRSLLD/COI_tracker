@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { latestExpirationDate, normalizeExtractedForDb, matchOrCreateSubcontractorFromInsured, applyExtractedFieldsToCoi } from '../src/services/coiFieldSync.ts'
 import { dbRun, dbGet, initDatabase } from '../src/db/db.ts'
+import { createApp } from '../src/app.ts'
+import { signToken } from '../src/middleware/auth.ts'
 
 test('latestExpirationDate returns undefined for empty input', () => {
   assert.equal(latestExpirationDate([]), undefined)
@@ -105,4 +107,62 @@ test('applyExtractedFieldsToCoi stores the MAX policy expiration date on cois.ex
   await applyExtractedFieldsToCoi(coiId, fields)
   const coi = await dbGet<any>('SELECT expiration_date FROM cois WHERE id = ?', [coiId])
   assert.equal(coi.expiration_date, '12/15/2026')
+})
+
+
+
+test('coi-fields GET returns 200 and editable=true for an admin reading any COI', async () => {
+  const adminId = randomUUID()
+  const now = new Date().toISOString()
+  await dbRun("INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, 'x', 'Admin', 'admin', ?)", [adminId, `admin-${adminId}@test.local`, now])
+  const gc = await mkGc()
+  const { coiId } = await mkCoi(gc)
+  const app = await createApp()
+  const server = app.listen(0)
+  const port = (server.address() as any).port
+  const adminToken = signToken({ id: adminId, email: `admin-${adminId}@test.local`, role: 'admin' })
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/coi-fields/${coiId}`, { headers: { authorization: `Bearer ${adminToken}` } })
+    assert.equal(res.status, 200)
+    const body = await res.json() as any
+    assert.equal(body.editable, true)
+  } finally {
+    server.close()
+  }
+})
+
+test('coi-fields PUT succeeds for an admin saving any COI review', async () => {
+  const adminId = randomUUID()
+  const now = new Date().toISOString()
+  await dbRun("INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, 'x', 'Admin', 'admin', ?)", [adminId, `admin-${adminId}@test.local`, now])
+  const gc = await mkGc()
+  const { coiId } = await mkCoi(gc)
+  const app = await createApp()
+  const server = app.listen(0)
+  const port = (server.address() as any).port
+  const adminToken = signToken({ id: adminId, email: `admin-${adminId}@test.local`, role: 'admin' })
+  try {
+    const getRes = await fetch(`http://127.0.0.1:${port}/api/coi-fields/${coiId}`, { headers: { authorization: `Bearer ${adminToken}` } })
+    assert.equal(getRes.status, 200)
+    const body = await getRes.json() as any
+    const putRes = await fetch(`http://127.0.0.1:${port}/api/coi-fields/${coiId}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sourceTag: body.sourceTag,
+        reviewRevision: body.reviewRevision,
+        details: {
+          insured: { name: 'Corrected Insured LLC' },
+          insurers: [{ name: 'Carrier A' }],
+          policies: [{ type: 'GL', policyNumber: 'CORR-1', effectiveDate: '01/01/2027', expirationDate: '01/01/2028' }],
+          source: 'manual',
+        },
+      }),
+    })
+    assert.equal(putRes.status, 200)
+    const putBody = await putRes.json() as any
+    assert.equal(putBody.details?.insured?.name, 'Corrected Insured LLC')
+  } finally {
+    server.close()
+  }
 })

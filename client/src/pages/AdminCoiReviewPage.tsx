@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { apiAdmin, signOut } from '../api'
+import { apiAdmin, signOut, apiCoiFields, getToken, ApiError } from '../api'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
-import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2 } from 'lucide-react'
+import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2, FileEdit } from 'lucide-react'
 import { isExpiredDate, formatDisplayDate } from '../lib/date'
 import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
+import { CoiFieldsReview } from '../components/CoiFieldsReview'
+import { editorDetails, type FieldsDetails } from '../lib/coiEditorDetails'
 interface Check {
   name: string
   value: string
@@ -28,7 +30,17 @@ export function AdminCoiReviewPage() {
   const [zoom, setZoom] = useState(1)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const [ladder, setLadder] = useState<{ emailSent?: boolean }>({})
+  const [fieldsReview, setFieldsReview] = useState<{
+    loading: boolean
+    details: FieldsDetails | null
+    sourceTag: string
+    reviewRevision: string | null
+    editable: boolean
+    saving: boolean
+    error: string | null
+  } | null>(null)
 
   const load = useCallback(async () => {
     if (!coiId) return
@@ -78,6 +90,51 @@ export function AdminCoiReviewPage() {
       setError(err?.message || 'Could not save decision')
     } finally {
       setSaving(false)
+    }
+  }
+  const handleCheckAgain = async () => {
+    if (!coiId || extracting || saving) return
+    setExtracting(true)
+    setError(null)
+    try {
+      await apiAdmin.extractCoi(coiId)
+      await load()
+    } catch (err: any) {
+      setError(err?.message || 'AI extraction failed')
+    } finally {
+      setExtracting(false)
+    }
+  }
+  const openEditFields = async () => {
+    if (!coiId) return
+    const token = getToken()
+    if (!token) return
+    setFieldsReview({ loading: true, details: null, sourceTag: '', reviewRevision: null, editable: true, saving: false, error: null })
+    try {
+      const res = await apiCoiFields.get(coiId, token)
+      setFieldsReview({
+        loading: false, details: editorDetails(res.details || null), sourceTag: res.sourceTag,
+        reviewRevision: res.reviewRevision, editable: res.editable !== false, saving: false, error: null,
+      })
+    } catch (err: any) {
+      setFieldsReview({ loading: false, details: editorDetails(null), sourceTag: '', reviewRevision: null, editable: true, saving: false, error: err?.message || 'Unable to load fields' })
+    }
+  }
+  const closeEditFields = () => setFieldsReview(null)
+  const saveEditedFields = async () => {
+    if (!coiId || !fieldsReview?.details || !fieldsReview.sourceTag || !fieldsReview.reviewRevision) return
+    const token = getToken()
+    if (!token) return
+    setFieldsReview((c) => c && { ...c, saving: true, error: null })
+    try {
+      await apiCoiFields.save(coiId, { sourceTag: fieldsReview.sourceTag, reviewRevision: fieldsReview.reviewRevision, details: fieldsReview.details }, token)
+      setFieldsReview(null)
+      await load()
+    } catch (err: any) {
+      const msg = err instanceof ApiError && err.status === 409
+        ? 'This review was modified elsewhere. Close and reopen to reload.'
+        : err instanceof Error ? err.message : 'Unable to save'
+      setFieldsReview((c) => c && { ...c, saving: false, error: msg })
     }
   }
 
@@ -133,18 +190,40 @@ export function AdminCoiReviewPage() {
               </span>
             )}
           </div>
-          {pendingIds.length > 0 && (
-            <div className="text-xs text-slate-500 flex items-center gap-3">
-              <span>{Math.max(1, idx + 1)} of {pendingIds.length} waiting</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {pendingIds.length > 0 && (
+              <div className="text-xs text-slate-500 flex items-center gap-3 mr-2">
+                <span>{Math.max(1, idx + 1)} of {pendingIds.length} waiting</span>
+                <button
+                  onClick={goNext}
+                  className="hover:text-ink font-medium underline-offset-2 hover:underline"
+                  title="Keyboard shortcut J"
+                >
+                  J next
+                </button>
+              </div>
+            )}
+            {data?.coi?.certificate_key && (
               <button
-                onClick={goNext}
-                className="hover:text-ink font-medium underline-offset-2 hover:underline"
-                title="Keyboard shortcut J"
+                type="button"
+                onClick={handleCheckAgain}
+                disabled={extracting || saving}
+                title="Re-run AI extraction on this certificate to refresh dates, carrier, and policy details"
+                className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shadow-sm"
               >
-                J next
+                <Sparkles className={`w-3.5 h-3.5 ${extracting ? 'animate-spin' : ''}`} />
+                {extracting ? 'Checking…' : 'Check again'}
               </button>
-            </div>
-          )}
+            )}
+            <button
+              type="button"
+              onClick={openEditFields}
+              title="View and correct extracted fields (dates, amounts, carrier, policies)"
+              className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm"
+            >
+              <FileEdit className="w-3.5 h-3.5" /> Edit data
+            </button>
+          </div>
         </div>
 
         {loading && <div className="p-8 text-sm text-slate-500">Loading certificate…</div>}
@@ -457,6 +536,48 @@ export function AdminCoiReviewPage() {
                 </button>
               </div>
             </section>
+          </div>
+        )}
+        {fieldsReview !== null && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
+            <div className="my-8 w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Edit document data</h2>
+                  <p className="text-xs text-slate-500">{coi?.sub_company_name} · correct dates, amounts, carrier or policies, then Save</p>
+                </div>
+                {data?.certUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { try { window.open(data!.certUrl!, '_blank') } catch {} }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    View certificate file <ExternalLink className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {fieldsReview.loading ? (
+                <div className="flex items-center justify-between gap-4 py-8">
+                  <p role="status" className="text-sm text-slate-600">Loading document fields…</p>
+                  <button type="button" onClick={closeEditFields} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                </div>
+              ) : fieldsReview.details ? (
+                <CoiFieldsReview
+                  details={fieldsReview.details}
+                  onChange={(details) => setFieldsReview((c) => c && !c.saving ? { ...c, details } : c)}
+                  onSave={() => void saveEditedFields()}
+                  onClose={closeEditFields}
+                  saving={fieldsReview.saving}
+                  editable={fieldsReview.editable}
+                  error={fieldsReview.error}
+                />
+              ) : (
+                <div className="space-y-4 py-6 text-center">
+                  <p role="status" className="text-sm text-slate-600">No structured fields have been saved yet for this certificate.</p>
+                  <button type="button" onClick={closeEditFields} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

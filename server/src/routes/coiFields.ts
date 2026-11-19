@@ -73,6 +73,7 @@ const access = `(
       OR (c.owner_sub_user_id IS NULL AND c.owner_gc_user_id IS NOT NULL AND gc_owner.id IS NOT NULL
         AND EXISTS (SELECT 1 FROM gc_sub_connections g WHERE g.gc_user_id = c.owner_gc_user_id
           AND g.subcontractor_id = c.subcontractor_id))))
+  OR actor.role = 'admin'
 )`
 const selectAccess = `SELECT c.id, c.certificate_key, c.owner_gc_user_id, c.owner_sub_user_id,
     s.id AS profile_id, s.user_id AS profile_user_id, actor.role AS actor_role, r.source_tag, r.details_json, v.revision
@@ -81,7 +82,7 @@ const selectAccess = `SELECT c.id, c.certificate_key, c.owner_gc_user_id, c.owne
   WHERE c.id = ? AND ${access}`
 
 function editable(row: AccessRow, userId: string): boolean {
-  return (isGcRole(row.actor_role) && row.owner_gc_user_id === userId && row.owner_sub_user_id === null) ||
+  return row.actor_role === 'admin' || (isGcRole(row.actor_role) && row.owner_gc_user_id === userId && row.owner_sub_user_id === null) ||
     (row.actor_role === 'sub' && row.owner_sub_user_id === userId && row.owner_gc_user_id === null)
 }
 // This sentinel is outside the UUID token space. Legacy reviews without a
@@ -176,7 +177,8 @@ coiFieldsRouter.put('/:coiId', async (req: AuthRequest, res) => {
       const changed = await tx.run(`INSERT INTO coi_field_reviews (coi_id, source_tag, details_json)
         SELECT c.id, ?, ? ${joins} WHERE c.id = ? AND ${access}
         AND ((actor.role IN ('gc', 'pro_gc') AND c.owner_gc_user_id = actor.id AND c.owner_sub_user_id IS NULL)
-          OR (actor.role = 'sub' AND c.owner_sub_user_id = actor.id AND c.owner_gc_user_id IS NULL))
+          OR (actor.role = 'sub' AND c.owner_sub_user_id = actor.id AND c.owner_gc_user_id IS NULL)
+          OR actor.role = 'admin')
         AND (c.certificate_key = ? OR (c.certificate_key IS NULL AND CAST(? AS TEXT) IS NULL))
         ON CONFLICT(coi_id) DO UPDATE SET source_tag = excluded.source_tag, details_json = excluded.details_json`,
         [tag, JSON.stringify(parsed.data.details), req.user!.id, req.params.coiId, row.certificate_key, row.certificate_key])

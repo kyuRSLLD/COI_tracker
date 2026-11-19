@@ -2,11 +2,14 @@ import { Button } from '../components/Button'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiAdmin, apiAdminArticles, apiMe, signOut } from '../api'
+import { apiAdmin, apiAdminArticles, apiMe, signOut, apiCoiFields, getToken, ApiError } from '../api'
 import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts, Article } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe } from 'lucide-react'
-import { formatDisplayDate } from '../lib/date'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe, FileEdit } from 'lucide-react'
+import { formatDisplayDate, isExpiredDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
+import { coiExpiryAllExpired, isPartiallyExpired } from '../lib/coiExpiry'
+import { CoiFieldsReview } from '../components/CoiFieldsReview'
+import { editorDetails, type FieldsDetails } from '../lib/coiEditorDetails'
 
 type GrowthRange = '7d' | '30d' | '90d' | '12m'
 
@@ -22,6 +25,48 @@ function queueResult(item: AdminCoiValidationItem): { label: string; chip: strin
   if (item.status === 'needs_revision') return { label: 'Needs revision', chip: 'badge-warn' }
   if ((item.days_left ?? 0) < 0) return { label: 'Expired', chip: 'badge-fail' }
   return { label: 'Pending', chip: 'badge-info' }
+}
+function shortPolicyLabel(p: string): string {
+  if (!p) return ''
+  const t = p.toLowerCase()
+  if (t.includes('general')) return 'GL'
+  if (t.includes('workers')) return 'WC'
+  if (t.includes('auto')) return 'Auto'
+  if (t.includes('umbrella') || t.includes('excess')) return 'Umbrella'
+  if (t.includes('pollution')) return 'Pollution'
+  return p.slice(0, 10)
+}
+function policyResults(item: AdminCoiValidationItem): Array<{ policy: string; label: string; chip: string }> {
+  const policies: any[] = Array.isArray(item.review_details?.policies) ? item.review_details.policies : []
+  if (policies.length === 0) {
+    const r = queueResult(item)
+    return [{ policy: '', label: r.label, chip: r.chip }]
+  }
+  return policies.map((p, i) => {
+    const name = (p.type || p.policyType || `Policy ${i + 1}`).trim()
+    const expDate = p.expirationDate || p.expiration_date
+    const isPolicyExpired = isExpiredDate(expDate)
+    if (isPolicyExpired) return { policy: name, label: 'Expired', chip: 'badge-fail' }
+    if (item.status === 'compliant') return { policy: name, label: 'Compliant', chip: 'badge-pass' }
+    if (item.status === 'rejected') return { policy: name, label: 'Rejected', chip: 'badge-fail' }
+    if (item.status === 'needs_revision') return { policy: name, label: 'Needs revision', chip: 'badge-warn' }
+    return { policy: name, label: 'Pending', chip: 'badge-info' }
+  })
+}
+type FieldsReviewModalState = {
+  coiId: string
+  coiCompany: string
+  hasFile: boolean
+  loading: boolean
+  details: FieldsDetails | null
+  wasEmpty: boolean
+  sourceTag: string
+  reviewRevision: string | null
+  editable: boolean
+  saving: boolean
+  extracting: boolean
+  conflicted: boolean
+  error: string | null
 }
 
 export function AdminDashboardPage() {
@@ -73,6 +118,7 @@ export function AdminDashboardPage() {
   const [expandedCoiId, setExpandedCoiId] = useState<string | null>(null)
   const [articles, setArticles] = useState<Article[]>([])
   const [articlesLoading, setArticlesLoading] = useState(false)
+  const [fieldsReview, setFieldsReview] = useState<FieldsReviewModalState | null>(null)
   const [articleFilter, setArticleFilter] = useState<'all' | 'published' | 'draft'>('all')
   const [articleSearch, setArticleSearch] = useState('')
   const [articleModal, setArticleModal] = useState<{ open: boolean; mode: 'create' | 'edit'; id?: string }>({ open: false, mode: 'create' })
@@ -293,6 +339,70 @@ export function AdminDashboardPage() {
       notify(err?.message || 'AI validation failed')
     } finally {
       setBusy(id, null)
+    }
+  }
+
+  const openFieldsReviewForCoi = async (item: AdminCoiValidationItem) => {
+    const token = getToken()
+    if (!token) return
+    setFieldsReview({
+      coiId: item.id, coiCompany: item.sub_company_name || 'Certificate', hasFile: item.has_file,
+      loading: true, details: null, wasEmpty: false, sourceTag: '', reviewRevision: null,
+      editable: true, saving: false, extracting: false, conflicted: false, error: null,
+    })
+    try {
+      const result = await apiCoiFields.get(item.id, token)
+      setFieldsReview((c) => c && c.coiId === item.id ? {
+        ...c, loading: false,
+        details: editorDetails(result.details || null),
+        wasEmpty: result.details === null,
+        sourceTag: result.sourceTag,
+        reviewRevision: result.reviewRevision,
+        editable: result.editable !== false,
+      } : c)
+    } catch (err: unknown) {
+      setFieldsReview((c) => c && c.coiId === item.id ? {
+        ...c, loading: false, details: editorDetails(null), wasEmpty: true,
+        error: err instanceof Error ? err.message : 'Unable to load field review.',
+      } : c)
+    }
+  }
+  const closeFieldsReview = () => setFieldsReview(null)
+  const saveFieldsReview = async () => {
+    const r = fieldsReview
+    const token = getToken()
+    if (!r || !r.details || !token || r.saving || !r.sourceTag || !r.reviewRevision) return
+    setFieldsReview((c) => c && { ...c, saving: true, error: null })
+    try {
+      await apiCoiFields.save(r.coiId, { sourceTag: r.sourceTag, reviewRevision: r.reviewRevision, details: r.details }, token)
+      notify('Document fields saved — review updated')
+      setFieldsReview(null)
+      await Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError && err.status === 409
+        ? 'This review was modified elsewhere. Close and reopen to reload.'
+        : err instanceof Error ? err.message : 'Unable to save field review.'
+      setFieldsReview((c) => c && { ...c, saving: false, error: msg })
+    }
+  }
+  const runExtractInReview = async () => {
+    const r = fieldsReview
+    if (!r || r.extracting || r.saving) return
+    setFieldsReview((c) => c && { ...c, extracting: true, error: null })
+    try {
+      const res = await apiAdmin.extractCoi(r.coiId)
+      const refreshed = getToken() ? await apiCoiFields.get(r.coiId, getToken()!).catch(() => null) : null
+      setFieldsReview((c) => c && {
+        ...c, extracting: false,
+        details: editorDetails((refreshed?.details || (res?.fields as any) || null)),
+        wasEmpty: false,
+        sourceTag: refreshed?.sourceTag || c.sourceTag,
+        reviewRevision: refreshed?.reviewRevision || c.reviewRevision,
+      })
+      notify('AI validation completed — fields auto-filled (pending verification)')
+      void Promise.all([loadCoiQueue(coiFilter, coiSearch), load()])
+    } catch (err: any) {
+      setFieldsReview((c) => c && { ...c, extracting: false, error: err?.message || 'AI validation failed' })
     }
   }
 
@@ -970,7 +1080,10 @@ export function AdminDashboardPage() {
                   </tr>
                 ) : (
                   coiQueue.map((item) => {
-                    const isExp = (item.days_left ?? 0) < 0
+                    const isExp = coiExpiryAllExpired(item.expiration_date, item.review_details?.policies)
+                    const partiallyExpired = isPartiallyExpired(item.expiration_date, item.review_details?.policies)
+                    const hasExtracted = Boolean(item.review_source || item.review_insured || item.review_producer)
+                    const results = policyResults(item)
                     const busy = coiBusy[item.id]
                     const result = queueResult(item)
                     return (
@@ -1024,13 +1137,19 @@ export function AdminDashboardPage() {
                             {item.insured_match === false && <span className="badge-fail px-1.5 py-0.5 rounded font-bold">Insured ≠ sub</span>}
                             {item.insurer_is_parent && <span className="badge-warn px-1.5 py-0.5 rounded font-semibold">Parent co., not insurer</span>}
                             {item.effective_date && item.expiration_date && <span className="badge-pass px-1.5 py-0.5 rounded font-bold">Dates ✓</span>}
+                            {partiallyExpired && <span className="badge-warn px-1.5 py-0.5 rounded font-semibold">1+ policy expired</span>}
                             {item.has_file && <span className="badge-info px-1.5 py-0.5 rounded">file</span>}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 w-[140px] min-w-[140px]">
-                          <span className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center justify-center shrink-0 ${result.chip}`}>
-                            {result.label}
-                          </span>
+                        <td className="py-2.5 px-3 w-[150px] min-w-[150px]">
+                          <div className="flex flex-col gap-1 items-start">
+                            {results.map((r, i) => (
+                              <span key={i} className={`h-7 px-2 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0 ${r.chip}`} title={r.policy ? `${r.policy}: ${r.label}` : r.label}>
+                                {r.policy ? <span className="text-[10px] opacity-75 font-mono">{shortPolicyLabel(r.policy)} ·</span> : null}
+                                {r.label}
+                              </span>
+                            ))}
+                          </div>
                         </td>
                         <td className="py-2.5 pl-4 text-right w-[440px] min-w-[440px]">
                           <div className="flex flex-col items-end gap-1">
@@ -1041,18 +1160,26 @@ export function AdminDashboardPage() {
                             >
                               Review
                             </Link>
-                            {!isExp && (
+                            {item.has_file && (
                               <button
                                 type="button"
                                 onClick={() => handleExtract(item.id)}
-                                disabled={!item.has_file || busy === 'extracting'}
-                                title={!item.has_file ? 'No certificate file uploaded to extract' : 'Run AI extraction now'}
+                                disabled={busy === 'extracting'}
+                                title={hasExtracted ? 'Re-run AI extraction on this certificate to refresh dates, carrier, and policy details' : 'Run AI extraction now'}
                                 className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
                               >
                                 <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
-                                {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
+                                {busy === 'extracting' ? 'Extracting…' : hasExtracted ? 'Check again' : 'Extract with AI'}
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => void openFieldsReviewForCoi(item)}
+                              title="View and correct extracted fields (dates, amounts, carrier, policies)"
+                              className="h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shrink-0"
+                            >
+                              <FileEdit className="w-3.5 h-3.5" /> Edit data
+                            </button>
                             {!isExp && (
                               <button
                                 type="button"
@@ -1109,9 +1236,10 @@ export function AdminDashboardPage() {
           {/* Mobile cards */}
           <div className="mt-3 divide-y divide-slate-100 md:hidden text-xs">
             {coiQueue.map((item) => {
-              const isExp = (item.days_left ?? 0) < 0
+              const isExp = coiExpiryAllExpired(item.expiration_date, item.review_details?.policies)
+              const hasExtracted = Boolean(item.review_source || item.review_insured || item.review_producer)
+              const results = policyResults(item)
               const busy = coiBusy[item.id]
-              const result = queueResult(item)
               return (
                 <div key={item.id} className="py-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -1138,9 +1266,14 @@ export function AdminDashboardPage() {
                         </div>
                       </div>
                     </div>
-                    <span className={`h-7 px-2.5 rounded-md text-xs font-bold inline-flex items-center justify-center shrink-0 ${result.chip}`}>
-                      {result.label}
-                    </span>
+                    <div className="flex flex-col gap-1 items-end shrink-0">
+                      {results.map((r, i) => (
+                        <span key={i} className={`h-7 px-2 rounded-md text-xs font-bold inline-flex items-center gap-1 ${r.chip}`} title={r.policy ? `${r.policy}: ${r.label}` : r.label}>
+                          {r.policy ? <span className="text-[10px] opacity-75 font-mono">{shortPolicyLabel(r.policy)} ·</span> : null}
+                          {r.label}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-1 text-[11px]">
                     {item.insured_match === false && <span className="badge-fail px-1.5 py-0.5 rounded font-bold">Insured ≠ sub</span>}
@@ -1155,17 +1288,26 @@ export function AdminDashboardPage() {
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
                     <Link to={`/staff/coi/${item.id}`} className="btn-marker h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0 shadow-sm">Review</Link>
-                    {!isExp && (
+                    {item.has_file && (
                       <button
                         type="button"
                         onClick={() => handleExtract(item.id)}
-                        disabled={!item.has_file || busy === 'extracting'}
+                        disabled={busy === 'extracting'}
+                        title={hasExtracted ? 'Re-run AI extraction on this certificate to refresh dates, carrier, and policy details' : 'Run AI extraction now'}
                         className="h-8 px-3 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 shrink-0"
                       >
                         <Sparkles className={`w-3.5 h-3.5 ${busy === 'extracting' ? 'animate-spin' : ''}`} />
-                        {busy === 'extracting' ? 'Validating…' : 'Validate with AI'}
+                        {busy === 'extracting' ? 'Extracting…' : hasExtracted ? 'Check again' : 'Extract with AI'}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => void openFieldsReviewForCoi(item)}
+                      title="View and correct extracted fields (dates, amounts, carrier, policies)"
+                      className="h-8 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shrink-0"
+                    >
+                      <FileEdit className="w-3.5 h-3.5" /> Edit data
+                    </button>
                     <select
                       value={item.status}
                       onChange={(e) => handleSetStatus(item.id, e.target.value)}
@@ -2069,6 +2211,66 @@ export function AdminDashboardPage() {
                 {articleDeleting ? 'Deleting…' : 'Delete article'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {fieldsReview !== null && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
+          <div className="my-8 w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Review document data</h2>
+                <p className="text-xs text-slate-500">{fieldsReview.coiCompany} · edit extracted dates, amounts, carrier and policies, then Save</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {fieldsReview.hasFile && (
+                  <button
+                    type="button"
+                    onClick={() => void handleViewCert(fieldsReview.coiId)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    View certificate file <ExternalLink className="h-4 w-4" />
+                  </button>
+                )}
+                {fieldsReview.hasFile && (
+                  <button
+                    type="button"
+                    disabled={fieldsReview.saving || fieldsReview.extracting}
+                    onClick={() => void runExtractInReview()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                  >
+                    <Sparkles className={`w-4 h-4 ${fieldsReview.extracting ? 'animate-spin' : ''}`} />
+                    {fieldsReview.extracting ? 'Extracting…' : 'Re-extract with AI'}
+                  </button>
+                )}
+              </div>
+            </div>
+            {fieldsReview.loading ? (
+              <div className="flex items-center justify-between gap-4 py-8">
+                <p role="status" className="text-sm text-slate-600">Loading document fields…</p>
+                <button type="button" onClick={closeFieldsReview} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+              </div>
+            ) : fieldsReview.details ? (
+              <CoiFieldsReview
+                details={fieldsReview.details}
+                onChange={(details) => setFieldsReview((c) => c && !c.saving ? { ...c, details } : c)}
+                onSave={() => void saveFieldsReview()}
+                onClose={closeFieldsReview}
+                saving={fieldsReview.saving}
+                editable={fieldsReview.editable}
+                error={fieldsReview.error}
+              />
+            ) : (
+              <div className="space-y-4 py-6 text-center">
+                <p role="status" className="text-sm text-slate-600">No structured fields have been saved yet for this certificate.</p>
+                <div className="flex justify-center gap-2">
+                  <button type="button" onClick={() => void runExtractInReview()} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800">
+                    Extract with AI
+                  </button>
+                  <button type="button" onClick={closeFieldsReview} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
