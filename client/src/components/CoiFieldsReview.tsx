@@ -1,5 +1,5 @@
 import { formatAmount } from '../lib/currency'
-import { formatDisplayDate } from '../lib/date'
+import { formatDisplayDate, isExpiredDate } from '../lib/date'
 import { AlertCircle, ArrowUpRight, FileText, Info, Plus, Trash2 } from 'lucide-react'
 import { useId, useState, useEffect, type ClipboardEvent } from 'react'
 import type { CoiFields } from '../lib/coiFields'
@@ -272,7 +272,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
 
       <div className="space-y-4">
         <section aria-label="Producer" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <SectionHeading number="01" title="Producer" description="The agency or broker listed on the certificate." />
+          <SectionHeading number="01" title="Producer (insurance agency)" description="The agency or broker that provided this certificate — this is NOT the subcontractor, but the agency representing them." />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Producer name" value={details.producer.name} maxLength={256} onChange={(v) => updateProducer('name', v)} readOnly={readOnly} />
             <Field label="Phone" value={details.producer.phone} maxLength={128} onChange={(v) => updateProducer('phone', v)} readOnly={readOnly} type="tel" />
@@ -282,7 +282,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
         </section>
 
         <section aria-label="Insured" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <SectionHeading number="02" title="Insured (policyholder company)" description="The company or person named as insured on the certificate." />
+          <SectionHeading number="02" title="Insured (subcontractor company)" description="The company or person named as insured on the certificate — this is the subcontractor." />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Insured name" value={details.insured.name} maxLength={256} onChange={(v) => updateInsured('name', v)} readOnly={readOnly} />
             <Field label="Address" value={details.insured.address} maxLength={2000} onChange={(v) => updateInsured('address', v)} readOnly={readOnly} multiline />
@@ -341,7 +341,7 @@ export function CoiFieldsReview({ details, onChange, onSave, onClose, saving, ed
                     <div className="lg:col-span-3"><Field label="Insurer letter" value={policy.insurerLetter} maxLength={32} onChange={(v) => updatePolicy(index, 'insurerLetter', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-2"><Field label="Policy number" value={policy.policyNumber} maxLength={256} onChange={(v) => updatePolicy(index, 'policyNumber', v)} readOnly={readOnly} /></div>
                     <div className="lg:col-span-2"><Field label="Effective date" value={policy.effectiveDate} maxLength={64} onChange={(v) => updatePolicy(index, 'effectiveDate', v)} onBlur={() => { const f = formatDisplayDate(policy.effectiveDate); if (f && f !== '\u2014' && f !== policy.effectiveDate) updatePolicy(index, 'effectiveDate', f) }} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
-                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} onBlur={() => { const f = formatDisplayDate(policy.expirationDate); if (f && f !== '\u2014' && f !== policy.expirationDate) updatePolicy(index, 'expirationDate', f) }} readOnly={readOnly} placeholder="MM/DD/YYYY" /></div>
+                    <div className="lg:col-span-2"><Field label="Expiration date" value={policy.expirationDate} maxLength={64} onChange={(v) => updatePolicy(index, 'expirationDate', v)} onBlur={() => { const f = formatDisplayDate(policy.expirationDate); if (f && f !== '\u2014' && f !== policy.expirationDate) updatePolicy(index, 'expirationDate', f) }} readOnly={readOnly} placeholder="MM/DD/YYYY" />{isExpiredDate(policy.expirationDate) && <p className="mt-1 text-[11px] font-bold text-rose-700">Policy expired</p>}</div>
                   </div>
                   <div className="mt-5 border-t border-slate-200 pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">

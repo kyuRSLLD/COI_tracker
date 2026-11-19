@@ -1,4 +1,5 @@
 import { formatDisplayDate, daysFromNow, isExpiredDate } from '../lib/date'
+import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
 import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react'
@@ -536,7 +537,9 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             const policyNumber = (firstPolicy?.policyNumber || firstPolicy?.policy_number || primaryCoi.policy_number || '').trim() || null
             const eff = formatDisplayDate(primaryCoi.effective_date)
             const days = daysFromNow(primaryCoi.expiration_date)
-            const expired = isExpiredDate(primaryCoi.expiration_date)
+            const allPolicies: any[] = rd?.policies && rd.policies.length ? rd.policies : []
+            const expired = coiExpiryAllExpired(primaryCoi.expiration_date, allPolicies)
+            const partiallyExpired = isPartiallyExpired(primaryCoi.expiration_date, allPolicies)
             const exp = days === null ? 'Not provided' : formatDisplayDate(primaryCoi.expiration_date)
             const insuredName = (rd?.insured?.name || sub?.company_name || '—').trim()
             const insuredAddr = rd?.insured?.address || null
@@ -546,7 +549,6 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
             const producerAddr = rd?.producer?.address || null
             const allInsurers: Array<{ letter?: string; name?: string; naic?: string }> =
               rd?.insurers && rd.insurers.length ? rd.insurers : carrier && carrier !== 'Not provided' ? [{ name: carrier }] : []
-            const allPolicies: any[] = rd?.policies && rd.policies.length ? rd.policies : []
             const v = coiVerificationBadge(primaryCoi)
             const expBadge = coiExpiryBadge(days)
             const coverageCount = (primaryCoi.coverages || []).length
@@ -618,6 +620,11 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                       <dt className="text-[11px] text-slate-400">Coverage period</dt>
                       <dd className="text-slate-900">
                         {eff !== '—' ? eff : 'Not provided'} → {exp}
+                        {partiallyExpired && (
+                          <span className="ml-1.5 text-[10px] font-semibold px-1 rounded bg-amber-100 text-amber-800">
+                            partially expired
+                          </span>
+                        )}
                       </dd>
                     </div>
                     <div>
@@ -735,6 +742,14 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                         <strong className="text-rose-900">This certificate expired on {exp}.</strong> Upload a renewed certificate to restore verified status — expired policies are not under active validation.
                       </div>
                     )}
+                    {partiallyExpired && (
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1">
+                        <strong className="text-amber-900">Some policies need renewal.</strong>
+                        <div className="text-slate-700">
+                          Expired: {formatExpiredPolicyList(allPolicies)}. The remaining policies stay active, but upload a renewal to keep full coverage current.
+                        </div>
+                      </div>
+                    )}
 
                     {/* Producer panel */}
                     {(producerName || producerPhone || producerEmail || producerAddr) && (
@@ -795,8 +810,13 @@ function SessionDashboard({ sessionToken }: { sessionToken: string }) {
                                   </span>
                                   <span className="font-mono text-slate-500">{pn ? `Pol. ${pn}` : '—'}</span>
                                 </div>
-                                <div className="text-[11px] text-slate-500 font-mono">
-                                  {peff !== '—' || pexp !== '—' ? `${peff} → ${pexp}` : 'no dates'}
+                                <div className="text-[11px] text-slate-500 font-mono flex items-center justify-between">
+                                  <span>{peff !== '—' || pexp !== '—' ? `${peff} → ${pexp}` : 'no dates'}</span>
+                                  {isExpiredDate(po.expirationDate || po.expiration_date) && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-600 text-white uppercase tracking-wider">
+                                      Expired
+                                    </span>
+                                  )}
                                 </div>
                                 {limits.length > 0 && (
                                   <div className="pt-2 border-t border-slate-100 space-y-1">

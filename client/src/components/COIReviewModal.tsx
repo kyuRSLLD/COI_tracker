@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { isExpiredDate } from '../lib/date'
+import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
 import { X, CheckCircle2, FileQuestion, Ban, FileText, ShieldCheck } from 'lucide-react'
 import type { COI, GCSettings } from '../types'
 import { Button } from './Button'
@@ -19,7 +20,9 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewingCertificate, setViewingCertificate] = useState(false)
-  const isExp = isExpiredDate(coi?.expiration_date)
+  const policies: any[] = coi?.review_details?.policies && coi.review_details.policies.length ? coi.review_details.policies : []
+  const isExp = coiExpiryAllExpired(coi?.expiration_date, policies)
+  const partiallyExpired = isPartiallyExpired(coi?.expiration_date, policies)
 
   useEffect(() => {
     if (!open) setViewingCertificate(false)
@@ -164,6 +167,11 @@ export function COIReviewModal({ coi, open, onClose, onUpdated, gcSettings }: Pr
         {isExp && (
           <p className="mt-4 p-2.5 rounded-xl bg-amber-50 text-amber-900 text-xs border border-amber-200">
             This certificate has expired and cannot be marked compliant. You can still request a revision or reject it.
+          </p>
+        )}
+        {!isExp && partiallyExpired && (
+          <p className="mt-4 p-2.5 rounded-xl bg-amber-50 text-amber-950 text-xs border border-amber-200">
+            Partially expired: {formatExpiredPolicyList(policies)}. Remaining policies stay active — you can still approve, but consider requesting a renewal.
           </p>
         )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">

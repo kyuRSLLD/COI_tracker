@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { apiCompanyCOI, type CompanyCOIResponse } from '../api'
 import { formatDisplayDate, isExpiredDate, daysFromNow } from '../lib/date'
+import { coiExpiryAllExpired, isPartiallyExpired } from '../lib/coiExpiry'
 import { COIReviewModal } from './COIReviewModal'
 
 export function CompanyCOICard() {
@@ -92,7 +93,7 @@ export function CompanyCOICard() {
   }
 
   const coi = data?.coi
-  const expired = isExpiredDate(coi?.expiration_date)
+  const expired = coiExpiryAllExpired(coi?.expiration_date, coi?.review_details?.policies)
   const days = daysFromNow(coi?.expiration_date)
   const isValidated = coi?.status === 'compliant'
 
@@ -101,6 +102,13 @@ export function CompanyCOICard() {
       return (
         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
           Expired
+        </span>
+      )
+    }
+    if (isPartiallyExpired(coi?.expiration_date, coi?.review_details?.policies)) {
+      return (
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+          Partially expired
         </span>
       )
     }

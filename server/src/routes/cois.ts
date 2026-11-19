@@ -42,7 +42,11 @@ async function coverageForGC(coiId: string, gcUserId: string) {
 // derive a fresh view URL from an acceptable key, after authorizing the row.
 async function publicCOI(row: any) {
   const labelled = labelSimulatedCarrierCOI(row)
-  const { certificate_key: key, certificate_url: _storedUrl, ...safe } = labelled
+  const { certificate_key: key, certificate_url: _storedUrl, review_details_json, ...safe } = labelled
+  let review_details: any = null
+  if (review_details_json) {
+    try { review_details = JSON.parse(review_details_json) } catch {}
+  }
   let certificate_url: string | null = null
   if (typeof key === 'string' && /^(?:cois\/[a-zA-Z0-9._-]+|[a-zA-Z0-9][a-zA-Z0-9._-]*)$/.test(key)) {
     try {
@@ -52,7 +56,7 @@ async function publicCOI(row: any) {
       // return the old URL, which may be public or otherwise untrusted.
     }
   }
-  return { ...safe, certificate_url }
+  return { ...safe, certificate_url, review_details }
 }
 
 coisRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
@@ -71,8 +75,9 @@ coisRouter.use(requireAuth, async (req: AuthRequest, res, next) => {
 coisRouter.get('/', async (req: AuthRequest, res) => {
   try {
     const { sub_id, status } = req.query as { sub_id?: string; status?: string }
-    let sql = `SELECT c.*, s.company_name, s.trade, s.contact_person
+    let sql = `SELECT c.*, s.company_name, s.trade, s.contact_person, r.details_json AS review_details_json
       FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+      LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
       WHERE ${readAccess}`
     const params: any[] = [req.user!.id, req.user!.id]
     if (sub_id) {
@@ -102,8 +107,9 @@ coisRouter.get('/alerts/expiring', async (req: AuthRequest, res) => {
     const horizonStr = horizon.toISOString().slice(0, 10)
 
     const rows = await dbAll(
-      `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person
+      `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person, r.details_json AS review_details_json
        FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+       LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
        WHERE c.expiration_date >= ? AND c.expiration_date <= ? AND c.status != 'rejected'
          AND ${readAccess}
        ORDER BY c.expiration_date ASC`,
@@ -118,8 +124,9 @@ coisRouter.get('/alerts/expiring', async (req: AuthRequest, res) => {
 coisRouter.get('/:id', async (req: AuthRequest, res) => {
   try {
     const coi = await dbGet(
-      `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person
+      `SELECT c.*, s.company_name, s.trade, s.phone, s.email, s.contact_person, r.details_json AS review_details_json
        FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+       LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
        WHERE c.id = ? AND ${readAccess}`,
       [req.params.id, req.user!.id, req.user!.id]
     )

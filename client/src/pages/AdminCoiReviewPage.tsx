@@ -5,7 +5,7 @@ import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
 import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2 } from 'lucide-react'
 import { isExpiredDate, formatDisplayDate } from '../lib/date'
-
+import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
 interface Check {
   name: string
   value: string
@@ -97,7 +97,9 @@ export function AdminCoiReviewPage() {
   }
 
   const coi = data?.coi
-  const isExpired = isExpiredDate(coi?.expiration_date)
+  const policies: any[] = Array.isArray(data?.extracted?.policies) ? data!.extracted.policies : []
+  const isExpired = coiExpiryAllExpired(coi?.expiration_date, policies)
+  const partiallyExpired = isPartiallyExpired(coi?.expiration_date, policies)
   const fails = data?.checks.filter((c) => c.result === 'fail').length ?? 0
   const score = data?.score ?? 0
 
@@ -122,7 +124,12 @@ export function AdminCoiReviewPage() {
             )}
             {isExpired && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono">
-                Expired — no validation needed
+                All policies expired
+              </span>
+            )}
+            {!isExpired && partiallyExpired && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white font-mono">
+                Partially expired
               </span>
             )}
           </div>
@@ -211,6 +218,14 @@ export function AdminCoiReviewPage() {
                     <p className="font-semibold text-ink">{verdictTitle(data)}</p>
                     <p className="text-slate-600 mt-1">{verdictParagraph(data)}</p>
                   </div>
+                </div>
+              )}
+              {partiallyExpired && (
+                <div className="p-4 rounded-xl border bg-amber-50 border-amber-200 text-xs text-amber-950 space-y-1">
+                  <p className="font-bold text-amber-900">Partially expired — some policies need renewal</p>
+                  <p className="text-slate-700">
+                    Expired: {formatExpiredPolicyList(policies)}. The remaining policies are still active, so you can continue review and validation.
+                  </p>
                 </div>
               )}
               {/* Automated checks */}
@@ -360,8 +375,13 @@ export function AdminCoiReviewPage() {
                                   </span>
                                   <span className="font-mono text-[11px] text-slate-500">{pn ? `Pol. ${pn}` : '—'}</span>
                                 </div>
-                                <div className="text-[10px] text-slate-500 font-mono">
-                                  {eff || exp ? `${eff || '—'} → ${exp || '—'}` : 'no dates'}
+                                <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
+                                  <span>{eff || exp ? `${eff || '—'} → ${exp || '—'}` : 'no dates'}</span>
+                                  {isExpiredDate(exp) && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-600 text-white uppercase tracking-wider">
+                                      Expired
+                                    </span>
+                                  )}
                                 </div>
                                 {limits.length > 0 && (
                                   <div className="pt-1 border-t border-slate-100 space-y-0.5">

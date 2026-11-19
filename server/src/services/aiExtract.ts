@@ -143,13 +143,15 @@ const SYSTEM_PROMPT = `You extract structured fields from Certificate of Insuran
 }
 Rules:
 - Omit any field not visible in the document.
+- "producer" is the insurance agency or broker that provided/issued this certificate (with its contact info: phone, email, address).
+- "insured" is the subcontractor (policyholder) company — the party being insured. Never mix the two up.
 - Dates MUST be MM/DD/YYYY. Convert YYYY-MM-DD or other formats accordingly.
 - List all insurers under "insurers" with their letter (A, B, C...) and NAIC number (the 5-digit insurance company code under the NAIC # column, if shown).
 - Capture every insurer affording coverage on the certificate (INSURER A, INSURER B, INSURER C, etc.).
 - Extract every policy line (common types: General Liability, Automobile Liability, Umbrella/Excess Liability, Workers Compensation). Use the exact insurer letter column.
 - Amounts must be formatted as currency with two decimals, for example $1,000,000.00 (not 1000000).`
 
-const USER_PROMPT = 'Extract all insurance certificate fields visible in this document image: producer (agency), insured company information, insurers affording coverage with NAIC numbers, and every policy line with type of insurance, policy number, effective date, expiration date, and all coverage limits.'
+const USER_PROMPT = 'Extract all insurance certificate fields visible in this document image: producer (insurance agency/broker that provided this certificate), insured (subcontractor company), insurers affording coverage with NAIC numbers, and every policy line with type of insurance, policy number, effective date, expiration date, and all coverage limits.'
 
 function coerceString(v: unknown): string | undefined {
   if (typeof v === 'string') {

@@ -58,7 +58,9 @@ subcontractorsRouter.get('/', async (req: AuthRequest, res) => {
     const enriched = await Promise.all(
       rows.map(async (sub) => {
         const cois = await dbAll(
-          `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+          `SELECT c.*, r.details_json AS review_details_json FROM cois c
+            LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
+            JOIN subcontractors s ON s.id = c.subcontractor_id
             WHERE c.subcontractor_id = ? AND EXISTS
             (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
             AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
@@ -92,7 +94,9 @@ subcontractorsRouter.get('/:id', async (req: AuthRequest, res) => {
       (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = s.id AND g.gc_user_id = ?)`, [req.params.id, req.user!.id])
     if (!sub) return res.status(404).json({ error: 'Subcontractor not found' })
     const cois = await dbAll(
-      `SELECT c.* FROM cois c JOIN subcontractors s ON s.id = c.subcontractor_id
+      `SELECT c.*, r.details_json AS review_details_json FROM cois c
+        LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
+        JOIN subcontractors s ON s.id = c.subcontractor_id
         WHERE c.subcontractor_id = ? AND EXISTS
         (SELECT 1 FROM gc_sub_connections g WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
         AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))
@@ -107,8 +111,12 @@ subcontractorsRouter.get('/:id', async (req: AuthRequest, res) => {
             WHERE g.subcontractor_id = c.subcontractor_id AND g.gc_user_id = ?)
           AND (c.owner_gc_user_id = ? OR (c.owner_gc_user_id IS NULL AND s.user_id IS NOT NULL AND c.owner_sub_user_id = s.user_id))`, [c.id, req.user!.id, req.user!.id])
         let viewUrl: string | null = null; if (c.certificate_key) { try { viewUrl = await getFileViewUrl(c.certificate_key, c.certificate_url) } catch {} }
-        const { certificate_key: _key, ...publicFields } = c
-        return { ...labelSimulatedCarrierCOI(publicFields), coverages, certificate_url: viewUrl }
+        const { certificate_key: _key, review_details_json, ...publicFields } = c
+        let review_details: any = null
+        if (review_details_json) {
+          try { review_details = JSON.parse(review_details_json) } catch {}
+        }
+        return { ...labelSimulatedCarrierCOI(publicFields), coverages, certificate_url: viewUrl, review_details }
       })
     )
     const computed = computeSubcontractorStatus(sub, cois, 30)

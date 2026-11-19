@@ -2,6 +2,28 @@ import { randomUUID } from 'node:crypto'
 import { dbRun, dbGet, dbAll, isPostgres } from '../db/db.ts'
 import { normalizeDate, normalizeAmount } from './aiExtract.ts'
 
+/**
+ * Returns the latest (max) expiration date string among all policies,
+ * or undefined if none parse. Used so that a COI's overall expiration_date
+ * reflects the date after which ALL its policies have expired.
+ */
+export function latestExpirationDate(policies: Array<{ expirationDate?: string; expiration_date?: string }>): string | undefined {
+  let maxNorm: string | undefined
+  let maxTs = -Infinity
+  for (const p of policies) {
+    const raw = p.expirationDate || p.expiration_date
+    const norm = normalizeDate(raw)
+    if (!norm) continue
+    const [mm, dd, yyyy] = norm.split('/')
+    const ts = Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd))
+    if (!Number.isNaN(ts) && ts > maxTs) {
+      maxTs = ts
+      maxNorm = norm
+    }
+  }
+  return maxNorm
+}
+
 export interface ExtractedFields {
   producer?: { name?: string; address?: string; phone?: string; email?: string }
   insured?: { name?: string; address?: string; phone?: string; email?: string }
@@ -40,7 +62,7 @@ export function normalizeExtractedForDb(fields: ExtractedFields | unknown): Norm
   const policies = f.policies || []
   const first = policies[0] || {}
   const eff = normalizeDate(first.effectiveDate || first.effective_date)
-  const exp = normalizeDate(first.expirationDate || first.expiration_date)
+  const exp = latestExpirationDate(policies) ?? normalizeDate(first.expirationDate || first.expiration_date)
   const carrier = (insurers[0]?.name || f.carrier || '').trim() || null
   const policyNumber = (first.policyNumber || first.policy_number || '').trim() || null
   const coverages = policies.map((p) => {
@@ -147,13 +169,12 @@ function extractContacts(fields: unknown): {
 } {
   const f: any = fields && typeof fields === 'object' ? fields : {}
   const i = f.insured || {}
-  const p = f.producer || {}
   const s = (v: any) => (typeof v === 'string' && v.trim()) || null
   return {
-    contactPerson: s(i.contactPerson ?? i.contact_person ?? i.contact ?? p.contactPerson ?? p.contact_person),
-    phone: s(i.phone ?? p.phone),
-    email: s(i.email ?? p.email),
-    address: s(i.address ?? p.address),
+    contactPerson: s(i.contactPerson ?? i.contact_person ?? i.contact),
+    phone: s(i.phone),
+    email: s(i.email),
+    address: s(i.address),
   }
 }
 

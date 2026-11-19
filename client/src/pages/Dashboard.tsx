@@ -1,4 +1,5 @@
 import { formatDisplayDate, isExpiredDate } from '../lib/date'
+import { coiExpiryAllExpired, isPartiallyExpired } from '../lib/coiExpiry'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Upload, FileText, Send, Check, FolderPlus, ArrowRight, ShieldCheck, Mail } from 'lucide-react'
@@ -160,11 +161,16 @@ export function Dashboard() {
                   <div className="font-bold text-slate-900">{c.company_name}</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
                     {c.trade} · {c.carrier} · exp. {formatDisplayDate(c.expiration_date)}
+                    {isPartiallyExpired(c.expiration_date, c.review_details?.policies) && (
+                      <span className="ml-1.5 text-[10px] font-semibold px-1 rounded bg-amber-100 text-amber-800">
+                        1+ policy expired
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-center">
                   <ExpirationBadge status="pending_review" size="sm" showCountdown={false} />
-                  {!isExpiredDate(c.expiration_date) && (
+                  {!coiExpiryAllExpired(c.expiration_date, c.review_details?.policies) && (
                     <Button
                       variant="primary"
                       disabled={validating[c.id]}

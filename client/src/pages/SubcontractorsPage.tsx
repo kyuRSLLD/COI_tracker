@@ -1,4 +1,5 @@
 import { formatDisplayDate, isExpiredDate } from '../lib/date'
+import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
 import { formatAmount } from '../lib/currency'
 import { Button } from '../components/Button'
 import { useContext, useState, useEffect, useLayoutEffect, useRef } from 'react'
@@ -603,6 +604,11 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                         <span className="text-slate-400 text-xs"> · Policy {c.policy_number || '—'}</span>
                         <div className="text-[11px] text-slate-500 mt-0.5 font-['JetBrains_Mono']">
                           Effective {formatDisplayDate(c.effective_date)} → Expires {formatDisplayDate(c.expiration_date)}
+                          {isPartiallyExpired(c.expiration_date, c.review_details?.policies) && (
+                            <span className="ml-1.5 text-[10px] font-semibold px-1 rounded bg-amber-100 text-amber-800">
+                              partially expired
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 self-start sm:self-center">
@@ -614,7 +620,7 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                         >
                           Review document data
                         </button>
-                        {c.status === 'pending_review' && !isExpiredDate(c.expiration_date) && (
+                        {c.status === 'pending_review' && !coiExpiryAllExpired(c.expiration_date, c.review_details?.policies) && (
                           <button
                             type="button"
                             disabled={validating[c.id]}
@@ -654,6 +660,12 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                         >
                           View certificate file <FileText className="w-3 h-3" />
                         </button>
+                      </div>
+                    )}
+
+                    {isPartiallyExpired(c.expiration_date, c.review_details?.policies) && (
+                      <div className="mt-2 text-xs rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-950">
+                        <strong className="text-amber-900">1+ policy expired:</strong> {formatExpiredPolicyList(c.review_details?.policies)}. Remaining policies stay active.
                       </div>
                     )}
 
