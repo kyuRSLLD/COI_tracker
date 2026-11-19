@@ -15,13 +15,20 @@ export function signToken(user: { id: string; email: string; role: string; name:
   return jwt.sign(user, JWT_SECRET, { expiresIn: '30d', jwtid: randomUUID() })
 }
 
-export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+export function parseRequestToken(req: Request): string | null {
   const header = req.headers.authorization
-  if (!header || !header.startsWith('Bearer ')) {
+  if (header && header.startsWith('Bearer ')) return header.slice(7)
+  const q = req.query.token
+  if (typeof q === 'string' && q.trim()) return q.trim()
+  return null
+}
+
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  const token = parseRequestToken(req)
+  if (!token) {
     res.status(401).json({ error: 'Authentication required' })
     return
   }
-  const token = header.slice(7)
   let userId: string
   try {
     const payload = jwt.verify(token, JWT_SECRET)

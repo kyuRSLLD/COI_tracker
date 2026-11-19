@@ -13,12 +13,14 @@ import {
 import { apiCompanyCOI, type CompanyCOIResponse } from '../api'
 import { formatDisplayDate, isExpiredDate, daysFromNow } from '../lib/date'
 import { coiExpiryAllExpired, isPartiallyExpired } from '../lib/coiExpiry'
+import { CertificateViewer } from './CertificateViewer'
 import { COIReviewModal } from './COIReviewModal'
 
 export function CompanyCOICard() {
   const [data, setData] = useState<CompanyCOIResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [validating, setValidating] = useState(false)
   const [sharing, setSharing] = useState(false)
@@ -161,14 +163,13 @@ export function CompanyCOICard() {
           {coi ? (
             <>
               {coi.certificate_url && (
-                <a
-                  href={coi.certificate_url}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => setViewerOpen(true)}
                   className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-50 transition"
                 >
                   <FileText className="w-4 h-4 text-slate-400" /> View certificate
-                </a>
+                </button>
               )}
               <button
                 type="button"
@@ -332,6 +333,13 @@ export function CompanyCOICard() {
             setReviewModalOpen(false)
             reload()
           }}
+        />
+      )}
+      {coi && viewerOpen && (
+        <CertificateViewer
+          certificate={coi}
+          onClose={() => setViewerOpen(false)}
+          returnLabel="Company COI"
         />
       )}
     </section>

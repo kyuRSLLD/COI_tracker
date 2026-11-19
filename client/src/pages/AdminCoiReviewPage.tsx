@@ -3,11 +3,12 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { apiAdmin, signOut, apiCoiFields, getToken, ApiError } from '../api'
 import { StaffSidebar } from '../components/StaffSidebar'
 import { Button } from '../components/Button'
-import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2, FileEdit } from 'lucide-react'
+import { ChevronLeft, ZoomIn, ZoomOut, ExternalLink, CheckCircle2, AlertTriangle, XCircle, Mail, Phone, Sparkles, Trash2, FileEdit, Layers, Download, Printer } from 'lucide-react'
 import { isExpiredDate, formatDisplayDate } from '../lib/date'
 import { coiExpiryAllExpired, isPartiallyExpired, formatExpiredPolicyList } from '../lib/coiExpiry'
 import { CoiFieldsReview } from '../components/CoiFieldsReview'
 import { editorDetails, type FieldsDetails } from '../lib/coiEditorDetails'
+import { AcordCertificateForm } from '../components/AcordCertificateForm'
 interface Check {
   name: string
   value: string
@@ -28,6 +29,7 @@ export function AdminCoiReviewPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [leftView, setLeftView] = useState<'form' | 'file'>('form')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [extracting, setExtracting] = useState(false)
@@ -159,6 +161,8 @@ export function AdminCoiReviewPage() {
   const partiallyExpired = isPartiallyExpired(coi?.expiration_date, policies)
   const fails = data?.checks.filter((c) => c.result === 'fail').length ?? 0
   const score = data?.score ?? 0
+  const token = getToken()
+  const docUrl = coiId && token ? `/api/coi-fields/${encodeURIComponent(coiId)}/document?token=${encodeURIComponent(token)}` : data?.certUrl || null
 
   return (
     <StaffSidebar user={null} onSignOut={() => signOut('/login')} pendingQueueCount={pendingIds.length}>
@@ -234,25 +238,71 @@ export function AdminCoiReviewPage() {
             {/* LEFT: certificate viewer */}
             <section className="lg:col-span-7 bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Uploaded certificate</p>
+                <div className="flex items-center gap-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setLeftView('form')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded font-semibold transition ${leftView === 'form' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    <Layers className="w-3.5 h-3.5" /> Certificate form
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeftView('file')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded font-semibold transition ${leftView === 'file' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    Original file
+                  </button>
+                </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setZoom((z) => Math.max(0.6, +(z - 0.15).toFixed(2)))} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" title="Zoom out"><ZoomOut className="w-4 h-4" /></button>
-                  <button onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.15).toFixed(2)))} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" title="Zoom in"><ZoomIn className="w-4 h-4" /></button>
-                  {data.certUrl && (
-                    <a href={data.certUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-slate-700 hover:text-ink inline-flex items-center gap-1 ml-2">
-                      Open PDF <ExternalLink className="w-3.5 h-3.5" />
+                  {leftView === 'file' && (
+                    <>
+                      <button onClick={() => setZoom((z) => Math.max(0.6, +(z - 0.15).toFixed(2)))} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" title="Zoom out"><ZoomOut className="w-4 h-4" /></button>
+                      <button onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.15).toFixed(2)))} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" title="Zoom in"><ZoomIn className="w-4 h-4" /></button>
+                    </>
+                  )}
+                  {docUrl && (
+                    <a
+                      href={docUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-slate-700 hover:text-ink inline-flex items-center gap-1 ml-2"
+                      title="Open the real PDF/image file inline in a new tab"
+                    >
+                      Open original <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {docUrl && (
+                    <a
+                      href={`${docUrl}&download=1`}
+                      download
+                      className="text-xs font-medium text-slate-500 hover:text-slate-800 inline-flex items-center gap-1"
+                      title="Download the uploaded file"
+                    >
+                      <Download className="w-3.5 h-3.5" />
                     </a>
                   )}
                 </div>
               </div>
 
-              <div className="relative overflow-auto max-h-[820px] rounded-lg bg-slate-50 border border-slate-100 flex items-start justify-center p-2">
-                {data.certUrl ? (
+              <div className="relative overflow-auto max-h-[820px] rounded-lg bg-slate-50 border border-slate-100 p-2">
+                {leftView === 'form' ? (
+                  <AcordCertificateForm
+                    coi={coi}
+                    extracted={data.extracted}
+                    docProxyUrl={docUrl}
+                    onOpenFile={() => setLeftView('file')}
+                    onEdit={openEditFields}
+                    dense
+                  />
+                ) : (
+                  <div className="flex items-start justify-center w-full">
+                {(docUrl || data.certUrl) ? (
                   coi.certificate_mime === 'application/pdf' ? (
-                    <iframe src={data.certUrl} title="certificate" className="w-full h-[800px] border-0" style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }} />
+                    <iframe src={docUrl || data.certUrl || ''} title="certificate" className="w-full h-[800px] border-0" style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }} />
                   ) : (
                     <div className="relative inline-block" style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}>
-                      <img src={data.certUrl} alt="certificate" className="max-w-full rounded shadow" />
+                      <img src={docUrl || data.certUrl || ''} alt="certificate" className="max-w-full rounded shadow" />
                       {/* overlay highlighting insurer section when holding company */}
                       {coi.carrier && (/cna financial|travelers companies|hartford financial|nationwide mutual insurance co|berkshire hathaway/i.test(coi.carrier)) && (
                         <div className="absolute top-[3%] left-[2%] right-[52%] h-[12%] rounded-md border-2 border-rose-500 bg-rose-500/10 pointer-events-none">
@@ -265,6 +315,8 @@ export function AdminCoiReviewPage() {
                   )
                 ) : (
                   <p className="text-sm text-slate-400 py-20">No file uploaded for this certificate</p>
+                )}
+                  </div>
                 )}
               </div>
             </section>

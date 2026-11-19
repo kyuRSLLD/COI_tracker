@@ -1,14 +1,21 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, Download, X } from 'lucide-react'
+import { ArrowLeft, Download, X, FileText, Layers, ExternalLink, Printer } from 'lucide-react'
 import type { COI } from '../types'
 import { getToken, SESSION_CHANGED_EVENT } from '../api'
 import { ConnectionSession } from './ConnectionOptions'
+import { AcordCertificateForm } from './AcordCertificateForm'
 
-type Certificate = Pick<COI, 'certificate_url' | 'certificate_name' | 'certificate_mime'>
+type Certificate = COI & {
+  certificate_url?: string | null
+  certificate_name?: string | null
+  certificate_mime?: string | null
+  company_name?: string
+  sub_company_name?: string
+}
+
 type PreviewKind = 'image' | 'pdf' | 'unsupported'
 
-// Only raster images and PDFs are previewed. In particular, SVG and HTML are not.
 export function certificatePreviewKind(certificate: Certificate): PreviewKind {
   const mime = certificate.certificate_mime?.split(';')[0].trim().toLowerCase()
   if (mime && mime !== 'application/octet-stream') {
@@ -35,32 +42,66 @@ interface Props {
   certificate: Certificate
   onClose: () => void
   returnLabel: string
+  onEdit?: () => void
+  initialMode?: 'form' | 'file'
 }
 
-export function CertificateViewer({ certificate, onClose, returnLabel }: Props) {
+export function CertificateViewer({ certificate, onClose, returnLabel, onEdit, initialMode }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const returnRef = useRef<HTMLButtonElement>(null)
   const { token: sessionToken } = useContext(ConnectionSession)
+  const bearerToken = sessionToken || getToken() || ''
+
+  // Build the same-origin document proxy URL (avoids S3 CORS + attachment-disposition issues).
+  const docProxyUrl = useMemo(() => {
+    if (!certificate.id) return null
+    const base = `/api/coi-fields/${encodeURIComponent(certificate.id)}/document`
+    return bearerToken ? `${base}?token=${encodeURIComponent(bearerToken)}` : base
+  }, [certificate.id, bearerToken])
+
+  const signedUrl = safeCertificateUrl(certificate.certificate_url)
+  const fileUrl = docProxyUrl || signedUrl
+  const kind = certificatePreviewKind(certificate)
+  const hasFile = Boolean(certificate.certificate_key || certificate.certificate_url)
+
+  const hasExtractedData = useMemo(() => {
+    const rd: any = certificate.review_details
+    return Boolean(
+      (rd && (rd.producer || rd.insured || (rd.policies && rd.policies.length) || (rd.insurers && rd.insurers.length))) ||
+      certificate.carrier || certificate.policy_number || certificate.expiration_date,
+    )
+  }, [certificate])
+
+  // Default: show the ACORD certificate form first whenever extracted fields exist.
+  const [viewMode, setViewMode] = useState<'form' | 'file'>(() => {
+    if (initialMode) return initialMode
+    if (hasExtractedData) return 'form'
+    return hasFile ? 'file' : 'form'
+  })
+
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [downloadError, setDownloadError] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [pdfSource, setPdfSource] = useState<{ url: string; sandboxed: boolean } | null>(null)
   const [imageSource, setImageSource] = useState<string | null>(null)
-  const url = safeCertificateUrl(certificate.certificate_url)
-  const kind = certificatePreviewKind(certificate)
-  const local = !!url && new URL(url).origin === window.location.origin && /^\/uploads\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(new URL(url).pathname)
 
-  // Never attach the session credential to an S3 URL, a different origin, or
-  // a redirect. Also refuse a stale tab identity after localStorage changes.
+  const local = !!fileUrl && new URL(fileUrl, window.location.href).origin === window.location.origin &&
+    /^\/uploads\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(new URL(fileUrl, window.location.href).pathname)
+
   const fetchCertificate = (signal?: AbortSignal) => {
-    if (!url) throw new Error('Certificate unavailable')
+    if (!fileUrl) throw new Error('Certificate unavailable')
     if (local && (!sessionToken || getToken() !== sessionToken)) {
       window.dispatchEvent(new Event(SESSION_CHANGED_EVENT))
       throw new Error('Session changed')
     }
-    return fetch(url, {
-      credentials: 'same-origin', signal,
-      ...(local ? { headers: { Authorization: `Bearer ${sessionToken}` }, redirect: 'error' as const } : {}),
+    const isSameOrigin = new URL(fileUrl, window.location.href).origin === window.location.origin
+    return fetch(fileUrl, {
+      credentials: 'same-origin',
+      signal,
+      headers: {
+        ...(isSameOrigin && bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      ...(isSameOrigin ? { redirect: 'follow' as const } : {}),
     })
   }
 
@@ -78,8 +119,9 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
     }
   }, [])
 
+  // PDF loading: fetch bytes → blob object URL with application/pdf mime.
   useEffect(() => {
-    if (kind !== 'pdf' || !url) return
+    if (viewMode !== 'file' || kind !== 'pdf' || !fileUrl) return
     const controller = new AbortController()
     let objectUrl: string | null = null
     setStatus('loading')
@@ -90,13 +132,9 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
         response = await fetchCertificate(controller.signal)
       } catch {
         if (!controller.signal.aborted) {
-          // Signed cross-origin URLs may not allow fetch/CORS. Some browsers can
-          // still display a PDF in this script-free sandbox; others cannot.
-          if (local) setStatus('error')
-          else {
-            setPdfSource({ url, sandboxed: true })
-            setStatus('loaded')
-          }
+          if (docProxyUrl) setPdfSource({ url: docProxyUrl, sandboxed: false })
+          else if (signedUrl) setPdfSource({ url: signedUrl, sandboxed: true })
+          setStatus('loaded')
         }
         return
       }
@@ -106,8 +144,6 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
         if (controller.signal.aborted || (local && getToken() !== sessionToken)) return
         const header = new TextDecoder().decode(bytes.slice(0, 1024))
         if (!header.includes('%PDF-')) throw new Error('Not a PDF')
-        // The blob's fixed type prevents a mislabeled HTML response from being
-        // interpreted as HTML, while allowing native PDF viewers to work.
         objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
         setPdfSource({ url: objectUrl, sandboxed: false })
         setStatus('loaded')
@@ -120,10 +156,11 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [kind, url, local, sessionToken])
+  }, [viewMode, kind, fileUrl, local, sessionToken, docProxyUrl, signedUrl, bearerToken])
 
+  // Image loading: fetch bytes → raster object URL
   useEffect(() => {
-    if (kind !== 'image' || !url || !local) return
+    if (viewMode !== 'file' || kind !== 'image' || !fileUrl) return
     const controller = new AbortController()
     let objectUrl: string | null = null
     setStatus('loading')
@@ -134,7 +171,6 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
         if (!response.ok) throw new Error('Image unavailable')
         const bytes = await response.arrayBuffer()
         if (controller.signal.aborted || getToken() !== sessionToken) return
-        // A fixed raster MIME prevents HTML/SVG from being interpreted as a page.
         const mime = certificate.certificate_mime?.split(';')[0].trim().toLowerCase()
         const type = mime && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime)
           ? mime : /\.jpe?g$/i.test(certificate.certificate_name || '') ? 'image/jpeg'
@@ -142,6 +178,7 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
               : /\.webp$/i.test(certificate.certificate_name || '') ? 'image/webp' : 'image/png'
         objectUrl = URL.createObjectURL(new Blob([bytes], { type }))
         setImageSource(objectUrl)
+        setStatus('loaded')
       } catch {
         if (!controller.signal.aborted) setStatus('error')
       }
@@ -150,79 +187,194 @@ export function CertificateViewer({ certificate, onClose, returnLabel }: Props) 
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [kind, url, local, sessionToken, certificate.certificate_mime, certificate.certificate_name])
+  }, [viewMode, kind, fileUrl, local, sessionToken, certificate.certificate_mime, certificate.certificate_name, bearerToken])
 
-  // Frame load events do not reliably report PDF renderer failures, so guidance
-  // remains visible even after loading.
   const download = async () => {
-    if (!url) return
+    const dlUrl = docProxyUrl ? `${docProxyUrl}&download=1` : (signedUrl || fileUrl)
+    if (!dlUrl) return
     setDownloading(true)
     setDownloadError(false)
     try {
-      const response = await fetchCertificate()
-      if (!response.ok) throw new Error('Download failed')
-      // Force a download instead of navigating to potentially executable HTML.
-      const blob = new Blob([await response.arrayBuffer()], { type: 'application/octet-stream' })
-      if (local && getToken() !== sessionToken) throw new Error('Session changed')
-      const objectUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = objectUrl
-      link.download = certificate.certificate_name || 'certificate'
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      const a = document.createElement('a')
+      a.href = dlUrl
+      a.download = certificate.certificate_name || 'certificate'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
     } catch {
       setDownloadError(true)
     } finally {
-      setDownloading(false)
+      setTimeout(() => setDownloading(false), 800)
     }
   }
+
+  const fileLabel = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Image' : 'File'
+  const fileBadge = kind === 'pdf' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-100 text-slate-700 border-slate-200'
 
   return createPortal(
     <dialog
       ref={dialogRef}
       aria-labelledby="certificate-viewer-title"
       onCancel={(event) => { event.preventDefault(); onClose() }}
-      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-hidden bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/70 sm:inset-4 sm:m-auto sm:h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-6xl sm:rounded-2xl"
+      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-hidden bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/70 sm:inset-4 sm:m-auto sm:h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-6xl sm:rounded-2xl print:static print:h-auto print:max-h-none print:w-auto print:max-w-none print:shadow-none print:rounded-none"
     >
-      <div className="flex h-full min-h-0 flex-col">
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
-          <button ref={returnRef} type="button" onClick={onClose} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+      <div className="flex h-full min-h-0 flex-col print:h-auto print:overflow-visible">
+        {/* Header */}
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5 print:hidden">
+          <button
+            ref={returnRef}
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          >
             <ArrowLeft aria-hidden="true" className="h-4 w-4" /> {returnLabel}
           </button>
           <div className="min-w-0 flex-1">
-            <h2 id="certificate-viewer-title" className="text-sm font-bold">Certificate document</h2>
-            <p className="truncate text-xs text-slate-500" title={certificate.certificate_name || 'Uploaded certificate'}>{certificate.certificate_name || 'Uploaded certificate'}</p>
+            <h2 id="certificate-viewer-title" className="text-sm font-bold">Certificate of Insurance</h2>
+            <p className="truncate text-xs text-slate-500" title={certificate.certificate_name || 'Uploaded certificate'}>
+              {certificate.sub_company_name || certificate.company_name || certificate.certificate_name || 'Uploaded certificate'}
+            </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close certificate viewer" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close certificate viewer"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+          >
             <X aria-hidden="true" className="h-5 w-5" />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-3 sm:p-5">
-          {!url || kind === 'unsupported' ? (
-            <p role="status" className="mx-auto max-w-xl rounded-xl bg-white p-5 text-sm text-slate-700">This file cannot be previewed here. Please ask for a PDF or a JPG, PNG, GIF, or WebP image.</p>
-          ) : (
-            <>
-              {status === 'loading' && <p role="status" className="mb-3 text-sm text-slate-600">Loading certificate…</p>}
-              {status === 'error' && <p role="alert" className="mb-3 rounded-xl bg-white p-4 text-sm text-rose-700">The certificate could not be displayed. The link may have expired or the file may be unavailable.</p>}
-              {kind === 'image' ? (
-                (local ? imageSource : url) && <img src={(local ? imageSource : url) || undefined} alt={certificate.certificate_name ? `Certificate: ${certificate.certificate_name}` : 'Uploaded certificate'} onLoad={() => setStatus('loaded')} onError={() => setStatus('error')} className="mx-auto h-auto max-w-full rounded bg-white shadow-sm" />
-              ) : pdfSource && (
-                <iframe src={pdfSource.url} title="Certificate PDF preview" sandbox={pdfSource.sandboxed ? '' : undefined} onError={() => setStatus('error')} className="h-full min-h-[60vh] w-full rounded border border-slate-200 bg-white" />
+
+        {/* Tab bar */}
+        <div className="shrink-0 flex items-center justify-between gap-2 px-4 border-b border-slate-200 bg-slate-50 text-xs print:hidden">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('form')}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 font-semibold border-b-2 -mb-px transition ${
+                viewMode === 'form' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" /> Certificate form (ACORD 25)
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('file')}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 font-semibold border-b-2 -mb-px transition ${
+                viewMode === 'file' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" /> Original file
+              {hasFile && <span className={`text-[10px] px-1.5 py-0.2 rounded border font-mono ${fileBadge}`}>{fileLabel}</span>}
+              {!hasFile && <span className="text-[10px] px-1.5 py-0.2 rounded border font-mono bg-slate-100 text-slate-400">none</span>}
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 py-1">
+            {docProxyUrl && (
+              <a
+                href={docProxyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-medium"
+                title="Open the real PDF/image file inline in a new tab"
+              >
+                Open file in new tab <ExternalLink className="w-3 h-3 text-slate-400" />
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-medium"
+            >
+              <Printer className="w-3 h-3 text-slate-400" /> Print
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-2 sm:p-4 print:p-0 print:overflow-visible print:bg-white">
+          {viewMode === 'form' && (
+            <div className="mx-auto max-w-5xl">
+              <AcordCertificateForm
+                coi={certificate as any}
+                extracted={(certificate as any).review_details || null}
+                docProxyUrl={docProxyUrl}
+                fileUrl={fileUrl}
+                hasFile={hasFile}
+                onOpenFile={hasFile ? () => setViewMode('file') : undefined}
+                onEdit={onEdit}
+              />
+            </div>
+          )}
+
+          {viewMode === 'file' && (
+            <div className="h-full flex flex-col">
+              {!hasFile || kind === 'unsupported' ? (
+                <div className="mx-auto max-w-xl rounded-xl bg-white p-5 text-sm text-slate-700 space-y-2">
+                  <p role="status">No previewable file is attached to this certificate. The certificate data can still be viewed and printed as the ACORD form above.</p>
+                  <button type="button" onClick={() => setViewMode('form')} className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline">
+                    ← Back to certificate form view
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {status === 'loading' && <p role="status" className="mb-3 text-sm text-slate-600">Loading certificate file…</p>}
+                  {status === 'error' && (
+                    <div className="mb-3 rounded-xl bg-white p-4 text-sm text-rose-700 space-y-2 border border-rose-200">
+                      <p role="alert">The file could not be displayed inline. You can still download the original, or view the complete extracted data in the <strong>Certificate form</strong> tab above.</p>
+                      <button type="button" onClick={() => setViewMode('form')} className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline">
+                        ← Switch to certificate form view
+                      </button>
+                    </div>
+                  )}
+                  {kind === 'image' && imageSource && (
+                    <img
+                      src={imageSource}
+                      alt={certificate.certificate_name ? `Certificate: ${certificate.certificate_name}` : 'Uploaded certificate'}
+                      className="mx-auto h-auto max-w-full rounded bg-white shadow-sm"
+                    />
+                  )}
+                  {kind === 'pdf' && pdfSource && (
+                    <iframe
+                      src={pdfSource.url}
+                      title="Certificate PDF preview"
+                      sandbox={pdfSource.sandboxed ? '' : undefined}
+                      onError={() => setStatus('error')}
+                      className="h-full min-h-[70vh] w-full rounded border border-slate-200 bg-white"
+                    />
+                  )}
+                </>
               )}
-            </>
+            </div>
           )}
         </div>
-        <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
+
+        {/* Footer */}
+        <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-5 print:hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-            <p>{kind === 'pdf' && url ? 'If the PDF does not appear, your browser may not support this preview. Try downloading it or use another browser.' : 'If the preview is unavailable, try downloading the file or ask for a new upload.'}</p>
-            {url && <button type="button" onClick={download} disabled={downloading} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download aria-hidden="true" className="h-4 w-4" /> {downloading ? 'Downloading…' : 'Download original'}</button>}
+            <p>
+              {viewMode === 'form'
+                ? 'This form view is rendered from extracted certificate fields. The original PDF/image can be opened via the “Original file” tab.'
+                : 'If the PDF does not render, use the “Certificate form” tab above, or download the original file below.'}
+            </p>
+            {hasFile && (
+              <button
+                type="button"
+                onClick={download}
+                disabled={downloading}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Download aria-hidden="true" className="h-4 w-4" /> {downloading ? 'Downloading…' : 'Download original PDF'}
+              </button>
+            )}
           </div>
-          {downloadError && <p role="alert" className="mt-2 text-xs text-rose-700">Download was blocked or the link expired. Try another browser or ask for a new upload.</p>}
+          {downloadError && (
+            <p role="alert" className="mt-2 text-xs text-rose-700">Download was blocked or the file is unavailable. Try another browser or ask for a new upload.</p>
+          )}
         </footer>
       </div>
     </dialog>,
     document.body,
   )
 }
+export default CertificateViewer

@@ -156,6 +156,12 @@ export { LOCAL_UPLOADS }
 export async function getFileBuffer(key: string): Promise<Buffer | null> {
   const k = (key || '').trim()
   if (!k) return null
+  if (!isS3Configured) {
+    if (typeof key !== 'string' || !/^(?:cois\/)?[a-zA-Z0-9._-]+$/.test(k)) return null
+    const localPath = path.join(LOCAL_UPLOADS, k)
+    if (!fs.existsSync(localPath)) return null
+    try { return fs.readFileSync(localPath) } catch { return null }
+  }
   const s3 = getS3()
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: k }))

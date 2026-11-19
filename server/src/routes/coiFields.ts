@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { dbGet, dbAll, dbRun, isPostgres, lockConnectionUsers, withTransaction } from '../db/db.ts'
 import { requireAuth, isGcRole, type AuthRequest } from '../middleware/auth.ts'
-import { getFileViewUrl } from '../services/storage.ts'
+import { getFileViewUrl, getFileBuffer } from '../services/storage.ts'
 import { normalizeAmount, normalizeDate } from '../services/aiExtract.ts'
 import { applyExtractedFieldsToCoi, matchOrCreateSubcontractorFromInsured } from '../services/coiFieldSync.ts'
 
@@ -37,6 +37,8 @@ const putSchema = z.object({ sourceTag: z.string().max(128), reviewRevision: z.s
 type AccessRow = {
   id: string
   certificate_key: string | null
+  certificate_name?: string | null
+  certificate_mime?: string | null
   owner_gc_user_id: string | null
   owner_sub_user_id: string | null
   profile_id: string
@@ -75,7 +77,7 @@ const access = `(
           AND g.subcontractor_id = c.subcontractor_id))))
   OR actor.role = 'admin'
 )`
-const selectAccess = `SELECT c.id, c.certificate_key, c.owner_gc_user_id, c.owner_sub_user_id,
+const selectAccess = `SELECT c.id, c.certificate_key, c.certificate_name, c.certificate_mime, c.owner_gc_user_id, c.owner_sub_user_id,
     s.id AS profile_id, s.user_id AS profile_user_id, actor.role AS actor_role, r.source_tag, r.details_json, v.revision
   ${joins} LEFT JOIN coi_field_reviews r ON r.coi_id = c.id
   LEFT JOIN coi_field_review_versions v ON v.coi_id = c.id
@@ -127,7 +129,53 @@ async function certificateUrl(key: string | null): Promise<string | null> {
   try { return await getFileViewUrl(key) } catch { return null }
 }
 
+function safeDownloadName(name?: string | null, key?: string | null, mime?: string | null): string {
+  const raw = (name && name.trim()) || (key ? key.split('/').pop() || 'certificate' : 'certificate')
+  let clean = raw.replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 150)
+  if (!clean) clean = 'certificate'
+  const lower = clean.toLowerCase()
+  if (mime === 'application/pdf' && !lower.endsWith('.pdf')) clean += '.pdf'
+  else if (mime === 'image/png' && !lower.endsWith('.png')) clean += '.png'
+  else if (mime === 'image/jpeg' && !lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) clean += '.jpg'
+  else if (mime === 'image/webp' && !lower.endsWith('.webp')) clean += '.webp'
+  return clean
+}
+
+function mimeFromKey(key: string, mime?: string | null): string {
+  if (mime && typeof mime === 'string') return mime
+  const n = (key || '').toLowerCase()
+  if (n.endsWith('.pdf')) return 'application/pdf'
+  if (n.endsWith('.png')) return 'image/png'
+  if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg'
+  if (n.endsWith('.webp')) return 'image/webp'
+  return 'application/octet-stream'
+}
+
 coiFieldsRouter.use(requireAuth)
+coiFieldsRouter.get('/:coiId/document', async (req: AuthRequest, res) => {
+  try {
+    const row = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
+    if (!row || !validKey(row)) return res.status(404).json({ error: 'COI not found' })
+    if (!row.certificate_key) return res.status(404).json({ error: 'No certificate file is attached to this record' })
+    const buffer = await getFileBuffer(row.certificate_key)
+    if (!buffer || !Buffer.isBuffer(buffer)) return res.status(502).json({ error: 'Certificate storage is unavailable. Please try again later.' })
+    const filename = safeDownloadName(row.certificate_name, row.certificate_key, row.certificate_mime)
+    const mime = mimeFromKey(row.certificate_key, row.certificate_mime)
+    const download = req.query.download === '1' || req.query.download === 'true'
+    // Never render untrusted HTML inline.
+    const looksHtml = buffer.slice(0, 256).toString('utf8').trim().toLowerCase().startsWith('<')
+    const disposition = download || looksHtml ? `attachment; filename="${filename.replace(/"/g, '')}"` : `inline; filename="${filename.replace(/"/g, '')}"`
+    res.setHeader('Content-Type', looksHtml ? 'text/plain' : mime)
+    res.setHeader('Content-Disposition', disposition)
+    res.setHeader('Content-Length', buffer.length)
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    return res.end(buffer)
+  } catch (err: any) {
+    console.error('[document]', err?.message || err)
+    return res.status(500).json({ error: 'Unable to load certificate document' })
+  }
+})
 coiFieldsRouter.get('/:coiId', async (req: AuthRequest, res) => {
   try {
     const row = await dbGet<AccessRow>(selectAccess, [req.user!.id, req.params.coiId])
