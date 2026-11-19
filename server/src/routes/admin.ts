@@ -129,6 +129,18 @@ adminRouter.get('/companies', requireAdmin, async (_req, res) => {
       `SELECT c.*,
               u.name AS owner_name, u.email AS owner_email,
               (SELECT COUNT(*) FROM subcontractors s WHERE s.user_id = c.owner_user_id) AS subcontractor_count,
+              (SELECT COUNT(DISTINCT sid) FROM (
+                 SELECT s.id AS sid FROM subcontractors s WHERE s.user_id = c.owner_user_id
+                 UNION
+                 SELECT gsc.subcontractor_id AS sid FROM gc_sub_connections gsc WHERE gsc.gc_user_id = c.owner_user_id
+               )) AS connected_subcontractors,
+              (SELECT COUNT(*) FROM cois coi
+                 WHERE coi.owner_gc_user_id = c.owner_user_id
+                    OR coi.subcontractor_id IN (SELECT sid FROM (
+                         SELECT s.id AS sid FROM subcontractors s WHERE s.user_id = c.owner_user_id
+                         UNION
+                         SELECT gsc.subcontractor_id AS sid FROM gc_sub_connections gsc WHERE gsc.gc_user_id = c.owner_user_id
+                       ))) AS connected_cois,
               (SELECT COUNT(*) FROM projects p WHERE p.user_id = c.owner_user_id) AS project_count,
               (SELECT COUNT(*) FROM client_share_links sl JOIN projects pr ON sl.project_id = pr.id WHERE pr.user_id = c.owner_user_id) AS share_count
        FROM companies c
@@ -139,6 +151,8 @@ adminRouter.get('/companies', requireAdmin, async (_req, res) => {
       companies: companies.map((c) => ({
         ...c,
         subcontractor_count: Number(c.subcontractor_count || 0),
+        connected_subcontractors: Number(c.connected_subcontractors || 0),
+        connected_cois: Number(c.connected_cois || 0),
         project_count: Number(c.project_count || 0),
         share_count: Number(c.share_count || 0),
         is_test: c.is_test === 1,

@@ -257,6 +257,8 @@ export interface AdminCompany {
   owner_name?: string | null
   owner_email?: string | null
   subcontractor_count: number
+  connected_subcontractors?: number
+  connected_cois?: number
   project_count: number
   share_count: number
   created_at: string

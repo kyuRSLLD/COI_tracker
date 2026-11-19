@@ -611,14 +611,15 @@ function SessionSubcontractorsPage({ sessionToken }: { sessionToken: string }) {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 self-start sm:self-center">
-                        {c.simulated_carrier_connect ? <span className="text-amber-800 font-semibold">Simulated — not verified</span> : <ExpirationBadge status={c.status} showCountdown={false} size="sm" />}
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 self-start sm:self-center w-full sm:w-auto">
+                        {c.simulated_carrier_connect ? <span className="text-amber-800 font-semibold text-xs">Simulated — not verified</span> : <ExpirationBadge status={c.status} showCountdown={false} size="sm" />}
                         <button
                           type="button"
                           onClick={() => void openFieldsReview(c)}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100"
                         >
-                          Review document data
+                          <span className="sm:hidden">Review data</span>
+                          <span className="hidden sm:inline">Review document data</span>
                         </button>
                         {c.status === 'pending_review' && !coiExpiryAllExpired(c.expiration_date, c.review_details?.policies) && (
                           <button

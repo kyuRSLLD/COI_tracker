@@ -168,11 +168,12 @@ export function Dashboard() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 self-start sm:self-center">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 self-start sm:self-center w-full sm:w-auto">
                   <ExpirationBadge status="pending_review" size="sm" showCountdown={false} />
                   {!coiExpiryAllExpired(c.expiration_date, c.review_details?.policies) && (
                     <Button
                       variant="primary"
+                      size="sm"
                       disabled={validating[c.id]}
                       onClick={async () => {
                         setValidating((m) => ({ ...m, [c.id]: true }))
@@ -192,6 +193,7 @@ export function Dashboard() {
                   )}
                   <Button
                     variant="secondary"
+                    size="sm"
                     onClick={() => { setReviewCoi(c); setReviewModal(true) }}
                   >
                     Review COI
@@ -199,9 +201,10 @@ export function Dashboard() {
                   <Link
                     to="/subcontractors"
                     state={{ openSubId: c.subcontractor_id }}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
+                    className="inline-flex min-h-[34px] sm:min-h-[44px] items-center justify-center rounded-xl border border-slate-300 bg-white px-2.5 py-1 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-100 transition whitespace-nowrap"
                   >
-                    Review document data
+                    <span className="sm:hidden">Review data</span>
+                    <span className="hidden sm:inline">Review document data</span>
                   </Link>
                 </div>
               </div>

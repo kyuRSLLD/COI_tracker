@@ -688,17 +688,11 @@ export function AdminDashboardPage() {
   const roleLabel = (r?: string) =>
     r === 'admin' ? 'Admin' : r === 'pro_gc' ? 'Pro GC' : r === 'sub' ? 'Sub C' : 'GC'
 
-  const compHealth = (c: AdminCompany) => {
-    if (c.status !== 'active') return { label: 'Past due', cls: 'badge-fail' }
-    if ((c.subcontractor_count ?? 0) === 0) return { label: 'No subs yet', cls: 'badge-warn' }
-    return { label: 'Active', cls: 'badge-pass' }
-  }
 
   const exportCompaniesCsv = () => {
-    const header = ['Company', 'Owner', 'Owner Email', 'Plan', 'MRR', 'Subs', 'Projects', 'Health', 'Joined', 'Test'].join(',')
+    const header = ['Company', 'Owner', 'Owner Email', 'Plan', 'MRR', 'Connected Subs', 'Connected COIs', 'Projects', 'Joined', 'Test'].join(',')
     const rows = filteredCompanies.map((c) => {
-      const h = (c.status !== 'active' ? 'Past due' : (c.subcontractor_count ?? 0) === 0 ? 'No subs yet' : 'Active')
-      return [c.name, c.owner_name || '', c.owner_email || '', c.plan, c.mrr || 0, c.subcontractor_count ?? 0, c.project_count ?? 0, h, (c.created_at || '').slice(0, 10), c.is_test ? 'yes' : 'no']
+      return [c.name, c.owner_name || '', c.owner_email || '', c.plan, c.mrr || 0, c.connected_subcontractors ?? c.subcontractor_count ?? 0, c.connected_cois ?? 0, c.project_count ?? 0, (c.created_at || '').slice(0, 10), c.is_test ? 'yes' : 'no']
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(',')
     })
@@ -1360,7 +1354,6 @@ export function AdminDashboardPage() {
           </div>
           <div className="sm:hidden divide-y divide-slate-100 text-xs">
             {filteredCompanies.map((c) => {
-              const h = compHealth(c)
               return (
                 <div key={c.id} className={`py-3 space-y-2 rounded-lg px-2 -mx-2 ${c.is_test ? 'bg-amber-50/60' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
@@ -1372,7 +1365,9 @@ export function AdminDashboardPage() {
                             TEST
                           </span>
                         )}
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${h.cls}`}>{h.label}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full font-mono bg-slate-100 text-slate-800">
+                          {c.connected_subcontractors ?? c.subcontractor_count ?? 0} { (c.connected_subcontractors ?? c.subcontractor_count ?? 0) === 1 ? 'sub' : 'subs' } · {c.connected_cois ?? 0} { (c.connected_cois ?? 0) === 1 ? 'COI' : 'COIs' }
+                        </span>
                       </div>
                       <div className="text-slate-500 truncate">{c.owner_name || '—'}</div>
                       <div className="text-[10px] text-slate-400 truncate">{c.owner_email || '—'}</div>
@@ -1423,7 +1418,7 @@ export function AdminDashboardPage() {
                   <th className="py-2 pr-3">Company</th>
                   <th className="py-2 pr-3">Owner</th>
                   <th className="py-2 pr-3">Plan</th>
-                  <th className="py-2 pr-3">Health</th>
+                  <th className="py-2 pr-3">Connected</th>
                   <th className="py-2 pr-3 text-right">MRR</th>
                   <th className="py-2 pr-3 text-right">Subs</th>
                   <th className="py-2 pr-3 text-right">Projects</th>
@@ -1433,7 +1428,6 @@ export function AdminDashboardPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredCompanies.map((c) => {
-                  const h = compHealth(c)
                   return (
                     <tr key={c.id} className={c.is_test ? 'bg-amber-50/50 hover:bg-amber-100/50' : 'hover:bg-slate-50'}>
                       <td className="py-2.5 pr-3 font-semibold text-slate-900">
@@ -1474,7 +1468,9 @@ export function AdminDashboardPage() {
                         </div>
                       </td>
                       <td className="py-2.5 pr-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${h.cls}`}>{h.label}</span>
+                        <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-800 font-mono">
+                          {c.connected_subcontractors ?? c.subcontractor_count ?? 0} { (c.connected_subcontractors ?? c.subcontractor_count ?? 0) === 1 ? 'sub' : 'subs' } · {c.connected_cois ?? 0} { (c.connected_cois ?? 0) === 1 ? 'COI' : 'COIs' }
+                        </span>
                       </td>
                       <td className="py-2.5 pr-3 text-right font-bold text-slate-900 font-mono">
                         ${(c.mrr || 0).toLocaleString()}
