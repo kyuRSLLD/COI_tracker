@@ -530,3 +530,18 @@ export const apiAgent = {
   confirmations: (coiId: string) =>
     request<{ confirmations: import('./types').AgentConfirmationItem[] }>(`/api/agent/v1/cois/${coiId}/confirmations`),
 }
+
+export const apiAdminEmail = {
+  get: () =>
+    request<{ settings: import('./types').SafeEmailSettings; status: import('./types').EmailDeliveryStatus }>('/api/admin/email-settings'),
+  update: (body: Partial<import('./types').SafeEmailSettings> & { smtp_pass?: string }) =>
+    request<{ settings: import('./types').SafeEmailSettings; status: import('./types').EmailDeliveryStatus }>('/api/admin/email-settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  test: (to: string) =>
+    request<{ ok: boolean; status: string; error?: string; last_test: { to: string | null; at: string | null; status: string | null; error: string | null } }>(
+      '/api/admin/email-settings/test',
+      { method: 'POST', body: JSON.stringify({ to }) }
+    ),
+}

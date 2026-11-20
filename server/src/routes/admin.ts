@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { isRealEmailConfigured, emailMode } from '../services/email.ts'
+import { isRealEmailConfigured, emailMode, getEmailSettings, saveEmailSettings, sendTestEmail } from '../services/email.ts'
+import type { EmailProvider, EmailSettings } from '../services/email.ts'
 import express from 'express'
 import { dbGet, dbAll, dbRun, adminDeleteCOI, planToMRR, PLAN_PRICES } from '../db/db.ts'
 import { randomUUID } from 'crypto'
@@ -883,6 +884,105 @@ adminRouter.delete('/articles/:id', requireAdmin, async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Article not found' })
     await dbRun('DELETE FROM articles WHERE id = ?', [req.params.id])
     res.json({ success: true, deleted: req.params.id })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+const emailSettingsUpdateSchema = z.object({
+  provider: z.enum(['gmail', 'smtp', 'postmark', 'sendgrid', 'simulated']).optional(),
+  from_name: z.string().max(100).nullable().optional(),
+  from_email: z.string().email().nullable().optional(),
+  reply_to: z.string().email().nullable().optional(),
+  smtp_host: z.string().max(255).nullable().optional(),
+  smtp_port: z.number().int().min(1).max(65535).nullable().optional(),
+  smtp_secure: z.number().int().min(0).max(1).nullable().optional(),
+  smtp_user: z.string().max(255).nullable().optional(),
+  smtp_pass: z.string().max(255).optional(),
+  sending_enabled: z.number().int().min(0).max(1).optional(),
+})
+
+const testEmailSchema = z.object({
+  to: z.string().email(),
+})
+
+function safeEmailSettings(cfg: EmailSettings) {
+  const hasEnvPass = Boolean(process.env.SMTP_PASS && process.env.SMTP_PASS.length > 0)
+  const hasDbPass = Boolean(cfg.smtp_pass && cfg.smtp_pass.length > 0)
+  return {
+    provider: cfg.provider,
+    from_name: cfg.from_name,
+    from_email: cfg.from_email,
+    reply_to: cfg.reply_to,
+    smtp_host: cfg.smtp_host,
+    smtp_port: cfg.smtp_port,
+    smtp_secure: cfg.smtp_secure,
+    smtp_user: cfg.smtp_user,
+    smtp_pass_configured: hasEnvPass || hasDbPass,
+    smtp_pass_source: hasEnvPass ? 'env' : hasDbPass ? 'database' : 'none',
+    sending_enabled: cfg.sending_enabled,
+    last_test_to: cfg.last_test_to,
+    last_test_at: cfg.last_test_at,
+    last_test_status: cfg.last_test_status,
+    last_test_error: cfg.last_test_error,
+    updated_at: cfg.updated_at,
+  }
+}
+
+adminRouter.get('/email-settings', requireAdmin, async (_req, res) => {
+  try {
+    const cfg = await getEmailSettings()
+    res.json({
+      settings: safeEmailSettings(cfg),
+      status: {
+        mode: emailMode(),
+        real_configured: isRealEmailConfigured(),
+        sending_enabled: Boolean(cfg.sending_enabled),
+      },
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.put('/email-settings', requireAdmin, async (req, res) => {
+  try {
+    const parsed = emailSettingsUpdateSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid body' })
+    const d = { ...parsed.data }
+    // Treat empty string or the sentinel "__REDACTED__" as "do not change"
+    if (d.smtp_pass === '' || d.smtp_pass === '__REDACTED__') {
+      delete (d as any).smtp_pass
+    }
+    const updated = await saveEmailSettings(d)
+    res.json({
+      settings: safeEmailSettings(updated),
+      status: {
+        mode: emailMode(),
+        real_configured: isRealEmailConfigured(),
+        sending_enabled: Boolean(updated.sending_enabled),
+      },
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+adminRouter.post('/email-settings/test', requireAdmin, async (req, res) => {
+  try {
+    const parsed = testEmailSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid body' })
+    const result = await sendTestEmail(parsed.data.to)
+    const cfg = await getEmailSettings()
+    res.json({
+      ...result,
+      last_test: {
+        to: cfg.last_test_to,
+        at: cfg.last_test_at,
+        status: cfg.last_test_status,
+        error: cfg.last_test_error,
+      },
+    })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

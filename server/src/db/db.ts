@@ -478,6 +478,25 @@ export async function initDatabase(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_coi_confirmations_coi ON coi_confirmations(coi_id);
     CREATE INDEX IF NOT EXISTS idx_coi_confirmations_status ON coi_confirmations(status);
+    CREATE TABLE IF NOT EXISTS email_settings (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      provider TEXT NOT NULL DEFAULT 'gmail',
+      from_name TEXT,
+      from_email TEXT,
+      reply_to TEXT,
+      smtp_host TEXT,
+      smtp_port INTEGER,
+      smtp_secure INTEGER DEFAULT 0,
+      smtp_user TEXT,
+      smtp_pass TEXT,
+      sending_enabled INTEGER DEFAULT 0,
+      last_test_to TEXT,
+      last_test_at TEXT,
+      last_test_status TEXT,
+      last_test_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `
 
   await dbExec(schema)
@@ -683,6 +702,11 @@ export async function initDatabase(): Promise<void> {
   } catch (e: any) {
     console.warn('[db] article seed warning:', e?.message)
   }
+  try {
+    await seedEmailSettingsIfEmpty()
+  } catch (e: any) {
+    console.warn('[db] email settings seed warning:', e?.message)
+  }
 }
 
 // Subcontractor deletes their own COI (and its coverages). Authorization embedded in DELETE.
@@ -824,4 +848,16 @@ export async function seedArticlesIfEmpty(): Promise<void> {
   }
   const done = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM articles')
   console.log(`[db] seeded ${done?.n ?? 0} articles`)
+}
+
+async function seedEmailSettingsIfEmpty(): Promise<void> {
+  const row = await dbGet<{ id: string }>('SELECT id FROM email_settings WHERE id = ?', ['default'])
+  if (row) return
+  const now = new Date().toISOString()
+  await dbRun(
+    `INSERT INTO email_settings (id, provider, from_name, from_email, reply_to, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, sending_enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['default', 'gmail', 'Capital Restoration', 'backoffice@capitalcrestoration.com', null, 'smtp.gmail.com', 587, 0, null, null, 0, now, now]
+  )
+  console.log('[db] seeded default email settings')
 }

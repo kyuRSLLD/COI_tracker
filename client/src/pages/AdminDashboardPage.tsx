@@ -3,9 +3,9 @@ import { StaffSidebar } from '../components/StaffSidebar'
 import { AgentControlPanel } from '../components/AgentControlPanel'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiAdmin, apiAdminArticles, apiMe, signOut, apiCoiFields, getToken, ApiError } from '../api'
-import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts, Article } from '../types'
-import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe, FileEdit } from 'lucide-react'
+import { apiAdmin, apiAdminArticles, apiAdminEmail, apiMe, signOut, apiCoiFields, getToken, ApiError } from '../api'
+import type { AdminOverview, AdminCompany, AdminUser, User, AdminCoiValidationItem, AdminCoiCounts, Article, SafeEmailSettings, EmailDeliveryStatus, EmailProvider } from '../types'
+import { RefreshCw, Search, Trash2, RotateCcw, CheckCircle2, Sparkles, ExternalLink, ChevronDown, ChevronUp, AlertCircle, FileText, MoreHorizontal, Download, KeyRound, Eye, EyeOff, Check, Copy, BookOpen, Plus, Edit3, Globe, FileEdit, Send, Mail, AlertTriangle } from 'lucide-react'
 import { formatDisplayDate, isExpiredDate } from '../lib/date'
 import { formatAmount } from '../lib/currency'
 import { coiExpiryAllExpired, isPartiallyExpired } from '../lib/coiExpiry'
@@ -139,6 +139,26 @@ export function AdminDashboardPage() {
   const [articleNotice, setArticleNotice] = useState<string | null>(null)
   const [articleDeleteModal, setArticleDeleteModal] = useState<{ open: boolean; article: Article | null }>({ open: false, article: null })
   const [articleDeleting, setArticleDeleting] = useState(false)
+  const [emailSettings, setEmailSettings] = useState<SafeEmailSettings | null>(null)
+  const [emailStatus, setEmailStatus] = useState<EmailDeliveryStatus | null>(null)
+  const [emailLoading, setEmailLoading] = useState(false)
+  const [emailLoadError, setEmailLoadError] = useState<string | null>(null)
+  const [emailFromEmail, setEmailFromEmail] = useState('backoffice@capitalcrestoration.com')
+  const [emailFromName, setEmailFromName] = useState('Capital Restoration')
+  const [emailReplyTo, setEmailReplyTo] = useState('')
+  const [emailProvider, setEmailProvider] = useState<EmailProvider>('gmail')
+  const [emailSmtpHost, setEmailSmtpHost] = useState('smtp.gmail.com')
+  const [emailSmtpPort, setEmailSmtpPort] = useState(587)
+  const [emailSmtpSecure, setEmailSmtpSecure] = useState(false)
+  const [emailSmtpUser, setEmailSmtpUser] = useState('')
+  const [emailSmtpPass, setEmailSmtpPass] = useState('')
+  const [emailSendingEnabled, setEmailSendingEnabled] = useState(false)
+  const [emailSaving, setEmailSaving] = useState(false)
+  const [emailSaveMsg, setEmailSaveMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [testTo, setTestTo] = useState('')
+  const [testBusy, setTestBusy] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; status: string; error?: string } | null>(null)
+  const [guideOpen, setGuideOpen] = useState(false)
 
   const notify = (msg: string) => {
     setStatusMsg(msg)
@@ -151,18 +171,32 @@ export function AdminDashboardPage() {
       setError(null)
       const xt = excludeTestOverride ?? excludeTest
       const rg = rangeOverride ?? growthRange
-      const [ov, comps, usrs, arts, meData] = await Promise.all([
+      const [ov, comps, usrs, arts, meData, emailData] = await Promise.all([
         apiAdmin.overview({ exclude_test: xt, range: rg }),
         apiAdmin.companies(),
         apiAdmin.users(),
         apiAdminArticles.list().then((r) => r.articles).catch(() => [] as Article[]),
         apiMe().catch(() => null),
+        apiAdminEmail.get().catch(() => null),
       ])
       setOverview(ov)
       setCompanies(comps.companies)
       setUsers(usrs.users)
       setArticles(arts)
       if (meData?.user) setMe(meData.user)
+      if (emailData) {
+        setEmailSettings(emailData.settings)
+        setEmailStatus(emailData.status)
+        setEmailFromEmail(emailData.settings.from_email || '')
+        setEmailFromName(emailData.settings.from_name || '')
+        setEmailReplyTo(emailData.settings.reply_to || '')
+        setEmailProvider(emailData.settings.provider)
+        setEmailSmtpHost(emailData.settings.smtp_host || 'smtp.gmail.com')
+        setEmailSmtpPort(emailData.settings.smtp_port ?? 587)
+        setEmailSmtpSecure(emailData.settings.smtp_secure === 1)
+        setEmailSmtpUser(emailData.settings.smtp_user || '')
+        setEmailSendingEnabled(emailData.settings.sending_enabled === 1)
+      }
       setLastRefreshed(new Date())
     } catch (err: any) {
       setError(err?.message || 'Failed to load dashboard')
@@ -291,6 +325,74 @@ export function AdminDashboardPage() {
       notify(err?.message || 'Delete failed')
     } finally {
       setArticleDeleting(false)
+    }
+  }
+
+  const loadEmailSettings = useCallback(async () => {
+    try {
+      setEmailLoading(true)
+      setEmailLoadError(null)
+      const res = await apiAdminEmail.get()
+      setEmailSettings(res.settings)
+      setEmailStatus(res.status)
+      setEmailFromEmail(res.settings.from_email || '')
+      setEmailFromName(res.settings.from_name || '')
+      setEmailReplyTo(res.settings.reply_to || '')
+      setEmailProvider(res.settings.provider)
+      setEmailSmtpHost(res.settings.smtp_host || 'smtp.gmail.com')
+      setEmailSmtpPort(res.settings.smtp_port ?? 587)
+      setEmailSmtpSecure(res.settings.smtp_secure === 1)
+      setEmailSmtpUser(res.settings.smtp_user || '')
+      setEmailSendingEnabled(res.settings.sending_enabled === 1)
+    } catch (err: any) {
+      setEmailLoadError(err?.message || 'Failed to load email settings')
+    } finally {
+      setEmailLoading(false)
+    }
+  }, [])
+
+  const saveEmailSettingsForm = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      setEmailSaving(true)
+      setEmailSaveMsg(null)
+      const res = await apiAdminEmail.update({
+        provider: emailProvider,
+        from_name: emailFromName.trim() || null,
+        from_email: emailFromEmail.trim() || null,
+        reply_to: emailReplyTo.trim() || null,
+        smtp_host: emailProvider === 'gmail' ? 'smtp.gmail.com' : emailSmtpHost.trim() || null,
+        smtp_port: emailProvider === 'gmail' ? 587 : emailSmtpPort,
+        smtp_secure: emailSmtpSecure ? 1 : 0,
+        smtp_user: (emailProvider === 'gmail' ? emailFromEmail.trim() : emailSmtpUser.trim()) || null,
+        ...(emailSmtpPass ? { smtp_pass: emailSmtpPass } : {}),
+        sending_enabled: emailSendingEnabled ? 1 : 0,
+      })
+      setEmailSettings(res.settings)
+      setEmailStatus(res.status)
+      setEmailSmtpPass('')
+      setEmailSaveMsg({ text: 'Email delivery settings saved', ok: true })
+      setTimeout(() => setEmailSaveMsg(null), 4000)
+    } catch (err: any) {
+      setEmailSaveMsg({ text: err?.message || 'Save failed', ok: false })
+    } finally {
+      setEmailSaving(false)
+    }
+  }
+
+  const sendEmailTest = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!testTo.trim()) return
+    try {
+      setTestBusy(true)
+      setTestResult(null)
+      const res = await apiAdminEmail.test(testTo.trim())
+      setTestResult({ ok: res.ok, status: res.status, error: res.error })
+      await loadEmailSettings()
+    } catch (err: any) {
+      setTestResult({ ok: false, status: 'failed', error: err?.message || 'Test send failed' })
+    } finally {
+      setTestBusy(false)
     }
   }
 
@@ -1764,6 +1866,289 @@ export function AdminDashboardPage() {
           </div>
         </div>
         <AgentControlPanel onRefreshMain={() => { loadCoiQueue(coiFilter, coiSearch); load() }} />
+
+        {/* Email delivery settings */}
+        <section id="email-settings" className="bg-white border border-slate-200 rounded-xl p-4 scroll-mt-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Send className="w-4 h-4 text-brand-primary" /> Email delivery (Google / Gmail)
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Configure the sender address and connection used for COI requests, reminders, and confirmations. Outgoing mail is paused until you explicitly enable it.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                  emailSettings?.sending_enabled
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {emailSettings?.sending_enabled ? 'Operational sending ON' : 'Operational sending PAUSED'}
+              </span>
+              <button
+                type="button"
+                onClick={loadEmailSettings}
+                disabled={emailLoading}
+                className="btn-outline text-xs px-2.5 py-1 flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3 h-3 ${emailLoading ? 'animate-spin' : ''}`} /> Refresh
+              </button>
+            </div>
+          </div>
+
+          {!emailSettings?.sending_enabled && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Master sending switch is OFF</p>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  Real outgoing emails are paused — COI request emails, expiration reminders, and confirmation outreach will be simulated (logged only). Test emails below still send for verification. Turn the switch on only after a successful test.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {emailSaveMsg && (
+            <div
+              className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                emailSaveMsg.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}
+            >
+              {emailSaveMsg.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              {emailSaveMsg.text}
+            </div>
+          )}
+
+          <form onSubmit={saveEmailSettingsForm} className="space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Sender name</label>
+                <input
+                  type="text"
+                  value={emailFromName}
+                  onChange={(e) => setEmailFromName(e.target.value)}
+                  placeholder="Capital Restoration"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Sender email (editable)
+                </label>
+                <input
+                  type="email"
+                  value={emailFromEmail}
+                  onChange={(e) => setEmailFromEmail(e.target.value)}
+                  placeholder="backoffice@capitalcrestoration.com"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-[11px]"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Must be an address you can send from with Google (the account or a verified send-as alias).
+                </p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Reply-to (optional)</label>
+                <input
+                  type="email"
+                  value={emailReplyTo}
+                  onChange={(e) => setEmailReplyTo(e.target.value)}
+                  placeholder="support@capitalcrestoration.com"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-[11px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Mailing provider</label>
+                <select
+                  value={emailProvider}
+                  onChange={(e) => setEmailProvider(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"
+                >
+                  <option value="gmail">Google / Gmail SMTP</option>
+                  <option value="smtp">Custom SMTP</option>
+                  <option value="postmark">Postmark</option>
+                  <option value="sendgrid">SendGrid</option>
+                  <option value="simulated">Simulated (no real mail)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">SMTP host</label>
+                <input
+                  type="text"
+                  value={emailProvider === 'gmail' ? 'smtp.gmail.com' : emailSmtpHost}
+                  onChange={(e) => setEmailSmtpHost(e.target.value)}
+                  disabled={emailProvider === 'gmail'}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-[11px] disabled:bg-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">SMTP port</label>
+                <input
+                  type="number"
+                  value={emailProvider === 'gmail' ? 587 : emailSmtpPort}
+                  onChange={(e) => setEmailSmtpPort(Number(e.target.value))}
+                  disabled={emailProvider === 'gmail'}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs disabled:bg-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">SMTP username</label>
+                <input
+                  type="text"
+                  value={emailProvider === 'gmail' ? emailFromEmail : emailSmtpUser}
+                  onChange={(e) => setEmailSmtpUser(e.target.value)}
+                  disabled={emailProvider === 'gmail'}
+                  placeholder={emailProvider === 'gmail' ? emailFromEmail : 'username'}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-[11px] disabled:bg-slate-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-slate-100">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={emailSendingEnabled}
+                  onChange={(e) => setEmailSendingEnabled(e.target.checked)}
+                  className="rounded border-slate-300 text-brand-primary"
+                />
+                <span className="text-[11px] font-semibold text-slate-700">
+                  Enable operational COI emails (starts real sending of requests, reminders, and confirmations)
+                </span>
+              </label>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button
+                  type="submit"
+                  disabled={emailSaving}
+                  className="btn-primary text-xs px-3 py-1.5 disabled:opacity-60"
+                >
+                  {emailSaving ? 'Saving…' : 'Save settings'}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Test email panel */}
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-brand-primary" /> Send a test email
+              </p>
+              <span className="text-[10px] text-slate-500">Always attempts real delivery, ignoring the pause switch</span>
+            </div>
+            <form onSubmit={sendEmailTest} className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="email"
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder="test-recipient@yourcompany.com"
+                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-[11px] bg-white"
+              />
+              <button
+                type="submit"
+                disabled={testBusy || !testTo.trim()}
+                className="btn-primary text-xs px-3 py-2 disabled:opacity-60 whitespace-nowrap"
+              >
+                {testBusy ? 'Sending test…' : 'Send test email'}
+              </button>
+            </form>
+            {testResult && (
+              <div
+                className={`p-2 rounded text-xs flex items-start gap-2 ${
+                  testResult.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
+                }`}
+              >
+                {testResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                <div>
+                  <p className="font-semibold">{testResult.ok ? 'Test email accepted for delivery' : 'Test send failed'}</p>
+                  {testResult.error && <p className="text-[11px] mt-0.5 font-mono break-all">{testResult.error}</p>}
+                </div>
+              </div>
+            )}
+            <div className="text-[10px] text-slate-500 flex flex-wrap gap-3 pt-1">
+              <span>Last test: {emailSettings?.last_test_at ? new Date(emailSettings.last_test_at).toLocaleString() : 'never'}</span>
+              <span>Recipient: {emailSettings?.last_test_to || '—'}</span>
+              <span>
+                Result:{' '}
+                <strong
+                  className={
+                    emailSettings?.last_test_status === 'sent'
+                      ? 'text-emerald-700'
+                      : emailSettings?.last_test_status === 'failed'
+                      ? 'text-rose-700'
+                      : ''
+                  }
+                >
+                  {emailSettings?.last_test_status || '—'}
+                </strong>
+              </span>
+            </div>
+            {emailSettings?.last_test_error && (
+              <p className="text-[10px] text-rose-700 font-mono break-all">
+                Last error: {emailSettings.last_test_error}
+              </p>
+            )}
+          </div>
+
+          {/* Setup guide */}
+          <div className="rounded-lg border border-slate-200 text-xs overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setGuideOpen(!guideOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 text-left font-semibold text-slate-800"
+            >
+              <span>How to connect Google / Gmail (App Password + Railway variable)</span>
+              {guideOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+            </button>
+            {guideOpen && (
+              <div className="p-3 space-y-2 bg-white text-[11px] text-slate-600">
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>In the Google account for <strong>{emailFromEmail || 'backoffice@capitalcrestoration.com'}</strong>, make sure <strong>2-Step Verification</strong> is turned on (Google Account → Security).</li>
+                  <li>Create a new <strong>App Password</strong> (Security → 2-Step Verification → App passwords). Name it e.g. <em>SafeCOI</em>. Google gives you a 16-character code — copy it now; you can’t view it again.</li>
+                  <li>In <strong>Railway → your service → Variables</strong>, add <code>SMTP_PASS</code> with the app password as its value (spaces optional).</li>
+                  <li>Optional: keep host <code>smtp.gmail.com</code> and port <code>587</code> above (already defaulted).</li>
+                  <li>Come back here, click <strong>Send test email</strong> with your own address. Once you receive the test email, check <em>Enable operational COI emails</em> and click <strong>Save settings</strong>.</li>
+                </ol>
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500">Railway credential status:</span>
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        emailSettings?.smtp_pass_configured
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {emailSettings?.smtp_pass_configured
+                        ? `App password configured (${emailSettings?.smtp_pass_source})`
+                        : 'No app password detected'}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                      Or save the app password here (stored server-side, never shown again):
+                    </label>
+                    <input
+                      type="password"
+                      value={emailSmtpPass}
+                      onChange={(e) => setEmailSmtpPass(e.target.value)}
+                      placeholder={emailSettings?.smtp_pass_configured ? '••••••••  (unchanged)' : '16-character app password'}
+                      className="w-full sm:w-80 px-3 py-1.5 rounded-lg border border-slate-200 font-mono text-[11px] bg-white"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Leave blank to keep the existing value. Railway Variables are preferred for production.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
       {/* Change plan modal */}

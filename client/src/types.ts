@@ -437,3 +437,30 @@ export interface ConfirmationQueueItem {
   preferred_channel: 'call' | 'email' | 'both' | 'none'
   last_confirmation?: AgentConfirmationItem | null
 }
+
+export type EmailProvider = 'gmail' | 'smtp' | 'postmark' | 'sendgrid' | 'simulated'
+
+export interface SafeEmailSettings {
+  provider: EmailProvider
+  from_name: string | null
+  from_email: string | null
+  reply_to: string | null
+  smtp_host: string | null
+  smtp_port: number | null
+  smtp_secure: number | null
+  smtp_user: string | null
+  smtp_pass_configured: boolean
+  smtp_pass_source: 'env' | 'database' | 'none'
+  sending_enabled: number
+  last_test_to: string | null
+  last_test_at: string | null
+  last_test_status: string | null
+  last_test_error: string | null
+  updated_at: string
+}
+
+export interface EmailDeliveryStatus {
+  mode: EmailProvider
+  real_configured: boolean
+  sending_enabled: boolean
+}
