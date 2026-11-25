@@ -78,7 +78,7 @@ const PLANS: Plan[] = [
     desc: 'Custom limits, carrier-lookup integrations, and SSO for large teams.',
     highlight: false,
     cta: 'Talk to us',
-    ctaHref: '/login?mode=register',
+    ctaHref: 'mailto:info@safecoi.com?subject=SafeCOI%20Enterprise%20pricing',
     features: [
       'Unlimited everything',
       'Dedicated onboarding & training',
@@ -213,16 +213,25 @@ export function PricingPage() {
                       ))}
                     </ul>
                   </div>
-                  <Link
-                    to={p.ctaHref}
-                    className={`mt-8 w-full py-3 rounded-xl text-center text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                      p.highlight
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-md'
-                        : 'bg-slate-900 hover:bg-slate-800 text-white'
-                    }`}
-                  >
-                    {p.cta} <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
+                  {p.ctaHref.startsWith('mailto:') ? (
+                    <a
+                      href={p.ctaHref}
+                      className="mt-8 w-full py-3 rounded-xl text-center text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white"
+                    >
+                      {p.cta} <ArrowRight className="w-3.5 h-3.5" />
+                    </a>
+                  ) : (
+                    <Link
+                      to={p.ctaHref}
+                      className={`mt-8 w-full py-3 rounded-xl text-center text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                        p.highlight
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-md'
+                          : 'bg-slate-900 hover:bg-slate-800 text-white'
+                      }`}
+                    >
+                      {p.cta} <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
                 </div>
               )
             })}

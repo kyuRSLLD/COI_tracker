@@ -423,7 +423,7 @@ export function LandingPage({ onLogin }: Props) {
           </p>
         </div>
 
-        <div className="mt-12 grid md:grid-cols-3 gap-6 items-stretch">
+        <div className="mt-12 grid md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch">
           {/* Subcontractor */}
           <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-card flex flex-col justify-between">
             <div>
@@ -438,7 +438,7 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">No subcontractor fees</div>
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Free for subcontractors</strong> — no fee to upload or keep certificates on file</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <span><strong>Free for subcontractors</strong> — no fee to upload or keep certificates on file</span></li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Upload your COI and share it with connected contractors</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> View expiration dates for certificates on file</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Self-service upload link for submitting your COI</li>
@@ -467,10 +467,8 @@ export function LandingPage({ onLogin }: Props) {
                 See every subcontractor COI connected to you in one dashboard, and share compliance with clients whenever you want.
               </p>
               <div className="mt-6">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">Free</span>
-                  <span className="text-xs font-semibold text-emerald-700">for your first 6 months</span>
-                </div>
+                <span className="block text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">Free</span>
+                <span className="mt-1 block text-xs font-semibold text-emerald-700">for your first 6 months</span>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="text-base font-bold text-slate-400 line-through decoration-2 font-['JetBrains_Mono']">$10</span>
                   <span className="text-xs text-slate-500 font-medium">/ month after that</span>
@@ -478,8 +476,8 @@ export function LandingPage({ onLogin }: Props) {
                 <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">No credit card required</div>
               </div>
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>See all subcontractor COIs</strong> connected to you, with status and countdowns</li>
-                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>Optionally share compliance with clients</strong> through privacy-safe links</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <span><strong>See all subcontractor COIs</strong> connected to you, with status and countdowns</span></li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <span><strong>Optionally share compliance with clients</strong> through privacy-safe links</span></li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Subcontractor contact info is strictly hidden from clients</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Reminder emails are simulated and are not delivered</li>
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Printable project reports and compliance scorecards</li>
@@ -519,6 +517,36 @@ export function LandingPage({ onLogin }: Props) {
             >
               Go Pro
             </Link>
+          </div>
+
+          {/* Enterprise — custom price */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-card flex flex-col justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 font-['JetBrains_Mono']">FOR LARGE TEAMS</div>
+              <h3 className="text-xl font-extrabold text-slate-900 mt-1">Enterprise</h3>
+              <p className="text-xs text-slate-500 mt-2 min-h-[40px]">
+                Custom limits, carrier-lookup integrations, and SSO for contractors running several entities.
+              </p>
+              <div className="mt-6">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">Custom</span>
+                </div>
+                <div className="mt-1.5 text-xs text-slate-500 font-medium">Priced to your portfolio</div>
+                <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">Invoice billing available</div>
+              </div>
+              <ul className="mt-7 space-y-3 text-xs text-slate-600">
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Unlimited everything across entities</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Dedicated onboarding and training</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Custom integrations and exports</li>
+                <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> SLA and named account manager</li>
+              </ul>
+            </div>
+            <a
+              href="mailto:info@safecoi.com?subject=SafeCOI%20Enterprise%20pricing"
+              className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition"
+            >
+              Talk to us
+            </a>
           </div>
         </div>
 
