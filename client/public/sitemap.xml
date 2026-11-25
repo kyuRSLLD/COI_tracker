@@ -3,112 +3,79 @@
   <!-- Homepage -->
   <url>
     <loc>https://safecoi.com/</loc>
-    <lastmod>2026-11-17</lastmod>
+    <lastmod>2026-11-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
-
-  <!-- Core Landing Pages (Money pages) -->
+  <!-- Pricing -->
+  <url>
+    <loc>https://safecoi.com/pricing</loc>
+    <lastmod>2026-11-25</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <!-- Core product pages -->
   <url>
     <loc>https://safecoi.com/solutions/subcontractor-coi-tracking</loc>
-    <lastmod>2026-11-17</lastmod>
+    <lastmod>2026-11-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://safecoi.com/features/acord-25-endorsement-verification</loc>
-    <lastmod>2026-11-17</lastmod>
+    <lastmod>2026-11-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://safecoi.com/industries/remodeling-contractor-compliance</loc>
-    <lastmod>2026-11-17</lastmod>
+    <lastmod>2026-11-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
-  <url>
-    <loc>https://safecoi.com/industries/commercial-construction</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-
-  <!-- Free Lead-Magnet Tools -->
+  <!-- Free tool -->
   <url>
     <loc>https://safecoi.com/tools/insurance-clause-generator</loc>
-    <lastmod>2026-11-17</lastmod>
+    <lastmod>2026-11-25</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
-
-  <!-- Articles (static pages served from client/public/articles) -->
+  <!-- Articles hub -->
   <url>
     <loc>https://safecoi.com/articles/</loc>
-    <lastmod>2026-11-18</lastmod>
-    <changefreq>weekly</changefreq>
+    <lastmod>2026-11-25</lastmod>
+    <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
+  <!-- Article detail pages (also emitted dynamically by the server sitemap) -->
   <url>
     <loc>https://safecoi.com/articles/check-acord-25-before-sub-on-site/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://safecoi.com/articles/additional-insured-vs-certificate-holder/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://safecoi.com/articles/cg-20-10-vs-cg-20-37/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://safecoi.com/articles/waiver-of-subrogation-construction/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://safecoi.com/articles/primary-and-non-contributory-endorsement/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://safecoi.com/articles/pass-workers-comp-audit-subcontractors/</loc>
-    <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
-  </url>
-
-  <!--
-    Not listed until their routes ship: /pricing (pricing lives at /#pricing), /about,
-    /legal/*, and /blog — the React router has no route for those paths, so they fall
-    through to the catch-all and redirect to "/", which reads as a soft 404 to crawlers.
-  -->
-
-  <!-- Company & Legal -->
-  <url>
-    <loc>https://safecoi.com/about</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
-    <loc>https://safecoi.com/legal/privacy</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
-  </url>
-  <url>
-    <loc>https://safecoi.com/legal/terms</loc>
-    <lastmod>2026-11-17</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
   </url>
 </urlset>

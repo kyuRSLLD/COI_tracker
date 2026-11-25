@@ -84,6 +84,7 @@ export function LandingPage({ onLogin }: Props) {
         title="COI Tracking & Validation Software for Contractors | Safecoi"
         description="Safecoi is B2B software that helps general contractors collect, organize, and verify subcontractor COIs and endorsements — so your records are audit-ready before anyone steps on site."
         canonical="https://safecoi.com/"
+        ogImage="https://safecoi.com/articles/assets/og/home.png"
       />
     <div className="min-h-screen bg-slate-50">
       {/* Hero */}

@@ -9,6 +9,7 @@ export function Acord25EndorsementVerificationPage() {
         title="ACORD 25 & Endorsement Verification Software | Safecoi"
         description="AI-powered ACORD 25 review with checks for Additional Insured CG 20 10/CG 20 37, Waiver of Subrogation, Primary & Non-Contributory wording, and expiration alerts."
         canonical="https://safecoi.com/features/acord-25-endorsement-verification"
+        ogImage="https://safecoi.com/articles/assets/og/verification.png"
       />
       <div className="bg-white text-slate-800">
         <main className="max-w-4xl mx-auto px-5 pt-8 pb-14">

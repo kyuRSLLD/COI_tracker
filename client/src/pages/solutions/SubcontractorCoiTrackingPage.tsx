@@ -9,6 +9,7 @@ export function SubcontractorCoiTrackingPage() {
         title="Subcontractor COI Tracking Software for General Contractors | Safecoi"
         description="Stop chasing subcontractor insurance in spreadsheets. Safecoi automates COI collection, expiration alerts, and endorsement checks — so every sub is covered on every job site."
         canonical="https://safecoi.com/solutions/subcontractor-coi-tracking"
+        ogImage="https://safecoi.com/articles/assets/og/solutions.png"
       />
       <div className="bg-white text-slate-800">
         <main className="max-w-4xl mx-auto px-5 pt-8 pb-14">

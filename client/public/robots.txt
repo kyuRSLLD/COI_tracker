@@ -9,9 +9,7 @@ Allow: /industries/
 Allow: /features/
 Allow: /tools/
 Allow: /pricing
-Allow: /about
 Allow: /articles/
-Allow: /legal/
 
 # Block the authenticated app and API (these require login anyway; noindex is also set per-route)
 Disallow: /api/

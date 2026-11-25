@@ -9,6 +9,7 @@ export function RemodelingContractorCompliancePage() {
         title="Insurance Compliance Software for Remodelers & Home Repair | Safecoi"
         description="Protect your residential remodeling business: collect and verify COIs from plumbers, electricians, roofers, and HVAC trades with one link — no sub accounts needed."
         canonical="https://safecoi.com/industries/remodeling-contractor-compliance"
+        ogImage="https://safecoi.com/articles/assets/og/remodeling.png"
       />
       <div className="bg-white text-slate-800">
         <main className="max-w-4xl mx-auto px-5 pt-8 pb-14">

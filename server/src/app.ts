@@ -22,6 +22,7 @@ import { coiFieldsRouter } from './routes/coiFields.ts'
 import { gcCompanyRouter, gcPublicRouter } from './routes/gcCompany.ts'
 import { articlesRouter } from './routes/articles.ts'
 import { agentConfirmationRouter } from './routes/agentConfirmation.ts'
+import { MARKETING_META, injectMarketingMeta, isKnownRoute, renderNotFoundHtml } from './seo.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -96,9 +97,17 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {
     app.use(express.static(clientDist))
+    const indexHtml = fs.readFileSync(path.join(clientDist, 'index.html'), 'utf8')
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next()
-      res.sendFile(path.join(clientDist, 'index.html'))
+      const meta = MARKETING_META[req.path]
+      if (meta) {
+        return res.type('html').send(injectMarketingMeta(indexHtml, meta))
+      }
+      if (isKnownRoute(req.path)) {
+        return res.sendFile(path.join(clientDist, 'index.html'))
+      }
+      return res.status(404).type('html').send(renderNotFoundHtml(req.path))
     })
   }
 

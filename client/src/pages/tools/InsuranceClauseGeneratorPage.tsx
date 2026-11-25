@@ -134,6 +134,7 @@ export function InsuranceClauseGeneratorPage() {
         title="Free Subcontractor Insurance Clause & Requirement Generator | Safecoi"
         description="Generate copy-paste insurance requirement clauses for subcontractor agreements. Pick your trade and project size — free, no signup."
         canonical="https://safecoi.com/tools/insurance-clause-generator"
+        ogImage="https://safecoi.com/articles/assets/og/tool.png"
       />
       <div className="bg-white text-slate-800">
         <main className="max-w-4xl mx-auto px-4 py-8">

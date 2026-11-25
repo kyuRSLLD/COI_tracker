@@ -28,6 +28,8 @@ import { SubcontractorCoiTrackingPage } from './pages/solutions/SubcontractorCoi
 import { RemodelingContractorCompliancePage } from './pages/industries/RemodelingContractorCompliancePage'
 import { Acord25EndorsementVerificationPage } from './pages/features/Acord25EndorsementVerificationPage'
 import { InsuranceClauseGeneratorPage } from './pages/tools/InsuranceClauseGeneratorPage'
+import { PricingPage } from './pages/PricingPage'
+import { NotFoundPage } from './pages/NotFoundPage'
 function roleHome(u: User | null): string {
   if (!u) return '/login'
   if (u.role === 'admin') return '/staff'
@@ -219,6 +221,7 @@ function App() {
           <Route path="/industries/remodeling-contractor-compliance" element={<RemodelingContractorCompliancePage />} />
           <Route path="/features/acord-25-endorsement-verification" element={<Acord25EndorsementVerificationPage />} />
           <Route path="/tools/insurance-clause-generator" element={<InsuranceClauseGeneratorPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route element={sessionStatus === 'checking' ? <SessionChecking /> : sessionStatus === 'error' ? <SessionUnavailable /> : <Outlet />}>
           <Route
             path="/dashboard"
@@ -270,7 +273,7 @@ function App() {
           <Route path="/share/company/:token" element={<CompanySharePage />} />
           <Route path="/share/:token" element={<ClientSharePage />} />
           <Route path="/upload/:token" element={<UploadPortalPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
       {user && user.role !== 'sub' && (

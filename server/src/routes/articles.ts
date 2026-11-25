@@ -1,5 +1,6 @@
 import express from 'express'
 import { dbAll, dbGet } from '../db/db.ts'
+import { renderNotFoundHtml } from '../seo.ts'
 
 export const articlesRouter = express.Router()
 
@@ -246,6 +247,7 @@ function renderSitemap(articles: ArticleRow[]): string {
     { loc: 'https://safecoi.com/solutions/subcontractor-coi-tracking', changefreq: 'weekly', priority: '0.9' },
     { loc: 'https://safecoi.com/features/acord-25-endorsement-verification', changefreq: 'weekly', priority: '0.9' },
     { loc: 'https://safecoi.com/industries/remodeling-contractor-compliance', changefreq: 'weekly', priority: '0.9' },
+    { loc: 'https://safecoi.com/pricing', changefreq: 'weekly', priority: '0.8' },
     { loc: 'https://safecoi.com/tools/insurance-clause-generator', changefreq: 'weekly', priority: '0.8' },
     { loc: 'https://safecoi.com/articles/', changefreq: 'daily', priority: '0.8' },
   ]
@@ -297,7 +299,7 @@ articlesRouter.get(/^\/articles\/([^/]+)\/?$/, async (req, res, next) => {
       `SELECT * FROM articles WHERE slug = ? AND status = 'published'`,
       [slug]
     )
-    if (!article) return next()
+    if (!article) return res.status(404).type('html').send(renderNotFoundHtml(req.originalUrl.split('?')[0]))
     res.type('html').send(renderArticleHtml(article))
   } catch (e) {
     next(e)
