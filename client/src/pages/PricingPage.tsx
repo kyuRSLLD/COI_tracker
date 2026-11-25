@@ -4,7 +4,21 @@ import { Check, ArrowRight, ShieldCheck, HelpCircle } from 'lucide-react'
 import { SEO } from '../components/SEO'
 import { MarketingFooter } from '../components/MarketingFooter'
 
-const PLANS = [
+interface Plan {
+  name: string
+  price: number | null
+  period: string
+  /** Months the paid plan runs free before billing starts. */
+  freeMonths?: number
+  desc: string
+  highlight: boolean
+  badge?: string
+  cta: string
+  ctaHref: string
+  features: string[]
+}
+
+const PLANS: Plan[] = [
   {
     name: 'Free Demo',
     price: 0,
@@ -24,10 +38,11 @@ const PLANS = [
     name: 'General Contractor',
     price: 10,
     period: '/month',
+    freeMonths: 6,
     desc: 'Everything you need to collect, verify, and monitor sub COIs.',
     highlight: true,
-    badge: 'First month free',
-    cta: 'Start free month',
+    badge: 'Free for 6 months',
+    cta: 'Start free',
     ctaHref: '/login?mode=register',
     features: [
       'Unlimited subcontractor COIs',
@@ -77,7 +92,7 @@ const PLANS = [
 const FAQS = [
   {
     q: 'How does the free trial work?',
-    a: 'Create a free account in 60 seconds — no credit card required. You get the General Contractor plan free for your first month. If you stay on, it is $10/month.',
+    a: 'Create an account in 60 seconds — no credit card required. The General Contractor plan is free for your first six months. If you stay on after that, it is $10/month, cancel anytime.',
   },
   {
     q: 'Do subcontractors ever pay?',
@@ -103,8 +118,8 @@ export function PricingPage() {
   return (
     <>
       <SEO
-        title="SafeCOI Pricing — Contractor Plans from $10/mo | Free Trial"
-        description="Simple, transparent pricing for general contractors. Collect, verify, and monitor subcontractor COIs from $10/month. First month free, no credit card required."
+        title="SafeCOI Pricing — Free for Your First Six Months"
+        description="Collect, verify, and monitor subcontractor COIs. Free for your first six months, no credit card required — then $10/month. Subcontractors never pay."
         canonical="https://safecoi.com/pricing"
         ogImage="https://safecoi.com/articles/assets/og/home.png"
       />
@@ -116,14 +131,14 @@ export function PricingPage() {
             One sub with lapsed insurance costs more than this software ever will.
           </h1>
           <p className="mt-4 text-base sm:text-lg text-slate-600 max-w-2xl mx-auto">
-            Collect, verify, and monitor subcontractor COIs starting at $10/month.
-            First month free — no credit card, no contracts.
+            Collect, verify, and monitor subcontractor COIs. Free for your first six months —
+            no credit card, no contracts.
           </p>
 
           {/* Guarantee banner */}
           <div className="mt-8 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
             <ShieldCheck className="w-4 h-4" />
-            <span>30-day money-back guarantee · cancel anytime · your data is always exportable</span>
+            <span>6 months free · no credit card · cancel anytime · your data is always exportable</span>
           </div>
 
           {/* Plan cards */}
@@ -152,17 +167,40 @@ export function PricingPage() {
                     <p className={`mt-2 text-xs ${p.highlight ? 'text-slate-300' : 'text-slate-500'}`}>
                       {p.desc}
                     </p>
-                    <div className="mt-6 flex items-baseline gap-1">
+                    <div className="mt-6">
                       {custom ? (
                         <span className="text-3xl font-extrabold">Custom</span>
                       ) : free ? (
                         <span className="text-4xl font-extrabold">$0</span>
                       ) : (
                         <>
-                          <span className="text-4xl font-extrabold">${p.price}</span>
-                          <span className={`text-xs ${p.highlight ? 'text-slate-300' : 'text-slate-500'}`}>
-                            {p.period}
-                          </span>
+                          {p.freeMonths ? (
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-4xl font-extrabold">Free</span>
+                              <span className={`text-xs font-semibold ${p.highlight ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                                first {p.freeMonths} months
+                              </span>
+                            </div>
+                          ) : null}
+                          <div className={`flex items-baseline gap-1 ${p.freeMonths ? 'mt-1.5' : ''}`}>
+                            <span
+                              className={
+                                p.freeMonths
+                                  ? `text-base font-bold line-through decoration-2 ${p.highlight ? 'text-slate-300' : 'text-slate-400'}`
+                                  : 'text-4xl font-extrabold'
+                              }
+                            >
+                              ${p.price}
+                            </span>
+                            <span className={`text-xs ${p.highlight ? 'text-slate-300' : 'text-slate-500'}`}>
+                              {p.period}
+                            </span>
+                            {p.freeMonths ? (
+                              <span className={`text-[11px] ${p.highlight ? 'text-slate-300' : 'text-slate-400'}`}>
+                                after 6 months
+                              </span>
+                            ) : null}
+                          </div>
                         </>
                       )}
                     </div>
@@ -231,7 +269,7 @@ export function PricingPage() {
           {/* Bottom CTA */}
           <section className="mt-20 rounded-2xl bg-gradient-to-r from-navy via-slate-900 to-navy text-white p-8 sm:p-12 text-center">
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Start your free month. No credit card.
+              Six months free. No credit card.
             </h2>
             <p className="mt-2 text-xs sm:text-sm text-slate-300 max-w-md mx-auto">
               Upload your first subcontractor COI in under two minutes and see the AI verification in action.

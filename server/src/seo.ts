@@ -21,9 +21,9 @@ export const MARKETING_META: Record<string, RouteMeta> = {
     ogImage: 'https://safecoi.com/articles/assets/og/home.png',
   },
   '/pricing': {
-    title: 'SafeCOI Pricing \u2014 Contractor Plans from $10/mo | Free Trial',
+    title: 'SafeCOI Pricing \u2014 Free for Your First Six Months',
     description:
-      'Simple, transparent pricing for general contractors. Collect, verify, and monitor subcontractor COIs from $10/month. First month free, no credit card required.',
+      'Collect, verify, and monitor subcontractor COIs. Free for your first six months, no credit card required \u2014 then $10/month. Subcontractors never pay.',
     canonical: 'https://safecoi.com/pricing',
     ogImage: 'https://safecoi.com/articles/assets/og/home.png',
   },

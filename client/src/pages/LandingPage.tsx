@@ -70,7 +70,7 @@ export function LandingPage({ onLogin }: Props) {
     },
     {
       q: 'How does pricing work?',
-      a: 'SafeCOI is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+      a: 'SafeCOI is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors get their first six months free — no credit card required — then pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
     },
     {
       q: 'How do I onboard subcontractors?',
@@ -258,7 +258,10 @@ export function LandingPage({ onLogin }: Props) {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mt-4">General Contractor</h3>
               <p className="text-xs text-slate-500 mt-1">Collect · View · Monitor · Share</p>
-              <div className="mt-3"><span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-emerald-50 text-emerald-800 border border-emerald-200">$10/month</span></div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] bg-emerald-50 text-emerald-800 border border-emerald-200">6 months free</span>
+                <span className="inline-block px-2 py-1 rounded-full text-xs font-bold font-['JetBrains_Mono'] text-slate-400 line-through decoration-2">$10/month</span>
+              </div>
               <ul className="mt-5 space-y-2 text-xs text-slate-700">
                 <li className="flex gap-2"><span>✓</span><span>Request COIs with personalized magic links</span></li>
                 <li className="flex gap-2"><span>✓</span><span>View submitted coverage details</span></li>
@@ -416,7 +419,7 @@ export function LandingPage({ onLogin }: Props) {
             Simple, honest pricing for every side of the job site.
           </h2>
           <p className="mt-3 text-sm text-slate-500 leading-relaxed">
-            Subcontractors use SafeCOI for free. General Contractor plans have no contracts and can be canceled anytime.
+            Subcontractors use SafeCOI for free. General Contractors get six months free — no credit card required — and can cancel anytime.
           </p>
         </div>
 
@@ -463,9 +466,16 @@ export function LandingPage({ onLogin }: Props) {
               <p className="text-xs text-slate-500 mt-2 min-h-[40px]">
                 See every subcontractor COI connected to you in one dashboard, and share compliance with clients whenever you want.
               </p>
-              <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">$10</span>
-                <span className="text-xs text-slate-400 font-medium">/ month</span>
+              <div className="mt-6">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold text-slate-900 font-['JetBrains_Mono']">Free</span>
+                  <span className="text-xs font-semibold text-emerald-700">for your first 6 months</span>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="text-base font-bold text-slate-400 line-through decoration-2 font-['JetBrains_Mono']">$10</span>
+                  <span className="text-xs text-slate-500 font-medium">/ month after that</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1 font-['JetBrains_Mono']">No credit card required</div>
               </div>
               <ul className="mt-7 space-y-3 text-xs text-slate-600">
                 <li className="flex items-start gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> <strong>See all subcontractor COIs</strong> connected to you, with status and countdowns</li>
@@ -479,7 +489,7 @@ export function LandingPage({ onLogin }: Props) {
               to="/login"
               className="mt-8 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm"
             >
-              Start tracking
+              Start free for 6 months
             </Link>
           </div>
 
