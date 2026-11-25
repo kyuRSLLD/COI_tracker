@@ -804,13 +804,16 @@ function decodeHtml(s: string): string {
 }
 
 export async function seedArticlesIfEmpty(): Promise<void> {
-  const count = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM articles')
-  if (count && Number(count.n) > 0) return
   const dir = findArticlesDir()
   if (!dir) {
     console.warn('[db] articles seed: static articles directory not found')
     return
   }
+  // Add articles that exist as static pages but not yet in the table. Existing rows are
+  // left untouched so edits made through the admin API survive a redeploy.
+  const existing = new Set(
+    (await dbAll<{ slug: string }>('SELECT slug FROM articles')).map((r) => r.slug)
+  )
   const hub = fs.readFileSync(path.join(dir, 'index.html'), 'utf8')
   const order = new Map<string, number>()
   const re = /<a class="post" href="\/articles\/([^/]+)\/"/g
@@ -819,11 +822,13 @@ export async function seedArticlesIfEmpty(): Promise<void> {
   while ((m = re.exec(hub))) order.set(m[1], i++)
   const now = new Date().toISOString()
   const slugs = fs.readdirSync(dir)
+  let added = 0
   for (const slug of slugs) {
     const full = path.join(dir, slug)
     if (!fs.statSync(full).isDirectory()) continue
     const idx = path.join(full, 'index.html')
     if (!fs.existsSync(idx)) continue
+    if (existing.has(slug)) continue
     const c = fs.readFileSync(idx, 'utf8')
     const titleMatch = c.match(/<h1>(.*?)<\/h1>/s)
     const descMatch = c.match(/<meta name="description" content="(.*?)"/s)
@@ -845,9 +850,10 @@ export async function seedArticlesIfEmpty(): Promise<void> {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?)`,
       [uuidv4(), slug, title, description, tag, readingTime, prose, og, pos, publishedAt, now, now]
     )
+    added += 1
   }
   const done = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM articles')
-  console.log(`[db] seeded ${done?.n ?? 0} articles`)
+  console.log(`[db] articles seed: added ${added}, ${done?.n ?? 0} total`)
 }
 
 async function seedEmailSettingsIfEmpty(): Promise<void> {
