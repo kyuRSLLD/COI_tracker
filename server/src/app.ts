@@ -96,7 +96,9 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
 
   const clientDist = path.resolve(__dirname, '../../client/dist')
   if (fs.existsSync(clientDist)) {
-    app.use(express.static(clientDist))
+    // index: false keeps "/" out of the static middleware so the pre-rendered
+    // marketing HTML below is what crawlers actually receive.
+    app.use(express.static(clientDist, { index: false }))
     const indexHtml = fs.readFileSync(path.join(clientDist, 'index.html'), 'utf8')
     // Pre-rendered marketing HTML, read once at boot. Falls back to the SPA shell.
     const prerenderedHtml = new Map<string, string>()
