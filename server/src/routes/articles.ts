@@ -241,22 +241,32 @@ function renderArticleHtml(article: ArticleRow): string {
 </body></html>`
 }
 
+// Bump when marketing page copy changes so crawlers see a fresh lastmod.
+const MARKETING_LASTMOD = '2026-11-28'
+
+function isoDate(value: string | null | undefined, fallback: string): string {
+  if (!value) return fallback
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return fallback
+  return d.toISOString().slice(0, 10)
+}
+
 function renderSitemap(articles: ArticleRow[]): string {
   const staticPages = [
-    { loc: 'https://safecoi.com/', changefreq: 'weekly', priority: '1.0' },
-    { loc: 'https://safecoi.com/solutions/subcontractor-coi-tracking', changefreq: 'weekly', priority: '0.9' },
-    { loc: 'https://safecoi.com/features/acord-25-endorsement-verification', changefreq: 'weekly', priority: '0.9' },
-    { loc: 'https://safecoi.com/industries/remodeling-contractor-compliance', changefreq: 'weekly', priority: '0.9' },
-    { loc: 'https://safecoi.com/pricing', changefreq: 'weekly', priority: '0.8' },
-    { loc: 'https://safecoi.com/tools/insurance-clause-generator', changefreq: 'weekly', priority: '0.8' },
-    { loc: 'https://safecoi.com/articles/', changefreq: 'daily', priority: '0.8' },
+    { loc: 'https://safecoi.com/', changefreq: 'weekly', priority: '1.0', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/solutions/subcontractor-coi-tracking', changefreq: 'weekly', priority: '0.9', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/features/acord-25-endorsement-verification', changefreq: 'weekly', priority: '0.9', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/industries/remodeling-contractor-compliance', changefreq: 'weekly', priority: '0.9', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/pricing', changefreq: 'weekly', priority: '0.8', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/tools/insurance-clause-generator', changefreq: 'weekly', priority: '0.8', lastmod: MARKETING_LASTMOD },
+    { loc: 'https://safecoi.com/articles/', changefreq: 'daily', priority: '0.8', lastmod: MARKETING_LASTMOD },
   ]
   const entries = [
     ...staticPages.map(
-      (p) => `<url><loc>${p.loc}</loc><changefreq>${p.changefreq}</changefreq><priority>${p.priority}</priority></url>`
+      (p) => `<url><loc>${p.loc}</loc><lastmod>${p.lastmod}</lastmod><changefreq>${p.changefreq}</changefreq><priority>${p.priority}</priority></url>`
     ),
     ...articles.map(
-      (a) => `<url><loc>https://safecoi.com/articles/${escapeHtml(a.slug)}/</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`
+      (a) => `<url><loc>https://safecoi.com/articles/${escapeHtml(a.slug)}/</loc><lastmod>${isoDate(a.updated_at, MARKETING_LASTMOD)}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>`
     ),
   ]
   return `<?xml version="1.0" encoding="UTF-8"?>

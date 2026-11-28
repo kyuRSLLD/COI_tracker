@@ -39,7 +39,7 @@ export const MARKETING_META: Record<string, RouteMeta> = {
     description:
       'Collect, verify, and monitor subcontractor COIs. Free for your first six months, no credit card required \u2014 then $10/month. Subcontractors never pay.',
     canonical: 'https://safecoi.com/pricing',
-    ogImage: 'https://safecoi.com/articles/assets/og/home.png',
+    ogImage: 'https://safecoi.com/articles/assets/og/pricing.png',
   },
   '/solutions/subcontractor-coi-tracking': {
     title: 'Subcontractor COI Tracking Software for General Contractors | Safecoi',
