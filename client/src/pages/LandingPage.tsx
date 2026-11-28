@@ -625,6 +625,24 @@ export function LandingPage({ onLogin }: Props) {
               </a>
             ))}
           </div>
+          <p className="mt-5 text-xs text-slate-600">
+            More guides:{' '}
+            <a href="/articles/what-is-a-coi/" className="font-semibold text-brand-700 hover:underline">
+              What is a COI?
+            </a>{' '}
+            ·{' '}
+            <a href="/articles/pass-workers-comp-audit-subcontractors/" className="font-semibold text-brand-700 hover:underline">
+              Passing a workers' comp audit
+            </a>{' '}
+            ·{' '}
+            <a href="/articles/waiver-of-subrogation-construction/" className="font-semibold text-brand-700 hover:underline">
+              Waiver of subrogation
+            </a>{' '}
+            ·{' '}
+            <a href="/articles/primary-and-non-contributory-endorsement/" className="font-semibold text-brand-700 hover:underline">
+              Primary &amp; non-contributory
+            </a>
+          </p>
         </div>
       </section>
 
