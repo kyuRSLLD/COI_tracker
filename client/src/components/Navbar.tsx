@@ -13,6 +13,7 @@ interface Props {
 
 const MARKETING_PATHS = new Set([
   '/',
+  '/pricing',
   '/solutions/subcontractor-coi-tracking',
   '/industries/remodeling-contractor-compliance',
   '/features/acord-25-endorsement-verification',

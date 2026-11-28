@@ -113,10 +113,10 @@ export function LandingPage({ onLogin }: Props) {
 
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
-              to="/login"
+              to="/login?mode=register"
               className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-950 bg-gradient-to-r from-emerald-300 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 transition shadow-lg shadow-emerald-500/30"
             >
-              Sign in <ArrowRight className="w-4 h-4" />
+              Start free for 6 months <ArrowRight className="w-4 h-4" />
             </Link>
             <a
               href="#pricing"
@@ -124,19 +124,17 @@ export function LandingPage({ onLogin }: Props) {
             >
               View pricing
             </a>
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-300 hover:text-white transition"
-            >
-              Sign in →
-            </Link>
           </div>
           <p className="mt-4 text-center text-xs text-slate-300">
-            Subcontractor?{' '}
+            No credit card required. Already have an account?{' '}
             <Link to="/login" className="text-emerald-300 font-semibold hover:underline">
-              Upload or connect your insurance certificate
+              Sign in
+            </Link>
+            . Subcontractor?{' '}
+            <Link to="/login" className="text-emerald-300 font-semibold hover:underline">
+              Upload your certificate
             </Link>{' '}
-            — free for subcontractors.
+            — free for subs.
           </p>
 
           {/* Product mockup frame */}
