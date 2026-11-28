@@ -81,13 +81,34 @@
         "Workers' comp audit-ready compliance records",
         "Public compliance sharing links for clients"
       ],
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD",
-        "name": "Free trial",
-        "description": "Validate your first certificates of insurance free."
-      },
+      "offers": [
+        {
+          "@type": "Offer",
+          "name": "General Contractor",
+          "price": "10",
+          "priceCurrency": "USD",
+          "description": "Free for your first six months, no credit card required. Then $10 per month. Subcontractors never pay.",
+          "priceSpecification": {
+            "@type": "UnitPriceSpecification",
+            "price": "10",
+            "priceCurrency": "USD",
+            "billingDuration": { "@type": "QuantitativeValue", "value": 1, "unitCode": "MON" }
+          }
+        },
+        {
+          "@type": "Offer",
+          "name": "Pro GC",
+          "price": "29",
+          "priceCurrency": "USD",
+          "description": "Unlimited projects and subcontractors, CSV exports and priority support.",
+          "priceSpecification": {
+            "@type": "UnitPriceSpecification",
+            "price": "29",
+            "priceCurrency": "USD",
+            "billingDuration": { "@type": "QuantitativeValue", "value": 1, "unitCode": "MON" }
+          }
+        }
+      ],
       "audience": {
         "@type": "BusinessAudience",
         "audienceType": "General contractors, remodeling contractors, home repair contractors, subcontractors, commercial construction companies"

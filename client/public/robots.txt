@@ -1,6 +1,6 @@
 # robots.txt for safecoi.com
-# Allow all major search engines to crawl public marketing pages and blog.
-# Keep authenticated app routes, API endpoints, and private share links out of the index.
+# Public marketing pages and articles are open to search engines and AI answer engines.
+# Authenticated app routes, API endpoints and private share links stay out of the index.
 
 User-agent: *
 Allow: /
@@ -25,6 +25,80 @@ Disallow: /client-view
 Disallow: /share/
 Disallow: /preview/
 Disallow: /onboarding
+
+# AI answer engines and their crawlers: the marketing pages are readable in raw HTML
+# (pre-rendered at build time), so these agents are welcome on the same public paths.
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
+
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /staff
+Disallow: /share/
+Disallow: /upload/
+Disallow: /login
 
 # Sitemap location
 Sitemap: https://safecoi.com/sitemap.xml

@@ -22,7 +22,7 @@ import { coiFieldsRouter } from './routes/coiFields.ts'
 import { gcCompanyRouter, gcPublicRouter } from './routes/gcCompany.ts'
 import { articlesRouter } from './routes/articles.ts'
 import { agentConfirmationRouter } from './routes/agentConfirmation.ts'
-import { MARKETING_META, injectMarketingMeta, isKnownRoute, renderNotFoundHtml } from './seo.ts'
+import { MARKETING_META, PRERENDERED_PAGES, injectMarketingMeta, isKnownRoute, renderNotFoundHtml } from './seo.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -98,9 +98,19 @@ export async function createApp({ maintenanceMode = MAINTENANCE_MODE }: { mainte
   if (fs.existsSync(clientDist)) {
     app.use(express.static(clientDist))
     const indexHtml = fs.readFileSync(path.join(clientDist, 'index.html'), 'utf8')
+    // Pre-rendered marketing HTML, read once at boot. Falls back to the SPA shell.
+    const prerenderedHtml = new Map<string, string>()
+    for (const [route, file] of Object.entries(PRERENDERED_PAGES)) {
+      const full = path.join(clientDist, 'prerendered', file)
+      if (fs.existsSync(full)) prerenderedHtml.set(route, fs.readFileSync(full, 'utf8'))
+    }
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next()
       const meta = MARKETING_META[req.path]
+      const prerendered = prerenderedHtml.get(req.path)
+      if (prerendered) {
+        return res.type('html').send(meta ? injectMarketingMeta(prerendered, meta) : prerendered)
+      }
       if (meta) {
         return res.type('html').send(injectMarketingMeta(indexHtml, meta))
       }

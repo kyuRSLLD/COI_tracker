@@ -12,6 +12,20 @@ export interface RouteMeta {
  * the client-hydrated DOM (webdev-seo: keep client-side navigation's title and
  * metadata consistent with the initial response for the same URL).
  */
+/**
+ * Routes that have a build-time pre-rendered HTML file under client/dist/prerendered.
+ * Those files carry the full page markup so crawlers that do not run JavaScript
+ * still see the copy, headings, pricing and FAQ.
+ */
+export const PRERENDERED_PAGES: Record<string, string> = {
+  '/': 'home.html',
+  '/pricing': 'pricing.html',
+  '/solutions/subcontractor-coi-tracking': 'solutions/subcontractor-coi-tracking.html',
+  '/industries/remodeling-contractor-compliance': 'industries/remodeling-contractor-compliance.html',
+  '/features/acord-25-endorsement-verification': 'features/acord-25-endorsement-verification.html',
+  '/tools/insurance-clause-generator': 'tools/insurance-clause-generator.html',
+}
+
 export const MARKETING_META: Record<string, RouteMeta> = {
   '/': {
     title: 'COI Tracking & Validation Software for Contractors | Safecoi',

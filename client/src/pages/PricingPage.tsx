@@ -89,7 +89,7 @@ const PLANS: Plan[] = [
   },
 ]
 
-const FAQS = [
+export const PRICING_FAQS = [
   {
     q: 'How does the free trial work?',
     a: 'Create an account in 60 seconds — no credit card required. The General Contractor plan is free for your first six months. If you stay on after that, it is $10/month, cancel anytime.',
@@ -252,7 +252,7 @@ export function PricingPage() {
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">Questions contractors ask us</h2>
             </div>
             <div className="mt-8 space-y-3">
-              {FAQS.map((f, i) => (
+              {PRICING_FAQS.map((f, i) => (
                 <div key={f.q} className="rounded-xl border border-slate-200 overflow-hidden">
                   <button
                     type="button"

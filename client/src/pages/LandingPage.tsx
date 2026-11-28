@@ -9,6 +9,37 @@ interface Props {
   onLogin: () => void
 }
 
+export const LANDING_FAQS = [
+  {
+    q: 'How does client-safe sharing protect contractor relationships?',
+    a: 'The client report uses anonymous subcontractor labels and may show coverage details, dates, and statuses. It omits subcontractor names, trade, contact details, policy numbers, and carrier information. The report is not verification of insurance.',
+  },
+  {
+    q: 'Do subcontractors need to create an account?',
+    a: 'A subcontractor can submit through a unique upload link without creating an account. They open the link, enter policy details, and can attach their ACORD certificate PDF or photo. Connecting through an onboarding invitation requires an account and consent.',
+  },
+  {
+    q: 'Can I track different projects for different clients?',
+    a: 'Yes. You create projects (e.g. "Riverside Commerce Center"), assign subcontractors to them, and generate dedicated share links per project — with optional expiration dates.',
+  },
+  {
+    q: 'Where are my certificates stored?',
+    a: "Files are stored in Amazon S3 for durable, encrypted storage, with a zero-config local storage fallback during development. The app is ready to deploy on Railway with a PostgreSQL database. Every submission is stamped with dates and status history so you have an organized, defensible record for Workers' Comp audits and GL reviews.",
+  },
+  {
+    q: 'How do expiration reminders work?',
+    a: 'The dashboard highlights policies expiring in the next 30 days. Reminder emails are currently simulated and are not delivered, so contact subcontractors separately about renewals.',
+  },
+  {
+    q: 'How does pricing work?',
+    a: 'SafeCOI is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors get their first six months free — no credit card required — then pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
+  },
+  {
+    q: 'How do I onboard subcontractors?',
+    a: 'Go to Profile → Subcontractor onboarding QR code. Share the QR code or invite link. Subcontractors can create a free account or sign in, then review and consent to sharing before connecting.',
+  },
+]
+
 export function LandingPage({ onLogin }: Props) {
   const navigate = useNavigate()
   const [calcTotal, setCalcTotal] = useState(12)
@@ -47,36 +78,7 @@ export function LandingPage({ onLogin }: Props) {
     },
   ]
 
-  const faqs = [
-    {
-      q: 'How does client-safe sharing protect contractor relationships?',
-      a: 'The client report uses anonymous subcontractor labels and may show coverage details, dates, and statuses. It omits subcontractor names, trade, contact details, policy numbers, and carrier information. The report is not verification of insurance.',
-    },
-    {
-      q: 'Do subcontractors need to create an account?',
-      a: 'A subcontractor can submit through a unique upload link without creating an account. They open the link, enter policy details, and can attach their ACORD certificate PDF or photo. Connecting through an onboarding invitation requires an account and consent.',
-    },
-    {
-      q: 'Can I track different projects for different clients?',
-      a: 'Yes. You create projects (e.g. "Riverside Commerce Center"), assign subcontractors to them, and generate dedicated share links per project — with optional expiration dates.',
-    },
-    {
-      q: 'Where are my certificates stored?',
-      a: "Files are stored in Amazon S3 for durable, encrypted storage, with a zero-config local storage fallback during development. The app is ready to deploy on Railway with a PostgreSQL database. Every submission is stamped with dates and status history so you have an organized, defensible record for Workers' Comp audits and GL reviews.",
-    },
-    {
-      q: 'How do expiration reminders work?',
-      a: 'The dashboard highlights policies expiring in the next 30 days. Reminder emails are currently simulated and are not delivered, so contact subcontractors separately about renewals.',
-    },
-    {
-      q: 'How does pricing work?',
-      a: 'SafeCOI is free for subcontractors, with no fee to upload or keep their certificates on file. General Contractors get their first six months free — no credit card required — then pay $10 per month to see every subcontractor COI connected to them and optionally share compliance reports with clients. Growing teams can choose the Pro GC plan at $29 per month for unlimited projects, subcontractors, and exports. No contracts — cancel anytime.',
-    },
-    {
-      q: 'How do I onboard subcontractors?',
-      a: 'Go to Profile → Subcontractor onboarding QR code. Share the QR code or invite link. Subcontractors can create a free account or sign in, then review and consent to sharing before connecting.',
-    },
-  ]
+  const faqs = LANDING_FAQS
 
   return (
     <>
